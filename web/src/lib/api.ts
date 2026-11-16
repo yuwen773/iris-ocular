@@ -577,6 +577,28 @@ export type StreamChatHandlers = {
 }
 
 /**
+ * 读流式错误帧的载荷。
+ *
+ * <p>后端给的是 {code, msg}；旧服务只给一句人话。两种都收下：
+ * code 决定前端把它当成「服务侧故障」还是「网络中断」——这两者的处置完全不同，
+ * 前者重试没用，要找管理员。
+ */
+export function readStreamError(data: string): { code: number; message: string } {
+  const text = (data ?? "").trim()
+  if (text.startsWith("{")) {
+    try {
+      const payload = JSON.parse(text) as { code?: number; msg?: string }
+      if (typeof payload.code === "number") {
+        return { code: payload.code, message: payload.msg || text }
+      }
+    } catch {
+      // 不是 JSON 就按纯文本处理
+    }
+  }
+  return { code: 50000, message: text || "对话服务出错" }
+}
+
+/**
  * SSE 流式对话。不能走 request<T>——它解 JSON 信封，会破坏事件流。
  * 未收到 done 事件就断流（网络闪断、服务重启）时抛「连接中断」，
  * 调用方据此回滚本回合上传的图片。
@@ -626,7 +648,8 @@ export async function streamChat(
         return
       }
       if (event.event === "error") {
-        throw new ApiError(-1, event.data || "对话服务出错")
+        const { code, message } = readStreamError(event.data)
+        throw new ApiError(code, message)
       }
       if (!event.data) return
       let dto: AgentStreamDTO

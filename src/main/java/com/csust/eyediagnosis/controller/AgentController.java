@@ -1,5 +1,6 @@
 package com.csust.eyediagnosis.controller;
 
+import com.csust.eyediagnosis.agent.AgentStreamError;
 import com.csust.eyediagnosis.agent.DiagnosisAgent;
 import com.csust.eyediagnosis.agent.config.AgentConstants;
 import com.csust.eyediagnosis.agent.service.AccountStreamGuard;
@@ -120,9 +121,19 @@ public class AgentController {
                     // 「重新登录」，不能一句「系统繁忙」把「你已经被停用」藏起来。
                     boolean sessionGone = error instanceof BusinessException business
                             && business.getCode() == ErrorCode.NOT_LOGIN_ERROR.getCode();
+                    // 其余错误帧带机器可读码：前端据此区分「服务端自己坏了」和
+                    // 「模型服务配置错了」，不再一律说成「连接中断」。
+                    ErrorCode fault = sessionGone
+                            ? ErrorCode.NOT_LOGIN_ERROR
+                            : AgentStreamError.classify(error);
+                    String message = sessionGone
+                            ? "登录状态已失效，请重新登录"
+                            : AgentStreamError.message(fault);
                     return Flux.just(ServerSentEvent.<String>builder()
                             .event("error")
-                            .data(sessionGone ? "登录状态已失效，请重新登录" : "系统繁忙，请稍后重试")
+                            .data(toJson(Map.<String, Object>of(
+                                    "code", fault.getCode(),
+                                    "msg", message)))
                             .build());
                 });
     }
