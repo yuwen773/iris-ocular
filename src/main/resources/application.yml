@@ -149,8 +149,10 @@ eye-diagnosis:
     policy-version: ${INFERENCE_POLICY_VERSION:medical-safety-v3-quality-observe}
   vision-recognition:
     base-url: https://dashscope.aliyuncs.com/compatible-mode
-    api-key: your-api-key-here
-    model: qwen-vl-plus
+    # 刻意不写默认值：密钥没配就在启动阶段失败，而不是等到第一个真实请求才报 401。
+    # 真实值由环境变量 DASHSCOPE_API_KEY 注入（见 README「配置后端本地环境」）。
+    api-key: ${DASHSCOPE_API_KEY}
+    model: qwen3-vl-plus
   rag:
     chunk-size: 800
     chunk-overlap: 100

@@ -46,11 +46,13 @@ spring:
         enabled: true
         options:
           model: text-embedding-v3
-    rerank:
-      options:
-        model: gte-rerank-v2
-      top-n: 5
-      return-documents: true
+      # rerank 必须缩进在 dashscope 之下，绑到 spring.ai.dashscope.rerank.*；
+      # 与 dashscope 同级会绑成 spring.ai.rerank.*，重排配置会静默失效。
+      rerank:
+        options:
+          model: gte-rerank-v2
+        top-n: 5
+        return-documents: true
 
 cos:
   client:
@@ -70,7 +72,7 @@ eye-diagnosis:
   vision-recognition:
     base-url: https://dashscope.aliyuncs.com/compatible-mode
     api-key: ${DASHSCOPE_API_KEY}
-    model: qwen-vl-plus
+    model: qwen3-vl-plus
   rag:
     chunk-size: 800
     chunk-overlap: 100

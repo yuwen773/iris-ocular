@@ -84,7 +84,10 @@
 # 1. 基础设施
 docker compose up -d                                   # ChromaDB :8000
 
-# 2. 后端（先复制 application-dev.yml 为 application-local.yml 并填入配置，该文件不提交）
+# 2. 后端（先复制 application-dev.yml 为 application-local.yml 并填入配置，该文件不提交；
+#    再导出 DASHSCOPE_API_KEY——application.yml 与 application-local.yml 都从它取值，
+#    没有它后端会在启动阶段直接失败，而不是等到第一个用户请求才报 401）
+export DASHSCOPE_API_KEY=sk-xxxxxxxxxxxxxxxx
 mvn clean package
 mvn spring-boot:run                                    # http://localhost:8081/api
 
