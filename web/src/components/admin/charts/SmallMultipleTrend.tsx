@@ -1,7 +1,7 @@
-import type { ReactElement } from "react"
+import { useId, type ReactElement } from "react"
 import { Area, AreaChart, ResponsiveContainer, Tooltip, YAxis } from "recharts"
 
-import { VIZ, VizTooltip, formatVizNumber, vizSeriesColor } from "./ChartFrame"
+import { VIZ, VizTooltip, formatVizNumber } from "./ChartFrame"
 
 /**
  * 统一尺度的小倍数（病种日趋势）。
@@ -15,7 +15,8 @@ import { VIZ, VizTooltip, formatVizNumber, vizSeriesColor } from "./ChartFrame"
  * 合计是这段趋势真正的主读数；峰值与日均作为脚注补充。
  *
  * <p>颜色不是唯一信息载体：每格带短码、中文名、合计读数与峰值/日均脚注，
- * 键盘读到格就播报同样的内容。
+ * 键盘读到格就播报同样的内容。六格同色——小倍数比的是形状与量级，
+ * 给每个病种一种色相会让人去找「颜色代表什么」，而答案已经写在格子里。
  */
 export function SmallMultipleTrend(props: {
   title: string
@@ -25,14 +26,13 @@ export function SmallMultipleTrend(props: {
   /** 与其它小倍数共用的 Y 上限 */
   domainMax: number
   labels?: string[]
-  /** 分类色序号：同一病种在分布图与趋势图里用同一种颜色。 */
-  colorIndex?: number
   /** 窗口内合计 */
   total?: number
   /** 窗口天数（用于日均口径） */
   windowDays?: number
 }): ReactElement {
-  const { title, code, points, domainMax, labels, colorIndex = 0, total, windowDays } = props
+  const { title, code, points, domainMax, labels, total, windowDays } = props
+  const gradientId = `iris-mini-${useId().replace(/[^a-zA-Z0-9-]/g, "")}`
   const peak = points.length > 0 ? Math.max(...points) : undefined
   const sum = total ?? points.reduce((acc, value) => acc + (Number.isFinite(value) ? value : 0), 0)
   const average = windowDays && windowDays > 0 ? sum / windowDays : null
@@ -43,7 +43,7 @@ export function SmallMultipleTrend(props: {
 
   const readout =
     `窗口内合计 ${formatVizNumber(sum)}，峰值 ${formatVizNumber(peak ?? NaN)}` +
-    (average !== null ? `，日均 ${formatVizNumber(Number(average.toFixed(2)))}` : "")
+    (average !== null ? `，日均 ${formatVizNumber(Number(average.toFixed(1)))}` : "")
 
   return (
     <div className="admin-viz__mini" tabIndex={0} role="group" aria-label={`${title}，${readout}`}>
@@ -58,9 +58,9 @@ export function SmallMultipleTrend(props: {
         <ResponsiveContainer width="100%" height={64}>
           <AreaChart data={data} margin={{ top: 6, right: 4, bottom: 2, left: 4 }}>
             <defs>
-              <linearGradient id={`iris-mini-${colorIndex}`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={vizSeriesColor(colorIndex)} stopOpacity={0.24} />
-                <stop offset="100%" stopColor={vizSeriesColor(colorIndex)} stopOpacity={0.02} />
+              <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={VIZ.accent} stopOpacity={0.22} />
+                <stop offset="100%" stopColor={VIZ.accent} stopOpacity={0.02} />
               </linearGradient>
             </defs>
             <YAxis hide domain={[0, domainMax]} />
@@ -72,11 +72,11 @@ export function SmallMultipleTrend(props: {
               type="monotone"
               dataKey="value"
               name={title}
-              stroke={vizSeriesColor(colorIndex)}
+              stroke={VIZ.accent}
               strokeWidth={1.5}
-              fill={`url(#iris-mini-${colorIndex})`}
+              fill={`url(#${gradientId})`}
               dot={false}
-              activeDot={{ r: 3, fill: vizSeriesColor(colorIndex), stroke: VIZ.surface, strokeWidth: 1.5 }}
+              activeDot={{ r: 3, fill: VIZ.accent, stroke: VIZ.surface, strokeWidth: 1.5 }}
               isAnimationActive={false}
             />
           </AreaChart>
@@ -84,7 +84,7 @@ export function SmallMultipleTrend(props: {
       </div>
       <span className="admin-viz__mini-foot num">
         峰值 {formatVizNumber(peak ?? NaN)}
-        {average !== null ? ` · 日均 ${formatVizNumber(Number(average.toFixed(2)))}` : ""}
+        {average !== null ? ` · 日均 ${formatVizNumber(Number(average.toFixed(1)))}` : ""}
       </span>
     </div>
   )

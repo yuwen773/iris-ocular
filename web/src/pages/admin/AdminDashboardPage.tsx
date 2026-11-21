@@ -40,6 +40,15 @@ const RANGES = [
 const AWAITING_REVIEW_LABEL = humanReviewStatusLabel("AWAITING_REVIEW")
 
 /**
+ * 环比方向：只表达「比上期多 / 少」，不判定好坏——
+ * 判读量上涨不是成绩，拒识上涨更不是。方向交给箭头，含义留给读者。
+ */
+function trendOf(current: number, previous: number): "up" | "down" | "flat" {
+  if (!Number.isFinite(current) || !Number.isFinite(previous) || current === previous) return "flat"
+  return current > previous ? "up" : "down"
+}
+
+/**
  * 仪表盘（真实统计 · 运营工作台）。
  *
  * <p>读数来自 {@code GET /stats/admin/overview}：KPI、趋势、分布都是后端聚合
@@ -207,6 +216,23 @@ export function AdminDashboardPage(): ReactElement {
   // 积压强度：没有待复核时重点卡降为中性卡，不给无积压的页面制造警报氛围。
   const backlogActive = stats ? awaitingTotal > 0 : false
 
+  /* 窗口内判读的去向尺：已复核 / 待复核 / AI 拒识 / 其余。
+     四段都用真实计数，宽度按计数分配；没有样本时整条不画。 */
+  const meterParts = (() => {
+    if (!stats || inRange <= 0) return []
+    const parts = [
+      { kind: "reviewed", label: "已复核", value: Math.max(0, stats.diagnosisReviewed) },
+      { kind: "awaiting", label: "待复核", value: Math.max(0, stats.diagnosisAwaitingReview) },
+      { kind: "rejected", label: "AI 拒识", value: Math.max(0, aiRejected) },
+    ]
+    const covered = parts.reduce((sum, part) => sum + part.value, 0)
+    return [...parts, { kind: "rest", label: "其余", value: Math.max(0, inRange - covered) }]
+  })()
+  const meterLabel = meterParts
+    .filter((part) => part.value > 0)
+    .map((part) => `${part.label} ${formatStatNumber(part.value)}`)
+    .join(" · ")
+
   /* ── 面板块（两种布局复用同一批内容）────────────────────────── */
 
   const backlogCard = (
@@ -229,6 +255,20 @@ export function AdminDashboardPage(): ReactElement {
         </span>
       </div>
       <div className="feature-card__bottom">
+        <div
+          className="feature-card__meter"
+          role="img"
+          aria-label={meterParts.length > 0 ? `窗口内判读去向：${meterLabel}` : "窗口内没有判读"}
+        >
+          {meterParts.map((part) => (
+            <span
+              key={part.kind}
+              className="feature-card__meter-seg"
+              data-kind={part.kind}
+              style={{ flexGrow: part.value, flexBasis: 0, display: part.value > 0 ? undefined : "none" }}
+            />
+          ))}
+        </div>
         <div className="feature-card__foot">
           <Link className="feature-card__cta" to="/admin/diagnosis?review=requiresReview">
             去复核
@@ -240,8 +280,12 @@ export function AdminDashboardPage(): ReactElement {
         </div>
         <dl className="feature-card__stats">
           <div>
-            <dt>人工复核已记录</dt>
+            <dt>已复核</dt>
             <dd className="num">{read(stats?.diagnosisReviewed)}</dd>
+          </div>
+          <div>
+            <dt>待复核</dt>
+            <dd className="num">{read(stats?.diagnosisAwaitingReview)}</dd>
           </div>
           <div>
             <dt>AI 拒识</dt>
@@ -265,11 +309,16 @@ export function AdminDashboardPage(): ReactElement {
       rows={reviewDistribution}
       ariaLabel="复核状态分布"
       accentNames={[AWAITING_REVIEW_LABEL]}
+      note={
+        stats
+          ? `窗口内合计 ${formatStatNumber(inRange)} 条判读；拒识记录不带结论，单独计数。`
+          : undefined
+      }
     />
   )
 
   const rankedBlock = (
-    <RankedBars rows={distribution} ariaLabel="病种分布" unit="条" nameWidth={104} />
+    <RankedBars rows={distribution} ariaLabel="病种分布" unit="条" nameWidth={124} />
   )
 
   const actionsBlock = (
@@ -431,7 +480,10 @@ export function AdminDashboardPage(): ReactElement {
               value={read(inRange)}
               primary
               foot={
-                <span className="admin-metric-card__delta">
+                <span
+                  className="admin-metric-card__delta"
+                  data-trend={stats ? trendOf(inRange, stats.previousDiagnosisInRange) : "flat"}
+                >
                   {stats ? changeLabel(inRange, stats.previousDiagnosisInRange) : "—"}
                 </span>
               }
@@ -449,7 +501,10 @@ export function AdminDashboardPage(): ReactElement {
               label="新增用户"
               value={read(userNew)}
               foot={
-                <span className="admin-metric-card__delta">
+                <span
+                  className="admin-metric-card__delta"
+                  data-trend={stats ? trendOf(userNew, stats.previousUserNew) : "flat"}
+                >
                   {stats ? changeLabel(userNew, stats.previousUserNew) : "—"}
                 </span>
               }

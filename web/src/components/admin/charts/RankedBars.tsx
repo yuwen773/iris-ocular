@@ -19,7 +19,7 @@ import {
   VizTooltip,
   formatVizNumber,
   formatVizPercent,
-  vizSeriesColor,
+  niceTicks,
 } from "./ChartFrame"
 
 /**
@@ -78,6 +78,18 @@ function truncateByUnits(name: string, maxUnits: number): string {
   return `${out}…`
 }
 
+/**
+ * 单色阶：条形只承担「比大小」，不承担「区分类别」。
+ *
+ * <p>一张排序图里六种色相会让人去找「颜色代表什么」——什么也不代表，类别
+ * 已经写在左侧标签上。这里只用一个管理紫，按名次递减浓度，第一名最实；
+ * 名称、数值与占比始终带文字，颜色不是唯一读数通道。
+ */
+function rankFill(index: number): string {
+  const strength = Math.max(46, 100 - index * 9)
+  return `color-mix(in srgb, ${VIZ.accent} ${strength}%, var(--admin-surface-deep))`
+}
+
 export function RankedBars(props: {
   rows: Ranked[]
   ariaLabel: string
@@ -89,6 +101,7 @@ export function RankedBars(props: {
 }): ReactElement {
   const { rows, ariaLabel, unit, emptyText, nameWidth = 140 } = props
   const leading = Math.max(0, ...rows.map((row) => row.value))
+  const axisTicks = niceTicks(leading, 5)
   const height = Math.max(rows.length * 34 + 12, 64)
 
   return (
@@ -115,7 +128,13 @@ export function RankedBars(props: {
               <CartesianGrid horizontal={false} stroke={VIZ.rule} />
               <XAxis
                 type="number"
-                domain={[0, leading]}
+                domain={[0, axisTicks[axisTicks.length - 1] ?? 1]}
+                ticks={axisTicks}
+                /* 刻度按可用宽度自动取舍：390px 宽时六个刻度会挤成
+                   「5001000150020002500」一坨；桌面宽度下仍然全显。
+                   条端已有精确读数，轴只是参照，不必强留全部。 */
+                interval="preserveStartEnd"
+                minTickGap={14}
                 tick={VIZ_AXIS_TICK}
                 axisLine={{ stroke: VIZ.rule }}
                 tickLine={false}
@@ -141,7 +160,7 @@ export function RankedBars(props: {
                 isAnimationActive={false}
               >
                 {rows.map((row, index) => (
-                  <Cell key={`${row.name}-${index}`} fill={vizSeriesColor(index)} />
+                  <Cell key={`${row.name}-${index}`} fill={rankFill(index)} />
                 ))}
                 <LabelList
                   dataKey="value"

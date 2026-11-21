@@ -4,6 +4,7 @@ import {
   AreaChart,
   CartesianGrid,
   Line,
+  ReferenceDot,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -16,10 +17,32 @@ import {
   VIZ_AXIS_TICK,
   VizTooltip,
   formatVizNumber,
+  niceTicks,
 } from "./ChartFrame"
 
 /** useId 产出里可能有 `:`，SVG id 只留字母数字与连字符。模块级避免每帧新建。 */
 const ID_UNSAFE_CHARS = /[^a-zA-Z0-9-]/g
+
+/**
+ * 好看的整数刻度：0 / 50 / 100 / 150，而不是 Recharts 默认的 0 / 35 / 70 / 105 / 140。
+ *
+ * <p>刻度是读数的一部分，读者会用它在心里比高低；步长不是 1/2/5×10ⁿ 时，
+ * 每一次心算都在替图表做它该做的事。上限抬到最近的整步长，曲线也不会顶到框。
+ * 实现集中在 ChartFrame.niceTicks，趋势图与排序条共用同一套刻度。
+ */
+/** X 轴只标 6 个日期：30 个点全标会挤成一条灰带。首尾必留。 */
+function pickDateTicks<T>(data: T[]): string[] {
+  if (data.length === 0) return []
+  const stride = Math.max(1, Math.ceil(data.length / 6))
+  const ticks: string[] = []
+  data.forEach((row, index) => {
+    if (index % stride === 0 || index === data.length - 1) {
+      const label = (row as { label?: string }).label
+      if (label && !ticks.includes(label)) ticks.push(label)
+    }
+  })
+  return ticks
+}
 
 /**
  * 判读趋势（面积 + 上一等长窗口对比）。
@@ -63,6 +86,15 @@ export function TrendAreaChart(props: {
   const sum = data.reduce((total, row) => total + row.value, 0)
   const average = data.length > 0 ? sum / data.length : 0
   const lastValue = data.length > 0 ? data[data.length - 1].value : undefined
+  const peak = Math.max(0, ...data.map((row) => row.value), ...data.map((row) => row.previous))
+  const ticks = niceTicks(peak)
+  const dateTicks = pickDateTicks(data)
+  // 峰值标注：只标本期最高的一天，给整条曲线一个可以记住的坐标。
+  // 它是真实读数，不是装饰；数值同时出现在读数表里。
+  const peakRow = data.reduce<{ label: string; value: number } | null>(
+    (best, row) => (row.value > 0 && (!best || row.value > best.value) ? row : best),
+    null,
+  )
   const headExtra =
     readout === "latest"
       ? lastValue !== undefined
@@ -90,13 +122,14 @@ export function TrendAreaChart(props: {
             <AreaChart data={data} margin={{ top: 10, right: 52, bottom: 4, left: 0 }}>
               <defs>
                 <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={VIZ.accent} stopOpacity={0.18} />
-                  <stop offset="100%" stopColor={VIZ.accent} stopOpacity={0.02} />
+                  <stop offset="0%" stopColor={VIZ.accent} stopOpacity={0.22} />
+                  <stop offset="100%" stopColor={VIZ.accent} stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid stroke={VIZ.rule} vertical={false} />
+              <CartesianGrid stroke={VIZ.rule} strokeOpacity={0.55} vertical={false} />
               <XAxis
                 dataKey="label"
+                ticks={dateTicks}
                 tick={VIZ_AXIS_TICK}
                 axisLine={{ stroke: VIZ.rule }}
                 tickLine={false}
@@ -107,7 +140,9 @@ export function TrendAreaChart(props: {
                 tick={VIZ_AXIS_TICK}
                 axisLine={false}
                 tickLine={false}
-                width={40}
+                width={42}
+                domain={[0, ticks[ticks.length - 1] ?? 1]}
+                ticks={ticks}
                 allowDecimals={false}
               />
               <Tooltip
@@ -132,11 +167,32 @@ export function TrendAreaChart(props: {
                 dataKey="previous"
                 name={previousLabel}
                 stroke={VIZ.mute}
-                strokeWidth={1.5}
+                strokeWidth={1.25}
+                strokeOpacity={0.8}
+                strokeDasharray="4 4"
                 dot={false}
                 activeDot={{ r: 3, fill: VIZ.mute }}
                 isAnimationActive={false}
               />
+              {peakRow ? (
+                <ReferenceDot
+                  x={peakRow.label}
+                  y={peakRow.value}
+                  r={3.5}
+                  fill={VIZ.accent}
+                  stroke={VIZ.surface}
+                  strokeWidth={2}
+                  ifOverflow="extendDomain"
+                  label={{
+                    value: `峰值 ${peakRow.value}`,
+                    position: "top",
+                    offset: 8,
+                    fill: "var(--fg-3)",
+                    fontSize: 11,
+                    fontFamily: "var(--font-mono)",
+                  }}
+                />
+              ) : null}
             </AreaChart>
           </ResponsiveContainer>
           <p className="admin-viz__legend">

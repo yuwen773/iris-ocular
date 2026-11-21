@@ -18,6 +18,7 @@ import {
   VIZ_AXIS_TICK,
   VizTooltip,
   formatVizNumber,
+  niceTicks,
 } from "./ChartFrame"
 
 /**
@@ -44,6 +45,8 @@ export function WeekBars(props: {
   const { bars, title, ariaLabel, total, average, windowDays, height = 220 } = props
   const max = Math.max(0, ...bars.map((bar) => bar.average))
   const maxIndex = max > 0 ? bars.findIndex((bar) => bar.average === max) : -1
+  // 刻度按 1/2/5×10ⁿ 取整：0 / 5 / 10，而不是 0 / 3 / 6 / 10。
+  const axisTicks = niceTicks(max, 4)
 
   return (
     <ChartView
@@ -84,10 +87,12 @@ export function WeekBars(props: {
                 tickLine={false}
                 width={36}
                 allowDecimals={false}
-                // 显式给域：Recharts 3 在没有 dataKey 时会拿整行数据的最大值定域，
+                ticks={axisTicks}
+                interval={0}
+                // 显式给域并取整：Recharts 3 在没有 dataKey 时会拿整行数据的最大值定域，
                 // 于是「4 人 / 5 个周五 = 日均 0.8」被画成 0→4 坐标轴上的一小截。
                 // 这里只按柱值（该星期几的日均）取整定域，柱高才与读数一致。
-                domain={[0, max > 0 ? Math.max(1, Math.ceil(max)) : 1]}
+                domain={[0, axisTicks[axisTicks.length - 1] ?? 1]}
               />
               <Tooltip
                 content={<VizTooltip unit="人/日" />}
