@@ -16,6 +16,8 @@
  * </ul>
  */
 
+import { indexRounds } from "./conversationRounds"
+
 /** 资源类别。 */
 export type ResourceKind = "image" | "document" | "link"
 
@@ -276,12 +278,15 @@ export function parseResourceRefs(raw: unknown): AgentResource[] {
  * <p>纯函数、按出现顺序去重（同 id 先到先得）：后出现的同一条资源不会把
  * 先出现的出处改掉——比如助手把用户上传的图再贴一遍，它仍然是「你的上传」。
  */
-export function deriveResources(messages: readonly ResourceSourceMessage[]): AgentResources {
+export function deriveResources(
+  messages: readonly ResourceSourceMessage[],
+  /** 调用方已算好的回合映射；缺省时内部现算（单测仍可直接调用）。 */
+  roundById: ReadonlyMap<string, number> = indexRounds(messages).roundById,
+): AgentResources {
   const images: AgentResource[] = []
   const documents: AgentResource[] = []
   const links: AgentResource[] = []
   const seen = new Set<string>()
-  let round = 0
 
   const add = (resource: AgentResource) => {
     if (!resource.id) return
@@ -309,8 +314,8 @@ export function deriveResources(messages: readonly ResourceSourceMessage[]): Age
 
   for (const msg of messages) {
     const messageId = msg.id
-    // 用户提问切回合：同一回合的图片、检索来源、链接都归到同一个序号下。
-    if (msg.type === "user") round += 1
+    // 回合号来自同一次遍历：同一回合的图片、检索来源、链接都归到同一个序号下。
+    const round = roundById.get(msg.id) ?? 0
 
     if (msg.type === "user") {
       for (const raw of msg.images ?? []) {
@@ -427,11 +432,5 @@ export function roundsOf(resource: AgentResource): number[] {
 export function messageRoundById(
   messages: readonly ResourceSourceMessage[],
 ): Map<string, number> {
-  const out = new Map<string, number>()
-  let round = 0
-  for (const msg of messages) {
-    if (msg.type === "user") round += 1
-    out.set(msg.id, round)
-  }
-  return out
+  return indexRounds(messages).roundById
 }

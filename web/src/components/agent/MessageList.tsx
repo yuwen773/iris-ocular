@@ -13,11 +13,10 @@ import type { StreamMessage } from "@/lib/agentStream"
 import {
   citationKeysByRound,
   EMPTY_RESOURCES,
-  messageRoundById,
   type AgentResources,
   type MessageCitations,
 } from "@/lib/agentResources"
-import { buildThread } from "@/lib/agentSteps"
+import { projectConversation } from "@/lib/conversationProjection"
 import { computeUnread } from "@/lib/agentScroll"
 import { UserMessage } from "./messages/UserMessage"
 import { AssistantMessage } from "./messages/AssistantMessage"
@@ -184,9 +183,13 @@ export function MessageList({
   }
 
   const empty = messages.length === 0 && !loading
-  // 过程块只由真实事件派生；消息对象引用在累加时保持稳定，
-  // 所以历史行仍然被 memo 跳过，只有正在流式的那一行会重渲染。
-  const thread = useMemo(() => buildThread(messages, streaming), [messages, streaming])
+  // 线程结构与回合索引来自同一个投影：回合号不再在渲染层重数。
+  // 消息对象引用在累加时保持稳定，历史行仍然被 memo 跳过，
+  // 只有正在流式的那一行会重渲染。
+  const { thread, roundById, turnUserByRound, lastRound, lastIndexByRound } = useMemo(
+    () => projectConversation(messages, streaming),
+    [messages, streaming],
+  )
 
   // 引用核验表只在资源变化时重算；消息→回合是纯整数映射，可以跟着消息走，
   // 这样行组件拿到的是稳定的数组与数字，memo 仍然只放行正在流式的那一行。
@@ -205,31 +208,6 @@ export function MessageList({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 只随证据内容变，不随数组引用变
     [citationSignature],
   )
-  const roundById = useMemo(() => messageRoundById(messages), [messages])
-
-  // 每回合的用户提问（版本切换器挂在它这一轮的最后一条之后）。
-  const turnUserByRound = useMemo(() => {
-    const byRound = new Map<number, StreamMessage>()
-    for (const message of messages) {
-      if (message.type !== "user") continue
-      const round = roundById.get(message.id)
-      if (round) byRound.set(round, message)
-    }
-    return byRound
-  }, [messages, roundById])
-  const lastRound = useMemo(
-    () => Math.max(0, ...[...turnUserByRound.keys()]),
-    [turnUserByRound],
-  )
-  const lastIndexByRound = useMemo(() => {
-    const byRound = new Map<number, number>()
-    thread.forEach((item, index) => {
-      const round =
-        item.type === "process" ? (item.round ?? 0) : (roundById.get(item.message.id) ?? 0)
-      byRound.set(round, index)
-    })
-    return byRound
-  }, [thread, roundById])
 
   return (
     <div className="agent-thread">
