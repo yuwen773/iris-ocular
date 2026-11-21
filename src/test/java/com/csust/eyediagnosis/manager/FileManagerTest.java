@@ -5,10 +5,6 @@ import com.csust.eyediagnosis.constant.FileConstant;
 import com.csust.eyediagnosis.exception.BusinessException;
 import com.csust.eyediagnosis.exception.ErrorCode;
 import com.csust.eyediagnosis.model.dto.file.UploadPictureDetail;
-import com.qcloud.cos.model.PutObjectResult;
-import com.qcloud.cos.model.ciModel.persistence.CIUploadResult;
-import com.qcloud.cos.model.ciModel.persistence.ImageInfo;
-import com.qcloud.cos.model.ciModel.persistence.OriginalInfo;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -31,7 +27,9 @@ import static org.mockito.Mockito.when;
 /**
  * 上传校验与对象存储失败语义。
  *
- * <p>全部使用 Mock 的 COS 客户端，不访问真实对象存储。
+ * <p>全部使用 Mock 的写入口 {@link ImageArchive}，不访问真实对象存储；
+ * 「写失败删 key / 回包解析失败删 key」由 {@link ImageArchiveTest} 钉住，
+ * 这里只验证判读影像这条路径的校验、URL/key 拼装与失败映射。
  */
 @ExtendWith(MockitoExtension.class)
 class FileManagerTest {
@@ -39,14 +37,15 @@ class FileManagerTest {
     @Mock
     private CosClientConfig cosClientConfig;
     @Mock
-    private CosManager cosManager;
+    private ImageArchive imageArchive;
     @InjectMocks
     private FileManager fileManager;
 
     @Test
     void acceptsLegalPngAndReturnsKeyAndUrl() {
         when(cosClientConfig.getHost()).thenReturn("https://cdn.example");
-        when(cosManager.putPictureObject(anyString(), any(File.class))).thenReturn(pictureResult());
+        when(imageArchive.storePicture(anyString(), any(File.class)))
+                .thenReturn(new ImageArchive.StoredPicture(640, 480, "png"));
 
         UploadPictureDetail detail = fileManager.uploadPicture(bytes("eye.png", 1024), "public/7");
 
@@ -55,7 +54,9 @@ class FileManagerTest {
         assertTrue(detail.getObjectKey().startsWith("/public/7/"), "上传前缀必须按用户隔离");
         assertEquals(640, detail.getPicWidth());
         assertEquals(480, detail.getPicHeight());
+        assertEquals(1.33d, detail.getPicScale());
         assertEquals("png", detail.getPicFormat());
+        verify(imageArchive, never()).discardQuietly(anyString());
     }
 
     @Test
@@ -67,13 +68,14 @@ class FileManagerTest {
 
         assertEquals(ErrorCode.PARAMS_ERROR.getCode(), ex.getCode());
         assertEquals(FileConstant.FILE_SIZE_ERROR, ex.getMessage());
-        verify(cosManager, never()).putPictureObject(anyString(), any(File.class));
+        verify(imageArchive, never()).storePicture(anyString(), any(File.class));
     }
 
     @Test
     void exactlyTwoMegabytesIsAccepted() {
         when(cosClientConfig.getHost()).thenReturn("https://cdn.example");
-        when(cosManager.putPictureObject(anyString(), any(File.class))).thenReturn(pictureResult());
+        when(imageArchive.storePicture(anyString(), any(File.class)))
+                .thenReturn(new ImageArchive.StoredPicture(640, 480, "png"));
 
         assertDoesNotThrow(() -> fileManager.uploadPicture(bytes("edge.png", 2 * 1024 * 1024), "public/7"));
     }
@@ -105,14 +107,14 @@ class FileManagerTest {
 
         assertEquals(ErrorCode.PARAMS_ERROR.getCode(), ex.getCode());
         assertEquals(FileConstant.FILE_CONTENT_EMPTY, ex.getMessage());
-        verify(cosManager, never()).putPictureObject(anyString(), any(File.class));
+        verify(imageArchive, never()).storePicture(anyString(), any(File.class));
     }
 
     @Test
     void objectStorageTimeoutSurfacesAsStorageFailure() {
-        // 超时 / 鉴权失败 / 服务端异常在 COS 客户端都是运行时异常，这里统一验证
+        // 超时 / 鉴权失败 / 服务端异常在存储侧都是运行时异常，这里统一验证
         // 它们被转成 SYSTEM_ERROR，而不是被当成「上传成功但没有地址」。
-        when(cosManager.putPictureObject(anyString(), any(File.class)))
+        when(imageArchive.storePicture(anyString(), any(File.class)))
                 .thenThrow(new RuntimeException("SocketTimeoutException: read timed out"));
 
         BusinessException ex = assertThrows(BusinessException.class,
@@ -120,58 +122,11 @@ class FileManagerTest {
 
         assertEquals(ErrorCode.SYSTEM_ERROR.getCode(), ex.getCode());
         assertEquals(FileConstant.FAIL_UPLOAD, ex.getMessage());
-        // put 抛错也可能已经在存储侧落了一半：删一次是幂等的，留下才是不可逆的。
-        verify(cosManager).deleteObject(anyString());
+        // 本方法失败即删：ImageArchive 在写入失败时已删过一次，这里是幂等的第二道。
+        verify(imageArchive).discardQuietly(anyString());
     }
-
-    @Test
-    void uploadsObjectThenParsingTheReplyFailsDeletesTheWrittenObject() {
-        // 对象已经写进存储，回包却解析不出宽高（CI 字段缺失）。此时 key 从未返回给调用方，
-        // 落库不会发生——不删就是一张永久孤儿原图：public/ 前缀没有对账器，只能人工排查。
-        when(cosManager.putPictureObject(anyString(), any(File.class))).thenReturn(new PutObjectResult());
-
-        BusinessException ex = assertThrows(BusinessException.class,
-                () -> fileManager.uploadPicture(bytes("eye.png", 1024), "public/7"));
-
-        assertEquals(ErrorCode.SYSTEM_ERROR.getCode(), ex.getCode());
-        org.mockito.ArgumentCaptor<String> key = org.mockito.ArgumentCaptor.forClass(String.class);
-        verify(cosManager).putPictureObject(key.capture(), any(File.class));
-        verify(cosManager).deleteObject(key.getValue());
-        assertTrue(key.getValue().startsWith("/public/7/"), "补偿删除必须删刚写的那一个 key");
-    }
-
-    @Test
-    void compensationDeleteSwallowsStorageErrors() {
-        org.mockito.Mockito.doThrow(new RuntimeException("cos down"))
-                .when(cosManager).deleteObject("public/7/x.png");
-
-        assertDoesNotThrow(() -> fileManager.deleteUploadedPictureQuietly("public/7/x.png"));
-    }
-
-    @Test
-    void compensationDeleteIgnoresBlankKey() {
-        assertDoesNotThrow(() -> fileManager.deleteUploadedPictureQuietly(null));
-        assertDoesNotThrow(() -> fileManager.deleteUploadedPictureQuietly("  "));
-        verify(cosManager, never()).deleteObject(anyString());
-    }
-
-    // --- helpers -----------------------------------------------------------
 
     private static MockMultipartFile bytes(String name, int size) {
         return new MockMultipartFile("file", name, "image/png", new byte[size]);
-    }
-
-    private static PutObjectResult pictureResult() {
-        ImageInfo info = new ImageInfo();
-        info.setWidth(640);
-        info.setHeight(480);
-        info.setFormat("png");
-        OriginalInfo original = new OriginalInfo();
-        original.setImageInfo(info);
-        CIUploadResult ci = new CIUploadResult();
-        ci.setOriginalInfo(original);
-        PutObjectResult result = new PutObjectResult();
-        result.setCiUploadResult(ci);
-        return result;
     }
 }

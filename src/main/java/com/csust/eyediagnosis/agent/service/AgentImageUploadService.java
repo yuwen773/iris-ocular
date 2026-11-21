@@ -5,6 +5,7 @@ import com.csust.eyediagnosis.exception.BusinessException;
 import com.csust.eyediagnosis.exception.ErrorCode;
 import com.csust.eyediagnosis.exception.ThrowUtils;
 import com.csust.eyediagnosis.manager.CosManager;
+import com.csust.eyediagnosis.manager.ImageArchive;
 import com.csust.eyediagnosis.mapper.UploadTaskMapper;
 import com.csust.eyediagnosis.model.entity.UploadTask;
 import com.csust.eyediagnosis.upload.state.UploadCompensationService;
@@ -28,6 +29,9 @@ public class AgentImageUploadService {
 
     @Resource
     private CosManager cosManager;
+
+    @Resource
+    private ImageArchive imageArchive;
 
     @Resource
     private CosClientConfig cosClientConfig;
@@ -73,7 +77,8 @@ public class AgentImageUploadService {
             uploadStateMachine.transition(taskId, null, UploadStatus.UPLOADING);
             tempFile = File.createTempFile("upload-", extension);
             file.transferTo(tempFile);
-            cosManager.putObject(objectKey, tempFile);
+            // 写失败由 ImageArchive 删掉本次 key，不留孤儿对象；补偿对账只是兜底。
+            imageArchive.storeBlob(objectKey, tempFile);
             uploadStateMachine.transition(taskId, UploadStatus.UPLOADING, UploadStatus.PERSISTED);
 
             UploadTask task = new UploadTask();

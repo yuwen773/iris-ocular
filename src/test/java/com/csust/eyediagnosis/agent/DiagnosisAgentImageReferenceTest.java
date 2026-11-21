@@ -48,6 +48,10 @@ class DiagnosisAgentImageReferenceTest {
         ReflectionTestUtils.setField(images, "cosClientConfig", config);
         ReflectionTestUtils.setField(images, "uploadTaskMapper", uploads);
         ReflectionTestUtils.setField(images, "uploadStateMachine", mock(UploadStateMachine.class));
+        // 写入走 ImageArchive 原语：同一个 CosManager mock 必须也喂给它，否则服务里是 null。
+        var archive = new com.csust.eyediagnosis.manager.ImageArchive();
+        ReflectionTestUtils.setField(archive, "cosManager", storage);
+        ReflectionTestUtils.setField(images, "imageArchive", archive);
         doAnswer(call -> { UploadTask task = call.getArgument(0); registered.put(task.getObjectKey(), task); return null; }).when(uploads).insertPending(any());
         when(uploads.selectByObjectKey(eq(42L), anyString())).thenAnswer(call -> registered.get(call.getArgument(1)));
         var bytes = new ByteArrayOutputStream();
