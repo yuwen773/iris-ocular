@@ -9,7 +9,8 @@ import { AdminEmpty } from "@/components/admin/AdminEmpty"
 import { AdminPageHead } from "@/components/admin/AdminPageHead"
 import { ConfidenceCell } from "@/components/admin/ConfidenceCell"
 import { RowMenu } from "@/components/admin/RowMenu"
-import { DataTable, type Column, type SortState } from "@/components/admin/DataTable"
+import { DataTable, type Column } from "@/components/admin/DataTable"
+import { useListWorkspace } from "@/hooks/useListWorkspace"
 import { Modal } from "@/components/admin/Modal"
 import { Drawer } from "@/components/admin/Drawer"
 import { BatchBar } from "@/components/admin/BatchBar"
@@ -54,7 +55,6 @@ import { fault } from "@/lib/faults"
 
 import "@/styles/admin-polish-ledger.css"
 
-const DEFAULT_PAGE_SIZE = 10
 const ABSTAIN_LIMIT = 20
 
 /** 已应用的筛选条件。 */
@@ -162,11 +162,18 @@ export function AdminDiagnosisPage(): ReactElement {
       : ""
     return { result: "", review, startDate: "", endDate: "" }
   })
-  const [page, setPage] = useState({ current: 1, pageSize: DEFAULT_PAGE_SIZE })
+  // 分页 / 排序 / 勾选连同「回第一页、清勾选」的不变式都在 hook 里。
   // 服务端排序：不在当前页做二次排序，字段必须落在后端白名单里。
-  const [sort, setSort] = useState<SortState>(null)
-
-  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const {
+    page,
+    sort,
+    selectedIds,
+    setSelectedIds,
+    applyFilter,
+    resetFilters,
+    changePage,
+    changeSort,
+  } = useListWorkspace()
   const [deleteTarget, setDeleteTarget] = useState<AdminDiagnosis | null>(null)
   const [deleting, setDeleting] = useState(false)
   /** 批量删除的待确认目标：选中记录的 id 快照。判读记录属医疗数据，
@@ -233,8 +240,7 @@ export function AdminDiagnosisPage(): ReactElement {
     }
     setActionError(null)
     setQuery(nextQuery)
-    setPage((prev) => ({ ...prev, current: 1 }))
-    setSelectedIds([])
+    applyFilter()
   }
 
   function onReset() {
@@ -243,9 +249,7 @@ export function AdminDiagnosisPage(): ReactElement {
     setEndDraft("")
     setActionError(null)
     setQuery({ result: "", review: "", startDate: "", endDate: "" })
-    setPage((prev) => ({ ...prev, current: 1 }))
-    setSelectedIds([])
-    setSort(null)
+    resetFilters()
   }
 
   /**
@@ -255,19 +259,7 @@ export function AdminDiagnosisPage(): ReactElement {
   function applyReviewFilter(value: DiagnosisReviewFilter) {
     setActionError(null)
     setQuery((prev) => ({ ...prev, review: value }))
-    setPage((prev) => ({ ...prev, current: 1 }))
-    setSelectedIds([])
-  }
-
-  function onPageChange(next: { current: number; pageSize: number }) {
-    // pageSize 变化一律回第 1 页（DataTable 已传 current:1，这里再钉死一次）。
-    setActionError(null)
-    setPage(
-      next.pageSize !== page.pageSize
-        ? { current: 1, pageSize: next.pageSize }
-        : { current: next.current, pageSize: next.pageSize },
-    )
-    setSelectedIds([])
+    applyFilter()
   }
 
   /* ── 详情 Drawer ──────────────────────────────────────────── */
@@ -945,13 +937,14 @@ export function AdminDiagnosisPage(): ReactElement {
             />
           }
           page={{ current: page.current, pageSize: page.pageSize, total }}
-          onPageChange={onPageChange}
+          onPageChange={(next) => {
+            setActionError(null)
+            changePage(next)
+          }}
           sort={sort}
           onSortChange={(next) => {
             setActionError(null)
-            setPage((prev) => ({ ...prev, current: 1 }))
-            setSelectedIds([])
-            setSort(next)
+            changeSort(next)
           }}
           selectable
           selectedKeys={selectedIds}
