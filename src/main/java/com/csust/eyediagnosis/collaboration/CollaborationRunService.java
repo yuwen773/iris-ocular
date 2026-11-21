@@ -10,8 +10,6 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
@@ -280,9 +278,9 @@ public class CollaborationRunService implements AutoCloseable {
         }); } catch (RejectedExecutionException busy) { dispatched.remove(runId); }
     }
 
+    /** 与快照模块共用同一个摘要实现：协作绑定与草稿绑定必须是同一串值。 */
     public static String digest(String value) {
-        try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8))); }
-        catch (Exception e) { throw new IllegalStateException(e); }
+        return com.csust.eyediagnosis.diagnosistask.InferenceSnapshot.digest(value);
     }
     private JsonNode tree(String value) {
         try { return json.readTree(value); } catch (Exception e) { throw new IllegalStateException(e); }

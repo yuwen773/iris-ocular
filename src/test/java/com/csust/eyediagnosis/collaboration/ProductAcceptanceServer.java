@@ -1,5 +1,6 @@
 package com.csust.eyediagnosis.collaboration;
 
+import com.csust.eyediagnosis.diagnosistask.InferenceSnapshot;
 import com.csust.eyediagnosis.agent.config.AgentConstants;
 import com.csust.eyediagnosis.agent.queue.SessionMessageQueue;
 import com.csust.eyediagnosis.agent.service.ChatHistoryService;
@@ -173,9 +174,9 @@ public class ProductAcceptanceServer {
                 .setRejected(mode.equals("QUALITY")).setAbstainReason(mode.equals("QUALITY") ? "QUALITY_FAIL" : "")
                 .setModelVersion("synthetic-product-" + mode).build();
         try {
-            String snapshot = JSON.writeValueAsString(Map.of("taskId", task, "userId", user, "objectKey", row.get("objectKey"),
-                    "objectVersion", row.get("objectVersion"), "imageDigest", row.get("imageDigest"), "imageFormat", row.get("imageFormat"),
-                    "responseProtobufBase64", Base64.getEncoder().encodeToString(inference.toByteArray())));
+            String snapshot = InferenceSnapshot.write(new InferenceSnapshot.Identity(task, user,
+                    (String) row.get("objectKey"), (String) row.get("objectVersion"),
+                    (String) row.get("imageDigest"), (String) row.get("imageFormat")), inference);
             jdbc.update("UPDATE t_diagnosis_task SET status=?,inferenceSnapshot=? WHERE taskId=? AND status='PENDING'",
                     Set.of("OOD", "QUALITY").contains(mode) ? "RESTRICTED" : "WAITING_REVIEW", snapshot, task);
         } catch (Exception failure) { throw new IllegalStateException(failure); }

@@ -1,5 +1,6 @@
 package com.csust.eyediagnosis.collaboration;
 
+import com.csust.eyediagnosis.diagnosistask.InferenceSnapshot;
 import com.csust.eyediagnosis.common.ResultUtils;
 import com.csust.eyediagnosis.constant.UserConstant;
 import com.csust.eyediagnosis.controller.CollaborationRunController;
@@ -77,10 +78,9 @@ public class CollaborationBrowserServer {
                     var response = DiagnosisProto.DiagnosisResponse.newBuilder().setPredictedLabel("glaucoma").setProbability(70)
                             .setOodStatus(DiagnosisProto.OodStatus.IN_DISTRIBUTION).setModelVersion("synthetic-browser-fixture").build();
                     try {
-                        String snapshot = json.writeValueAsString(Map.of("taskId", task.taskId(), "userId", user,
-                                "objectKey", row.get("objectKey"), "objectVersion", row.get("objectVersion"),
-                                "imageDigest", row.get("imageDigest"), "imageFormat", row.get("imageFormat"),
-                                "responseProtobufBase64", Base64.getEncoder().encodeToString(response.toByteArray())));
+                        String snapshot = InferenceSnapshot.write(new InferenceSnapshot.Identity(task.taskId(), user,
+                                (String) row.get("objectKey"), (String) row.get("objectVersion"),
+                                (String) row.get("imageDigest"), (String) row.get("imageFormat")), response);
                         jdbc.update("UPDATE t_diagnosis_task SET status='WAITING_REVIEW',inferenceSnapshot=? WHERE taskId=? AND status='PENDING'", snapshot, task.taskId());
                     } catch (Exception e) { throw new IllegalStateException(e); }
                 }

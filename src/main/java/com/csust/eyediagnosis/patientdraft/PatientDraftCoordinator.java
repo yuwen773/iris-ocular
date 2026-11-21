@@ -3,10 +3,10 @@ package com.csust.eyediagnosis.patientdraft;
 import com.csust.eyediagnosis.controlledreference.ControlledEvidenceRetriever;
 import com.csust.eyediagnosis.controlledreference.ControlledEvidenceRetriever.Citation;
 import com.csust.eyediagnosis.collaboration.CollaborationEvents;
+import com.csust.eyediagnosis.diagnosistask.InferenceSnapshot;
 import com.csust.eyediagnosis.grpc.DiagnosisProto;
 import com.csust.eyediagnosis.patientdraft.DraftAgents.*;
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,8 +17,6 @@ import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.sql.Timestamp;
 import java.time.Clock;
 import java.util.*;
@@ -516,17 +514,11 @@ public class PatientDraftCoordinator implements AutoCloseable {
     private record Claimed(String taskId, Inference inference, java.time.Instant deadline, Lease lease) {}
 
     private Inference inference(Bound bound) {
-        JsonNode root;
-        try { root = json.readTree(bound.snapshot()); }
-        catch (Exception e) { throw new Stop("INVALID_INFERENCE"); }
-        if (root == null) throw new Stop("INVALID_INFERENCE");
-        for (String field : List.of("taskId", "userId", "objectKey", "objectVersion", "imageDigest", "imageFormat")) {
-            if (!root.hasNonNull(field) || !root.get(field).asText().equals(Objects.toString(bound.task().get(field), ""))) throw new Stop("INVALID_INFERENCE");
-        }
-        DiagnosisProto.DiagnosisResponse response;
-        try {
-            response = DiagnosisProto.DiagnosisResponse.parseFrom(Base64.getDecoder().decode(root.path("responseProtobufBase64").asText()));
-        } catch (Exception e) { throw new Stop("INVALID_INFERENCE"); }
+        InferenceSnapshot snapshot;
+        try { snapshot = InferenceSnapshot.parse(bound.snapshot()); }
+        catch (RuntimeException e) { throw new Stop("INVALID_INFERENCE"); }
+        if (!snapshot.matches(bound.task())) throw new Stop("INVALID_INFERENCE");
+        DiagnosisProto.DiagnosisResponse response = snapshot.response();
         // gRPC/Python emits probability as a 0-100 percentage (algorithm/grpc_server.py), matching DiagnosisResultVO.
         if (response.getRejected() || response.getIsOod() || response.getOodStatus() != DiagnosisProto.OodStatus.IN_DISTRIBUTION
                 || !LABELS.contains(response.getPredictedLabel()) || !Double.isFinite(response.getProbability())
@@ -824,9 +816,9 @@ public class PatientDraftCoordinator implements AutoCloseable {
     private <T> T decode(String value, TypeReference<T> type) {
         try { return json.readValue(value, type); } catch (Exception e) { throw new IllegalStateException(e); }
     }
+    /** 与快照模块共用同一个摘要实现。 */
     private static String digest(String value) {
-        try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8))); }
-        catch (Exception e) { throw new IllegalStateException(e); }
+        return InferenceSnapshot.digest(value);
     }
     private Timestamp now() { return Timestamp.from(clock.instant()); }
     private static java.time.Instant instant(Timestamp value) { return value == null ? null : value.toInstant(); }

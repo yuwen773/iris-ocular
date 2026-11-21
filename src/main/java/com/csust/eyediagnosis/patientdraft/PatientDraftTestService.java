@@ -3,6 +3,7 @@ package com.csust.eyediagnosis.patientdraft;
 import com.csust.eyediagnosis.controlledreference.ControlledEvidenceRetriever.Citation;
 import com.csust.eyediagnosis.exception.BusinessException;
 import com.csust.eyediagnosis.exception.ErrorCode;
+import com.csust.eyediagnosis.diagnosistask.InferenceSnapshot;
 import com.csust.eyediagnosis.grpc.DiagnosisProto;
 import com.csust.eyediagnosis.patientdraft.DraftAgents.Claim;
 import com.csust.eyediagnosis.patientdraft.DraftAgents.Draft;
@@ -128,15 +129,8 @@ public class PatientDraftTestService implements AutoCloseable {
                 .setOodStatus(DiagnosisProto.OodStatus.IN_DISTRIBUTION).setQualityScore(80)
                 .setCalibrationStatus("NOT_CALIBRATED").setModelVersion("synthetic-draft-test")
                 .setPreprocessVersion("synthetic-draft-test").build();
-        String snapshot;
-        try {
-            snapshot = json.writeValueAsString(new LinkedHashMap<>(Map.of(
-                    "taskId", taskId, "userId", userId, "objectKey", objectKey, "objectVersion", "v1",
-                    "imageDigest", digest, "imageFormat", "png",
-                    "responseProtobufBase64", Base64.getEncoder().encodeToString(response.toByteArray()))));
-        } catch (Exception impossible) {
-            throw new IllegalStateException(impossible);
-        }
+        String snapshot = InferenceSnapshot.write(
+                new InferenceSnapshot.Identity(taskId, userId, objectKey, "v1", digest, "png"), response);
         jdbc.update("INSERT INTO t_diagnosis_task (taskId,userId,idempotencyKey,requestDigest,imageDigest,objectKey,objectVersion,"
                         + "imageFormat,status,inferenceSnapshot,createdAt,updatedAt) VALUES (?,?,?,?,?,?,'v1','png','WAITING_REVIEW',?,CURRENT_TIMESTAMP(6),CURRENT_TIMESTAMP(6))",
                 taskId, userId, "draft-test:" + taskId, digest, digest, objectKey, snapshot);
@@ -269,9 +263,7 @@ public class PatientDraftTestService implements AutoCloseable {
     private String predictedLabel(String taskId) {
         try {
             String snapshot = jdbc.queryForObject("SELECT inferenceSnapshot FROM t_diagnosis_task WHERE taskId=?", String.class, taskId);
-            var response = DiagnosisProto.DiagnosisResponse.parseFrom(Base64.getDecoder()
-                    .decode(json.readTree(snapshot).path("responseProtobufBase64").asText()));
-            return response.getPredictedLabel();
+            return InferenceSnapshot.parse(snapshot).response().getPredictedLabel();
         } catch (Exception unreadable) {
             return null;
         }
