@@ -13,6 +13,7 @@ import com.csust.eyediagnosis.agent.guard.ToolFailureBoundaryInterceptor;
 import com.csust.eyediagnosis.agent.interceptor.TextMcpModelInterceptor;
 import com.csust.eyediagnosis.agent.service.AgentImageUploadService;
 import com.csust.eyediagnosis.agent.service.ChatHistoryService;
+import com.csust.eyediagnosis.agent.service.MessagePart;
 import com.csust.eyediagnosis.agent.service.ToolAuditService;
 import com.csust.eyediagnosis.agent.tools.DocumentSearchTool;
 import com.csust.eyediagnosis.agent.tools.EyeImageAnalyzerTool;
@@ -249,7 +250,7 @@ public class DiagnosisAgent {
                                 if (assistantMessage.hasToolCalls()) {
                                     String prevReasoning = reasoningContent.toString();
                                     if (agentConstants.isExposeReasoning() && !prevReasoning.isEmpty()) {
-                                        chatHistoryService.saveReasoningMessage(threadId, userId, prevReasoning,
+                                        chatHistoryService.saveAssistantMessage(threadId, prevReasoning, MessagePart.REASONING,
                                                 stamp.replyToId(), stamp.variantId());
                                         reasoningContent.setLength(0);
                                     }
@@ -273,8 +274,8 @@ public class DiagnosisAgent {
                                     messageDTO.setStepLabel(toolCallingList.size() == 1
                                             ? ToolStepContract.stepLabel(assistantMessage.getToolCalls().get(0).name())
                                             : null);
-                                    chatHistoryService.saveToolCallMessage(threadId, userId,
-                                            persistedToolCallsJson(persistedCalls),
+                                    chatHistoryService.saveAssistantMessage(threadId,
+                                            persistedToolCallsJson(persistedCalls), MessagePart.TOOL_CALL,
                                             stamp.replyToId(), stamp.variantId());
                                 }
                                 // reasoning 消息：默认不展示、不落库（见 agent.expose-reasoning）
@@ -318,7 +319,7 @@ public class DiagnosisAgent {
                                 messageDTO.setStepLabel(ToolStepContract.stepLabel(feedbacks.get(0).getName()));
                             }
                             messageDTO.setContent(SensitiveDataRedactor.redact(sb.toString()));
-                            chatHistoryService.saveToolConfirmMessage(threadId, userId, persisted.toString(),
+                            chatHistoryService.saveAssistantMessage(threadId, persisted.toString(), MessagePart.TOOL_CONFIRM,
                                     stamp.replyToId(), stamp.variantId());
                             return messageDTO;
                         }
@@ -327,7 +328,7 @@ public class DiagnosisAgent {
                     .doOnComplete(() -> {
                         String fullReasoning = reasoningContent.toString();
                         if (agentConstants.isExposeReasoning() && !fullReasoning.isEmpty()) {
-                            chatHistoryService.saveReasoningMessage(threadId, userId, fullReasoning,
+                            chatHistoryService.saveAssistantMessage(threadId, fullReasoning, MessagePart.REASONING,
                                     stamp.replyToId(), stamp.variantId());
                         }
                         String fullResponse = assistantContent.toString();
@@ -341,7 +342,7 @@ public class DiagnosisAgent {
                                 log.warn("回答含无法核验的证据引用, threadId={}, cited={}, unverifiable={}",
                                         threadId, citations.keys().size(), citations.unverifiable().size());
                             }
-                            chatHistoryService.saveAssistantMessage(threadId, userId, fullResponse, "text",
+                            chatHistoryService.saveAssistantMessage(threadId, fullResponse, MessagePart.ANSWER,
                                     stamp.replyToId(), stamp.variantId());
                         }
                         // 生成正常收口才把这一轮切到新版本：取消/报错时半截答案
@@ -411,8 +412,8 @@ public class DiagnosisAgent {
         dto.setFinishReason(finishReason);
         dto.setTimestamp(TimeFormats.nowIsoOffset());
         // 同样落库：刷新后用户仍然看得到这次回合是怎么结束的。
-        chatHistoryService.saveAssistantMessage(threadId, userId,
-                JsonUtils.toJson(Map.of("output", notice, "finishReason", finishReason)), "turn-end",
+        chatHistoryService.saveAssistantMessage(threadId,
+                JsonUtils.toJson(Map.of("output", notice, "finishReason", finishReason)), MessagePart.TURN_END,
                 stamp.replyToId(), stamp.variantId());
         return Flux.just(dto);
     }
@@ -483,7 +484,7 @@ public class DiagnosisAgent {
         if (dto.getResources() != null && !dto.getResources().isEmpty()) {
             payload.put("resources", dto.getResources());
         }
-        chatHistoryService.saveToolResultMessage(threadId, userId, JsonUtils.toJson(payload),
+        chatHistoryService.saveAssistantMessage(threadId, JsonUtils.toJson(payload), MessagePart.TOOL_RESULT,
                 stamp.replyToId(), stamp.variantId());
     }
 

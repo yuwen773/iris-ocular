@@ -5,6 +5,7 @@ import com.alibaba.cloud.ai.graph.agent.interceptor.ToolCallResponse;
 import com.csust.eyediagnosis.agent.guard.ToolFailureBoundaryInterceptor;
 import com.csust.eyediagnosis.agent.observability.ToolResourceContext;
 import com.csust.eyediagnosis.agent.service.ChatHistoryService;
+import com.csust.eyediagnosis.agent.service.MessagePart;
 import com.csust.eyediagnosis.model.dto.agent.MessageDTO;
 import com.csust.eyediagnosis.model.dto.agent.MessageType;
 import com.csust.eyediagnosis.model.dto.agent.ResourceRef;
@@ -218,7 +219,8 @@ class DiagnosisAgentToolEventTest {
                 DiagnosisAgent.TurnStamp.LEGACY);
 
         ArgumentCaptor<String> json = ArgumentCaptor.forClass(String.class);
-        verify(history).saveToolResultMessage(eq(THREAD_ID), eq(USER_ID), json.capture(), isNull(), isNull());
+        verify(history).saveAssistantMessage(eq(THREAD_ID), json.capture(), eq(MessagePart.TOOL_RESULT),
+                isNull(), isNull());
         JsonNode node = new ObjectMapper().readTree(json.getValue());
         assertEquals("call_1", node.get("toolCallId").asText());
         assertEquals("searchDocuments", node.get("name").asText());
@@ -240,8 +242,8 @@ class DiagnosisAgentToolEventTest {
                 DiagnosisAgent.TurnStamp.LEGACY);
 
         verify(history, org.mockito.Mockito.never())
-                .saveToolResultMessage(org.mockito.ArgumentMatchers.anyString(),
-                        org.mockito.ArgumentMatchers.any(Long.class),
-                        org.mockito.ArgumentMatchers.anyString(), any(), any());
+                .saveAssistantMessage(org.mockito.ArgumentMatchers.anyString(),
+                        org.mockito.ArgumentMatchers.anyString(),
+                        org.mockito.ArgumentMatchers.any(MessagePart.class), any(), any());
     }
 }
