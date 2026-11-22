@@ -52,7 +52,7 @@ class ChatMessageWriterTest {
         existing.setUserId(7L);
         when(sessionMapper.selectBySessionId("thread-a")).thenReturn(existing);
 
-        writer.writeAssistantMessage("thread-a", "reply", "text");
+        writer.writeAssistantMessage("thread-a", "reply", MessagePart.ANSWER);
 
         verify(sessionMapper, never()).insert(any(AgentSession.class));
         verify(messageMapper).insert(any(AgentMessage.class));

@@ -69,8 +69,6 @@ public class ChatHistoryService {
         return saveUserMessage(sessionId, userId, content, null);
     }
 
-    public static final String USER_ATTACHMENTS_SUBTYPE = "user-attachments-v1";
-
     /**
      * 带附件的用户消息落库。
      *
@@ -94,7 +92,7 @@ public class ChatHistoryService {
         long messageId = com.baomidou.mybatisplus.core.toolkit.IdWorker.getId();
         messageQueue.submitRecoverableAndWait(sessionId, Long.toString(messageId), () -> {
             messageWriter.writeUserMessage(sessionId, userId, stored,
-                    imageUrls != null && !imageUrls.isEmpty() ? USER_ATTACHMENTS_SUBTYPE : null, messageId);
+                    imageUrls != null && !imageUrls.isEmpty() ? MessagePart.USER_ATTACHMENTS.wire() : null, messageId);
 
             AgentSession session = sessionMapper.selectBySessionId(sessionId);
             if (session != null && session.getMessageCount() == 1) {
@@ -105,60 +103,31 @@ public class ChatHistoryService {
         return messageId;
     }
 
-    public void saveAssistantMessage(String sessionId, Long userId, String content, String subType) {
-        saveAssistantMessage(sessionId, userId, content, subType, null, null);
+    /**
+     * 旧口径写入：没有轮次 / 版本信息（{@code replyToId}、{@code variantId} 都为 null）。
+     * 只给不带 {@link com.csust.eyediagnosis.agent.DiagnosisAgent.TurnStamp} 的调用方用。
+     */
+    public void saveAssistantMessage(String sessionId, String content, MessagePart part) {
+        saveAssistantMessage(sessionId, content, part, null, null);
     }
 
     /**
-     * 回答侧落库（带版本信息）。
+     * 回答侧落库的唯一入口：一条模型侧消息按 {@link MessagePart} 写入历史。
+     *
+     * <p>{@code part} 同时决定落库的 subType 与历史回放时这一行怎么读，
+     * 所以调用方不需要、也不应该自己拼 subType 字符串。
      *
      * @param replyToId 本回合的用户消息 id，用来把同一次生成的多行归到同一轮；
      *                  旧调用方为 null（历史行按旧口径读取）
      * @param variantId 本次生成的版本组；同一组 reasoning / tool / text 必须一致
      */
-    public void saveAssistantMessage(String sessionId, Long userId, String content, String subType,
+    public void saveAssistantMessage(String sessionId, String content, MessagePart part,
                                      Long replyToId, String variantId) {
         long messageId = com.baomidou.mybatisplus.core.toolkit.IdWorker.getId();
         messageQueue.submitRecoverableAndWait(sessionId, Long.toString(messageId), () -> {
-            messageWriter.writeAssistantMessage(sessionId, content, subType, messageId, replyToId, variantId);
+            messageWriter.writeAssistantMessage(sessionId, content, part, messageId, replyToId, variantId);
             return null;
         });
-    }
-
-    public void saveReasoningMessage(String sessionId, Long userId, String content) {
-        saveReasoningMessage(sessionId, userId, content, null, null);
-    }
-
-    public void saveReasoningMessage(String sessionId, Long userId, String content,
-                                     Long replyToId, String variantId) {
-        saveAssistantMessage(sessionId, userId, content, "reasoning", replyToId, variantId);
-    }
-
-    public void saveToolCallMessage(String sessionId, Long userId, String content) {
-        saveToolCallMessage(sessionId, userId, content, null, null);
-    }
-
-    public void saveToolCallMessage(String sessionId, Long userId, String content,
-                                    Long replyToId, String variantId) {
-        saveAssistantMessage(sessionId, userId, content, "tool-call", replyToId, variantId);
-    }
-
-    public void saveToolResultMessage(String sessionId, Long userId, String content) {
-        saveToolResultMessage(sessionId, userId, content, null, null);
-    }
-
-    public void saveToolResultMessage(String sessionId, Long userId, String content,
-                                      Long replyToId, String variantId) {
-        saveAssistantMessage(sessionId, userId, content, "tool-result", replyToId, variantId);
-    }
-
-    public void saveToolConfirmMessage(String sessionId, Long userId, String content) {
-        saveToolConfirmMessage(sessionId, userId, content, null, null);
-    }
-
-    public void saveToolConfirmMessage(String sessionId, Long userId, String content,
-                                       Long replyToId, String variantId) {
-        saveAssistantMessage(sessionId, userId, content, "mcp-confirm", replyToId, variantId);
     }
 
     public ChatHistoryVO loadHistory(String sessionId, Long beforeId, int limit) {
@@ -472,7 +441,7 @@ public class ChatHistoryService {
     private MessageVO toMessageVO(AgentMessage entity) {
         MessageVO messageVO = new MessageVO();
         BeanUtils.copyProperties(entity, messageVO);
-        if ("ASSISTANT".equals(entity.getRole()) && "turn-end".equals(entity.getSubType())) {
+        if ("ASSISTANT".equals(entity.getRole()) && MessagePart.TURN_END.wire().equals(entity.getSubType())) {
             try {
                 var terminal = objectMapper.readTree(entity.getContent());
                 if (!terminal.path("output").isTextual() || !terminal.path("finishReason").isTextual()) {
@@ -484,7 +453,7 @@ public class ChatHistoryService {
                 throw new BusinessException(ErrorCode.SYSTEM_ERROR, "回合终止记录无法读取");
             }
         }
-        if ("ASSISTANT".equals(entity.getRole()) && "tool-result".equals(entity.getSubType())) {
+        if ("ASSISTANT".equals(entity.getRole()) && MessagePart.TOOL_RESULT.wire().equals(entity.getSubType())) {
             try {
                 var payload = objectMapper.readTree(entity.getContent());
                 if (payload instanceof com.fasterxml.jackson.databind.node.ObjectNode result
@@ -507,7 +476,8 @@ public class ChatHistoryService {
                 // Unstructured legacy tool output is preserved as text, without verified sources.
             }
         }
-        if ("USER".equals(entity.getRole()) && USER_ATTACHMENTS_SUBTYPE.equals(entity.getSubType())) {
+        if ("USER".equals(entity.getRole())
+                && MessagePart.USER_ATTACHMENTS.wire().equals(entity.getSubType())) {
             AgentSession session = sessionMapper.selectBySessionId(entity.getSessionId());
             if (session == null) throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
             try {

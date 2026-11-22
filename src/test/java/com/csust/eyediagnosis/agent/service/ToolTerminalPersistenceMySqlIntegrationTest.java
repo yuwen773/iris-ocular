@@ -133,7 +133,7 @@ class ToolTerminalPersistenceMySqlIntegrationTest {
             long stableId = com.baomidou.mybatisplus.core.toolkit.IdWorker.getId();
             AtomicInteger attempts = new AtomicInteger();
             assertThrows(IllegalStateException.class, () -> queue.submitRecoverableAndWait("ack-loss", "fixed", () -> {
-                writer.writeAssistantMessage("ack-loss", "synthetic committed result", "tool-result", stableId);
+                writer.writeAssistantMessage("ack-loss", "synthetic committed result", MessagePart.TOOL_RESULT, stableId);
                 if (attempts.getAndIncrement() == 0) throw new IllegalStateException("synthetic acknowledgement loss");
                 return null;
             }));
@@ -170,13 +170,13 @@ class ToolTerminalPersistenceMySqlIntegrationTest {
                 + "SET MESSAGE_TEXT='synthetic permanent failure'; END IF; END");
         try {
             assertThrows(RuntimeException.class,
-                    () -> history.saveToolResultMessage("poisoned", 42L, "{\"output\":\"poison\"}"),
+                    () -> history.saveAssistantMessage("poisoned", "{\"output\":\"poison\"}", MessagePart.TOOL_RESULT),
                     "a failing terminal write must surface to the caller");
             // 两次读取各触发一次恢复重试：第三次失败后这个键被淘汰，不再堵队列。
             history.loadHistory("poisoned", null, 100);
             history.loadHistory("poisoned", null, 100);
             // 之后的写照常落库：失败的那一条被淘汰，不再挡住后面的消息。
-            history.saveAssistantMessage("poisoned", 42L, "later message", "assistant");
+            history.saveAssistantMessage("poisoned", "later message", MessagePart.ANSWER);
             var after = history.loadHistory("poisoned", null, 100);
             assertTrue(after.getMessages().stream().anyMatch(message -> "later message".equals(message.getContent())),
                     "a permanently failing write must not block later messages");
@@ -251,11 +251,11 @@ class ToolTerminalPersistenceMySqlIntegrationTest {
         writer.claimOrValidateSession("variants", 42L, "synthetic");
         long userRow = com.baomidou.mybatisplus.core.toolkit.IdWorker.getId();
         writer.writeUserMessage("variants", 42L, "同一问题的原文", null, userRow);
-        writer.writeAssistantMessage("variants", "第一版回答", "text",
+        writer.writeAssistantMessage("variants", "第一版回答", MessagePart.ANSWER,
                 com.baomidou.mybatisplus.core.toolkit.IdWorker.getId(), userRow, "v1");
-        writer.writeAssistantMessage("variants", "第二版回答", "text",
+        writer.writeAssistantMessage("variants", "第二版回答", MessagePart.ANSWER,
                 com.baomidou.mybatisplus.core.toolkit.IdWorker.getId(), userRow, "v2");
-        writer.writeAssistantMessage("variants", "第二版推理", "reasoning",
+        writer.writeAssistantMessage("variants", "第二版推理", MessagePart.REASONING,
                 com.baomidou.mybatisplus.core.toolkit.IdWorker.getId(), userRow, "v2");
 
         // 还没选中：两版都返回，用户行带上按生成顺序排列的版本列表
@@ -308,12 +308,12 @@ class ToolTerminalPersistenceMySqlIntegrationTest {
         long userRow = com.baomidou.mybatisplus.core.toolkit.IdWorker.getId();
         writer.writeUserMessage("legacy", 42L, "升级前的问题", null, userRow);
         // 旧口径：不带 replyToId / variantId
-        writer.writeAssistantMessage("legacy", "升级前的回答", "text",
+        writer.writeAssistantMessage("legacy", "升级前的回答", MessagePart.ANSWER,
                 com.baomidou.mybatisplus.core.toolkit.IdWorker.getId());
         // 另一个回合，不能被一并收养
         long nextUser = com.baomidou.mybatisplus.core.toolkit.IdWorker.getId();
         writer.writeUserMessage("legacy", 42L, "下一轮问题", null, nextUser);
-        writer.writeAssistantMessage("legacy", "下一轮的回答", "text",
+        writer.writeAssistantMessage("legacy", "下一轮的回答", MessagePart.ANSWER,
                 com.baomidou.mybatisplus.core.toolkit.IdWorker.getId());
 
         assertEquals("legacy-" + userRow, history.adoptLegacyAnswers("legacy", 42L, userRow));
@@ -323,7 +323,7 @@ class ToolTerminalPersistenceMySqlIntegrationTest {
                 "只收养这一轮的回答，下一轮的旧行原样保留");
 
         // 新版本写入后选中它：旧回答隐藏，版本列表两版
-        writer.writeAssistantMessage("legacy", "重新生成的回答", "text",
+        writer.writeAssistantMessage("legacy", "重新生成的回答", MessagePart.ANSWER,
                 com.baomidou.mybatisplus.core.toolkit.IdWorker.getId(), userRow, "v2");
         history.selectVariant("legacy", 42L, userRow, "v2");
         var page = history.loadHistory("legacy", null, 100).getMessages();
@@ -335,8 +335,9 @@ class ToolTerminalPersistenceMySqlIntegrationTest {
     }
 
     private static ToolStepSink sink(String session, ChatHistoryService history, ToolAuditService audit) {
-        return new ToolStepSink(session, 42L, audit::record, dto -> history.saveToolResultMessage(session, 42L,
+        return new ToolStepSink(session, 42L, audit::record, dto -> history.saveAssistantMessage(session,
                 JsonUtils.toJson(Map.of("toolCallId", dto.getToolCallId(), "name", dto.getToolName(),
-                        "status", dto.getToolStatus(), "errorCategory", dto.getErrorCategory(), "output", dto.getContent()))));
+                        "status", dto.getToolStatus(), "errorCategory", dto.getErrorCategory(), "output", dto.getContent())),
+                MessagePart.TOOL_RESULT));
     }
 }

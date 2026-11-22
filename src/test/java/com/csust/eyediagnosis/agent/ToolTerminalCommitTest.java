@@ -3,6 +3,7 @@ package com.csust.eyediagnosis.agent;
 import com.csust.eyediagnosis.agent.queue.SessionMessageQueue;
 import com.csust.eyediagnosis.agent.service.ChatHistoryService;
 import com.csust.eyediagnosis.agent.service.ChatMessageWriter;
+import com.csust.eyediagnosis.agent.service.MessagePart;
 import com.csust.eyediagnosis.model.dto.agent.MessageDTO;
 import org.junit.jupiter.api.Test;
 
@@ -28,7 +29,7 @@ class ToolTerminalCommitTest {
             assertTrue(workerBlocked.await(2, TimeUnit.SECONDS));
             ToolStepSink sink = new ToolStepSink("session", 42L, audit -> { }, dto -> {
                 persistAttempted.countDown();
-                history.saveToolResultMessage("session", 42L, dto.getErrorCategory());
+                history.saveAssistantMessage("session", dto.getErrorCategory(), MessagePart.TOOL_RESULT);
             });
             sink.events().asFlux().subscribe(frames::add);
             sink.started("call", "searchDocuments", null, null);
@@ -40,7 +41,7 @@ class ToolTerminalCommitTest {
             gate.countDown();
             terminal.join(2_000);
             assertFalse(terminal.isAlive());
-            verify(writer).writeAssistantMessage(eq("session"), eq("TIMEOUT"), eq("tool-result"), anyLong(),
+            verify(writer).writeAssistantMessage(eq("session"), eq("TIMEOUT"), eq(MessagePart.TOOL_RESULT), anyLong(),
                     isNull(), isNull());
             assertEquals("TIMEOUT", frames.getLast().getErrorCategory());
         } finally {

@@ -92,25 +92,26 @@ public class ChatMessageWriter {
     }
 
     @Transactional
-    public void writeAssistantMessage(String sessionId, String content, String subType) {
-        writeAssistantMessage(sessionId, content, subType, null);
+    public void writeAssistantMessage(String sessionId, String content, MessagePart part) {
+        writeAssistantMessage(sessionId, content, part, null);
     }
 
     @Transactional
-    public void writeAssistantMessage(String sessionId, String content, String subType, Long messageId) {
-        writeAssistantMessage(sessionId, content, subType, messageId, null, null);
+    public void writeAssistantMessage(String sessionId, String content, MessagePart part, Long messageId) {
+        writeAssistantMessage(sessionId, content, part, messageId, null, null);
     }
 
     /**
      * 带版本信息的回答侧写入。
      *
+     * @param part      {@link MessagePart}，决定落库 subType
      * @param replyToId 本回合的用户消息 id；旧调用方传 null
      * @param variantId 本次生成的版本组；同一组 reasoning/tool/text 必须一致
      */
     @Transactional
-    public void writeAssistantMessage(String sessionId, String content, String subType, Long messageId,
+    public void writeAssistantMessage(String sessionId, String content, MessagePart part, Long messageId,
                                       Long replyToId, String variantId) {
-        AgentMessage message = buildMessage(sessionId, "ASSISTANT", subType, content);
+        AgentMessage message = buildMessage(sessionId, "ASSISTANT", part.wire(), content);
         if (messageId != null) message.setId(messageId);
         message.setReplyToId(replyToId);
         message.setVariantId(variantId);
