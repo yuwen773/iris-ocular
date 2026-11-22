@@ -1,5 +1,6 @@
 package com.csust.eyediagnosis.patientdraft;
 
+import com.csust.eyediagnosis.diagnosistask.InferenceSnapshot;
 import com.csust.eyediagnosis.controlledreference.ControlledEvidenceRetriever;
 import com.csust.eyediagnosis.grpc.DiagnosisProto;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -101,9 +102,8 @@ class PatientDraftTest {
                 .setProbability(70.0).setOodStatus(DiagnosisProto.OodStatus.IN_DISTRIBUTION)
                 .setModelVersion("synthetic-model").setPreprocessVersion("synthetic-preprocess")
                 .setCalibrationStatus("NOT_CALIBRATED").setQualityScore(80).build();
-        String snapshot = json.writeValueAsString(Map.of("taskId", taskId, "userId", 42,
-                "objectKey", "diagnosis-task/private-image", "objectVersion", "v1", "imageDigest", "b".repeat(64),
-                "imageFormat", "png", "responseProtobufBase64", Base64.getEncoder().encodeToString(response.toByteArray())));
+        String snapshot = InferenceSnapshot.write(new InferenceSnapshot.Identity(taskId, 42,
+                "diagnosis-task/private-image", "v1", "b".repeat(64), "png"), response);
         jdbc.update("INSERT INTO t_diagnosis_task (taskId,userId,idempotencyKey,requestDigest,imageDigest,objectKey,objectVersion,imageFormat,status,inferenceSnapshot,createdAt,updatedAt) VALUES (?,42,?,?,?,?,'v1','png','WAITING_REVIEW',?,NOW(6),NOW(6))",
                 taskId, taskId, "a".repeat(64), "b".repeat(64), "diagnosis-task/private-image", snapshot);
         jdbc.update("INSERT INTO t_controlled_reference (id,title,source,fileName,documentVersion,fileContent,isTest,visibility,reviewStatus,diseaseCodes,topicCodes,reviewedBy,uploadedBy) VALUES (?,'Synthetic reference','synthetic.invalid','test.txt',?,?,0,'CURATED_PUBLIC','APPROVED',JSON_ARRAY('GLAUCOMA'),JSON_ARRAY('PATIENT_EXPLANATION'),2,1)",

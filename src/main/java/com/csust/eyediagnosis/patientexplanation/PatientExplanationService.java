@@ -67,12 +67,11 @@ public class PatientExplanationService {
         String snapshot = jdbc.queryForObject("SELECT inferenceSnapshot FROM t_diagnosis_task WHERE taskId=?", String.class, taskId);
         try {
             if (snapshot != null) {
-                var response = com.csust.eyediagnosis.grpc.DiagnosisProto.DiagnosisResponse.parseFrom(java.util.Base64.getDecoder()
-                        .decode(json.readTree(snapshot).path("responseProtobufBase64").asText()));
+                var response = com.csust.eyediagnosis.diagnosistask.InferenceSnapshot.parse(snapshot).response();
                 if ("QUALITY_FAIL".equals(response.getAbstainReason())) return "图片质量未通过，请重新提交清晰的眼底图片，必要时咨询眼科医生。";
                 if (response.getRejected() || response.getIsOod()) return "模型未接受本次输入，无法提供结果，请咨询眼科医生。";
             }
-        } catch (java.io.IOException | IllegalArgumentException invalid) { /* Unknown snapshots use the fixed fallback. */ }
+        } catch (IllegalArgumentException invalid) { /* Unknown snapshots use the fixed fallback. */ }
         var reasons = jdbc.queryForList("SELECT stopReason FROM t_patient_draft_run WHERE taskId=?", String.class, taskId);
         if (reasons.contains("INSUFFICIENT_EVIDENCE")) return "受控资料不足，暂无法提供解释，请咨询眼科医生。";
         return "本次分析暂无法提供结果，请咨询眼科医生或重新提交清晰图片。";

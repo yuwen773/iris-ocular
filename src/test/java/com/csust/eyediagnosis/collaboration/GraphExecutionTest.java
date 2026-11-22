@@ -1,5 +1,6 @@
 package com.csust.eyediagnosis.collaboration;
 
+import com.csust.eyediagnosis.diagnosistask.InferenceSnapshot;
 import com.csust.eyediagnosis.controlledreference.ControlledEvidenceRetriever;
 import com.csust.eyediagnosis.grpc.DiagnosisProto;
 import com.csust.eyediagnosis.patientdraft.PatientDraftCoordinator;
@@ -124,7 +125,8 @@ class GraphExecutionTest {
         String id = UUID.randomUUID().toString();
         var response = DiagnosisProto.DiagnosisResponse.newBuilder().setPredictedLabel("glaucoma").setProbability(70)
                 .setRejected(rejected).setOodStatus(DiagnosisProto.OodStatus.IN_DISTRIBUTION).setModelVersion("synthetic").build();
-        String snapshot = JSON.writeValueAsString(Map.of("taskId", id, "userId", 42, "objectKey", "private-image", "objectVersion", "v1", "imageDigest", "b".repeat(64), "imageFormat", "png", "responseProtobufBase64", Base64.getEncoder().encodeToString(response.toByteArray())));
+        String snapshot = InferenceSnapshot.write(
+                new InferenceSnapshot.Identity(id, 42, "private-image", "v1", "b".repeat(64), "png"), response);
         jdbc.update("INSERT INTO t_diagnosis_task (taskId,userId,idempotencyKey,requestDigest,imageDigest,objectKey,objectVersion,imageFormat,status,inferenceSnapshot,createdAt,updatedAt) VALUES (?,42,?,?,?,'private-image','v1','png',?,?,NOW(6),NOW(6))", id, id, "a".repeat(64), "b".repeat(64), state, snapshot);
         return id;
     }

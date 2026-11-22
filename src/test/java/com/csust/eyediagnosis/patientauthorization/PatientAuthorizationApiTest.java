@@ -1,5 +1,6 @@
 package com.csust.eyediagnosis.patientauthorization;
 
+import com.csust.eyediagnosis.diagnosistask.InferenceSnapshot;
 import com.csust.eyediagnosis.controlledreference.ControlledEvidenceRetriever;
 import com.csust.eyediagnosis.controller.DiagnosisTaskController;
 import com.csust.eyediagnosis.controller.DoctorReviewController;
@@ -94,9 +95,8 @@ class PatientAuthorizationApiTest {
     }
 
     private void setSnapshot() throws Exception {
-        jdbc.update("UPDATE t_diagnosis_task SET inferenceSnapshot=? WHERE taskId=?", json.writeValueAsString(Map.of("taskId", taskId, "userId", 42,
-                "objectKey", "private-object", "objectVersion", "v1", "imageDigest", "b".repeat(64), "imageFormat", "png",
-                "responseProtobufBase64", Base64.getEncoder().encodeToString(inference.build().toByteArray()))), taskId);
+        jdbc.update("UPDATE t_diagnosis_task SET inferenceSnapshot=? WHERE taskId=?",
+                InferenceSnapshot.write(new InferenceSnapshot.Identity(taskId, 42, "private-object", "v1", "b".repeat(64), "png"), inference.build()), taskId);
     }
 
     @ParameterizedTest

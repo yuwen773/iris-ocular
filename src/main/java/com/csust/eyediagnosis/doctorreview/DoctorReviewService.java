@@ -2,6 +2,7 @@ package com.csust.eyediagnosis.doctorreview;
 
 import com.csust.eyediagnosis.controlledreference.ControlledEvidenceRetriever;
 import com.csust.eyediagnosis.controlledreference.ControlledEvidenceRetriever.Citation;
+import com.csust.eyediagnosis.diagnosistask.InferenceSnapshot;
 import com.csust.eyediagnosis.exception.BusinessException;
 import com.csust.eyediagnosis.exception.ErrorCode;
 import com.csust.eyediagnosis.grpc.DiagnosisProto;
@@ -14,8 +15,6 @@ import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
@@ -158,10 +157,8 @@ public class DoctorReviewService {
                         || !digest(encode(frozen.materials())).equals(current.materialDigest())
                         || !current.equals(original)) throw new ReviewConflict("批准材料已变化");
                 var task = jdbc.queryForList("SELECT * FROM t_diagnosis_task WHERE taskId=? FOR UPDATE", canonicalId).getFirst();
-                JsonNode snapshot = tree((String) task.get("inferenceSnapshot"));
-                for (String field : List.of("taskId", "userId", "objectKey", "objectVersion", "imageDigest", "imageFormat"))
-                    if (!snapshot.hasNonNull(field) || !snapshot.get(field).asText().equals(Objects.toString(task.get(field), "")))
-                        throw new ReviewConflict("推理输入不符");
+                InferenceSnapshot snapshot = parseSnapshot(task);
+                if (!snapshot.matches(task)) throw new ReviewConflict("推理输入不符");
                 try {
                     com.csust.eyediagnosis.patientdraft.DraftAgents.Draft draft;
                     try {
@@ -169,14 +166,14 @@ public class DoctorReviewService {
                         com.csust.eyediagnosis.patientdraft.PatientDraftCoordinator.validateDraft(draft,
                                 new com.csust.eyediagnosis.patientdraft.PatientDraftCoordinator.Evidence(frozen.evidenceVersion(), frozen.materials().evidence()));
                     } catch (Exception invalidDraft) { throw new ReviewConflict("草稿未通过门禁"); }
-                    var response = DiagnosisProto.DiagnosisResponse.parseFrom(Base64.getDecoder().decode(snapshot.path("responseProtobufBase64").asText()));
+                    var response = snapshot.response();
                     if (response.getRejected() || response.getIsOod() || "QUALITY_FAIL".equals(response.getAbstainReason())
                             || response.getOodStatus() != DiagnosisProto.OodStatus.IN_DISTRIBUTION
                             || !Set.of("normal", "amd", "cataract", "diabetes", "glaucoma", "hypertension", "myopia", "other").contains(response.getPredictedLabel())
                             || !Double.isFinite(response.getProbability()) || response.getProbability() < 0 || response.getProbability() > 100)
                         throw new ReviewConflict("推理未通过门禁");
                     return action.apply(current, new Approved(frozen.materials(), draft, response));
-                } catch (com.google.protobuf.InvalidProtocolBufferException | IllegalArgumentException invalid) {
+                } catch (IllegalArgumentException invalid) {
                     throw new ReviewConflict("推理快照无效");
                 }
             });
@@ -238,8 +235,7 @@ public class DoctorReviewService {
         for (String key : List.of("userId", "requestDigest", "imageDigest", "objectKey", "objectVersion", "imageFormat")) input.put(key, task.get(key));
         String disease;
         try {
-            var response = DiagnosisProto.DiagnosisResponse.parseFrom(Base64.getDecoder().decode(tree(snapshot).path("responseProtobufBase64").asText()));
-            disease = response.getPredictedLabel().toUpperCase(Locale.ROOT);
+            disease = InferenceSnapshot.parse(snapshot).response().getPredictedLabel().toUpperCase(Locale.ROOT);
         } catch (Exception e) { throw new ReviewConflict("推理快照无效"); }
         return new Frozen(id, ((Number) task.get("userId")).longValue(), ((Number) task.get("version")).longValue(),
                 ((Number) draft.get("version")).intValue(), evidenceVersion,
@@ -272,9 +268,18 @@ public class DoctorReviewService {
     private String encode(Object value) { try { return json.writeValueAsString(value); } catch (Exception e) { throw new IllegalStateException(e); } }
     private <T> T decode(String value, TypeReference<T> type) { try { return json.readValue(value, type); } catch (Exception e) { throw new IllegalStateException(e); } }
     private JsonNode tree(String value) { try { return json.readTree(value); } catch (Exception e) { throw new IllegalStateException(e); } }
+    /** 与快照模块共用同一个摘要实现；草稿 / 协作绑定的就是这一串值。 */
     private static String digest(String value) {
-        try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8))); }
-        catch (Exception e) { throw new IllegalStateException(e); }
+        return InferenceSnapshot.digest(value);
+    }
+
+    /** 快照不可读是数据冲突，不是服务故障：复核动作返回 409 语义而不是 500。 */
+    private static InferenceSnapshot parseSnapshot(Map<String, Object> task) {
+        try {
+            return InferenceSnapshot.parse(Objects.toString(task.get("inferenceSnapshot"), ""));
+        } catch (InferenceSnapshot.InvalidSnapshotException e) {
+            throw new ReviewConflict("推理快照无效");
+        }
     }
     public static class ReviewConflict extends RuntimeException { public ReviewConflict(String message) { super(message); } }
 }

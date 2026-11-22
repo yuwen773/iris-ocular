@@ -2,7 +2,6 @@ package com.csust.eyediagnosis.diagnosistask;
 
 import com.csust.eyediagnosis.grpc.DiagnosisGrpcClient;
 import com.csust.eyediagnosis.grpc.DiagnosisProto;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -12,8 +11,6 @@ import org.slf4j.LoggerFactory;
 
 import java.sql.Timestamp;
 import java.time.Clock;
-import java.util.Base64;
-import java.util.Map;
 import java.util.UUID;
 
 @Component
@@ -23,7 +20,6 @@ public class DiagnosisTaskRunner {
     private final DiagnosisTaskStorage storage;
     private final DiagnosisGrpcClient grpc;
     private final Clock clock;
-    private final ObjectMapper json = new ObjectMapper();
     private final org.springframework.transaction.support.TransactionTemplate transactions;
     private final java.util.concurrent.ExecutorService executor = java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
         Thread thread = new Thread(r, "diagnosis-task-worker");
@@ -95,9 +91,10 @@ public class DiagnosisTaskRunner {
             return;
         }
         if (response == null) { finish(task, "RESTRICTED", null); return; }
-        String snapshot = json.writeValueAsString(Map.of("taskId", task.id(), "userId", task.userId(),
-                "objectKey", task.objectKey(), "objectVersion", task.objectVersion(), "imageDigest", task.imageDigest(),
-                "imageFormat", task.format(), "responseProtobufBase64", Base64.getEncoder().encodeToString(response.toByteArray())));
+        String snapshot = InferenceSnapshot.write(
+                new InferenceSnapshot.Identity(task.id(), task.userId(), task.objectKey(),
+                        task.objectVersion(), task.imageDigest(), task.format()),
+                response);
         boolean restricted = response.getRejected() || response.getIsOod()
                 || response.getOodStatus() != DiagnosisProto.OodStatus.IN_DISTRIBUTION
                 || response.getPredictedLabel().isBlank();

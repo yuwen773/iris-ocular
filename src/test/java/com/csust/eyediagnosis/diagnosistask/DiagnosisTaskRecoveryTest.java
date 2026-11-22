@@ -1,5 +1,6 @@
 package com.csust.eyediagnosis.diagnosistask;
 
+import com.csust.eyediagnosis.diagnosistask.InferenceSnapshot;
 import com.csust.eyediagnosis.grpc.DiagnosisGrpcClient;
 import com.csust.eyediagnosis.grpc.DiagnosisProto;
 import org.junit.jupiter.api.Assumptions;
@@ -324,10 +325,9 @@ class DiagnosisTaskRecoveryTest {
             assertEquals("WAITING_REVIEW", service.getOwned(created.taskId(), 91).status());
             var row = jdbc.queryForMap("SELECT attemptCount, inferenceSnapshot FROM t_diagnosis_task WHERE taskId=?", created.taskId());
             assertEquals(2, ((Number) row.get("attemptCount")).intValue());
-            var snapshot = new com.fasterxml.jackson.databind.ObjectMapper().readTree(row.get("inferenceSnapshot").toString());
-            var saved = DiagnosisProto.DiagnosisResponse.parseFrom(java.util.Base64.getDecoder().decode(snapshot.path("responseProtobufBase64").asText()));
-            assertEquals("new", saved.getPredictedLabel());
-            assertEquals(DiagnosisTaskService.digest(bytes), snapshot.path("imageDigest").asText());
+            var snapshot = InferenceSnapshot.parse(row.get("inferenceSnapshot").toString());
+            assertEquals("new", snapshot.response().getPredictedLabel());
+            assertEquals(DiagnosisTaskService.digest(bytes), snapshot.identity("imageDigest"));
         } finally {
             release.countDown(); pool.shutdownNow();
             jdbc.update("DELETE FROM t_diagnosis_task WHERE taskId=?", created.taskId());
