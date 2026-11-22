@@ -109,10 +109,6 @@ export function AdminNav(props: { onNavigate?: () => void }) {
                   <item.icon size={16} strokeWidth={1.75} />
                 </span>
                 <span className="admin-side__label">{item.label}</span>
-                {/* 编号是索引，不是装饰：与页头的 01–06 同一套读数。 */}
-                <span className="admin-side__code" aria-hidden="true">
-                  {item.code}
-                </span>
               </NavLink>
             ),
           )}
