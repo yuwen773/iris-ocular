@@ -16,4 +16,8 @@ public class AuthConstant {
      * 管理员角色
      */
     public static final String ADMIN_ROLE = "admin";
+    /**
+     * 封禁角色（账号保留但禁止登录与访问）
+     */
+    public static final String BAN_ROLE = "ban";
 }
