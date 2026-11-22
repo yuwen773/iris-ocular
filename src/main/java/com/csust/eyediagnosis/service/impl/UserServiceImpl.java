@@ -144,6 +144,10 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
             log.info("user login failed, userAccount cannot match userPassword");
             throw new BusinessException(ErrorCode.PARAMS_ERROR, FAIL_LOGIN);
         }
+        // 封禁账号禁止登录（账号保留但不允许建立会话）
+        if (AuthConstant.BAN_ROLE.equals(user.getUserRole())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN_ERROR, "账号已被封禁");
+        }
         // legacy MD5 命中后即时升级为 BCrypt
         if (verification.needsUpgrade()) {
             User passwordUpgrade = new User();
@@ -176,6 +180,10 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         currentUser = this.getById(userId);
         if (currentUser == null) {
             throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR);
+        }
+        if (AuthConstant.BAN_ROLE.equals(currentUser.getUserRole())) {
+            request.getSession().removeAttribute(USER_LOGIN_STATE);
+            throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR, "账号已被封禁");
         }
         return currentUser;
     }
@@ -364,7 +372,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
      *
      * <p>{@code ban} 是封禁档：账号还在、不能登录，用来表达「先停用」而不是删除。
      */
-    private static final Set<String> ASSIGNABLE_ROLES = Set.of("user", "ban", "admin");
+    private static final Set<String> ASSIGNABLE_ROLES = Set.of(
+            AuthConstant.DEFAULT_ROLE, AuthConstant.BAN_ROLE, AuthConstant.ADMIN_ROLE);
 
     @Override
     public BatchResultVO deleteUsers(List<Long> userIds) {
