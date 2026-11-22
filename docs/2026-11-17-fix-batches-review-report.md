@@ -3,7 +3,7 @@
 > 日期：2026-11-16 ～ 2026-11-17
 > 范围：后端三条分支 + 前端一条分支（`web/` 代码评审整改）
 > 性质：先只读 `/code-review`，再按复审意见整改前端；后端仅评审，未改代码
-> 关联：PR #92（draft，base `ui`）；交接文档 `docs/release/handoff-2026-11-16/iris-{backend,frontend}-fix.md`
+> 关联：PR #92（draft，base `ui`）；交接文档 `docs/archive/2026-11/handoff-2026-11-16/iris-{backend,frontend}-fix.md`
 
 ---
 
@@ -178,7 +178,7 @@
 | 产物 | 路径 |
 |---|---|
 | 前端评审报告（已更新处理状态与两轮整改） | `docs/2026-11-16-web-react-code-review.md` |
-| 前端交接文档 | `docs/release/handoff-2026-11-16/iris-frontend-fix.md` |
-| 后端交接文档 | `docs/release/handoff-2026-11-16/iris-backend-fix.md` |
+| 前端交接文档 | `docs/archive/2026-11/handoff-2026-11-16/iris-frontend-fix.md` |
+| 后端交接文档 | `docs/archive/2026-11/handoff-2026-11-16/iris-backend-fix.md` |
 | 几何断言 | `web/e2e/admin-columns.spec.ts` + `web/e2e/README.md` |
 | 组件治理决策 | `web/DESIGN.md` 规则 18、`web/components.json`、`web/src/lib/utils.ts` |

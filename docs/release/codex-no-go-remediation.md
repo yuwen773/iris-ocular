@@ -1,6 +1,6 @@
 # Codex NO_GO 定向整改台账（2 P0 + 5 P1）
 
-> 输入：Codex 独立审查 `docs/release/codex-audit-2026-11-19/round1/codex-independent-review.md`，
+> 输入：Codex 独立审查 `docs/archive/2026-11/codex-audit-2026-11-19/round1/codex-independent-review.md`，
 > 裁决 **NO_GO**，审查对象候选 `7dc3422b70828d400ad1d3a09e8c29aa12f48309`（代码 SHA `6ff5a889`）。
 >
 > 本文件只记录**整改事实**（根因 / 改动 / 提交 / 回归证据），不改写、不覆盖 Codex 的原始结论；
@@ -140,7 +140,7 @@
 
 ## 9. 第二轮独立复验（2026-11-19）
 
-第二轮审查报告：`docs/release/codex-audit-2026-11-19/round2/codex-independent-review-round2.md`，
+第二轮审查报告：`docs/archive/2026-11/codex-audit-2026-11-19/round2/codex-independent-review-round2.md`，
 审查对象 `03b14efd`（代码）/ `dfca3801`（文档），结论 **NO_GO**：P0-01 CLOSED，
 其余 6 条 **STILL_OPEN**。第二轮的缺口不是「没修」，而是首轮修法没覆盖到的路径。
 

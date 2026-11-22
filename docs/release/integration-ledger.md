@@ -194,7 +194,7 @@ Redis 只删本轮 12 个会话键（其余 5 个属其他工作树，未动）�
 ### 9.2 交给 Codex 复验
 
 **自验收不能代替独立复验**——NO_GO 由审查方给出，也要由审查方解除。本侧不改、不覆盖
-Codex 的原始结论（`docs/release/codex-audit-2026-11-19/round1/codex-independent-review.md`，只读）。
+Codex 的原始结论（`docs/archive/2026-11/codex-audit-2026-11-19/round1/codex-independent-review.md`，只读）。
 
 | 项 | 值 |
 |---|---|
@@ -335,7 +335,7 @@ SHA-256 为 `e47efac42cb2925d9ad3c665d896af322f5245c1c403a8f7d6f785360e83b234`�
 
 ## 11. 第二轮 NO_GO 整改（2026-11-19）
 
-第二轮独立复验（`docs/release/codex-audit-2026-11-19/round2/codex-independent-review-round2.md`）
+第二轮独立复验（`docs/archive/2026-11/codex-audit-2026-11-19/round2/codex-independent-review-round2.md`）
 对 `03b14efd` 判 **NO_GO**：P0-01 CLOSED，其余 6 条 STILL_OPEN。本轮只做定向整改，
 **不重启全仓 PR 集成**、不新建工作树、不合并 PR #119。
 

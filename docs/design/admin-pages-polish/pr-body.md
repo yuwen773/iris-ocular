@@ -229,7 +229,7 @@ Agent 编排、医学诊断逻辑、登录鉴权、资讯发布状态机、知�
 - 工作树干净，全部待集成源码在 `fd4e41c`（第 3 轮整改）与其后的文档提交内；
 - 机器门禁全绿（§五）；
 - 验收报告：`docs/design/admin-pages-polish/README.md`；
-- 交接信号：`docs/release/handoff-2026-11-16/ui-ready.json`；
+- 交接信号：`docs/archive/2026-11/handoff-2026-11-16/ui-ready.json`；
 - **本 PR 不自动合并、不部署**；合并与否由人决定。
 
 > 截图与自动化通过 **不等于** 视觉验收通过。最终视觉结论以人工复核为准。

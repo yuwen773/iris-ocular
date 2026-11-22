@@ -11,7 +11,7 @@
 
 | 项 | 值 |
 | --- | --- |
-| 交接信号 | `docs/release/handoff-2026-11-16/codex-ready.json`，`ready=true` |
+| 交接信号 | `docs/archive/2026-11/handoff-2026-11-16/codex-ready.json`，`ready=true` |
 | Codex 交接 SHA | `d66e6e22bb001188865e68805baa668c083b5988` |
 | 交接分支 / 工作树 | `feat/iris21-multiagent-integration` / `.claude/worktrees/iris21-multiagent` |
 | 交接工作树状态 | 干净（`git status --porcelain` 0 行），发布后冻结 |
@@ -26,7 +26,7 @@
 
 ## 二、隔离与幂等
 
-- 独占锁：`docs/release/handoff-2026-11-16/nightly-r13-result.json`（锁目录为当时的运行期产物，未入库），用 `mkdir` 原子创建，先到者持有；本轮无其它 RUNNING/终态记录。
+- 独占锁：`docs/archive/2026-11/handoff-2026-11-16/nightly-r13-result.json`（锁目录为当时的运行期产物，未入库），用 `mkdir` 原子创建，先到者持有；本轮无其它 RUNNING/终态记录。
 - 夜间分支：`feat/iris21-multiagent-r13-nightly`
 - 夜间工作树：`.claude/worktrees/iris21-multiagent-r13-nightly`（从交接 SHA 创建，非过期引用）
 - 未修改 Codex 工作树、`ui`、`master`、PR #68 原分支、PR #87、冻结 tag。

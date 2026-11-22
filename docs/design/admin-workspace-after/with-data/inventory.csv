@@ -1,0 +1,16 @@
+file,bytes,md5,action,reason,retrieve_from
+dashboard-1280.png,330732,33a8680489ad5677a52d4b137a0fd78f,deleted,scene-pruned:admin-workspace-after,280f45c9:docs/design/admin-workspace-after/with-data/dashboard-1280.png
+dashboard-1440-dark-viewport.png,205502,4c99e25500f964b3a1edde031a52ff41,deleted,scene-pruned:admin-workspace-after,280f45c9:docs/design/admin-workspace-after/with-data/dashboard-1440-dark-viewport.png
+dashboard-1440-dark.png,300605,94bab4468c758a8589719ad1d599215a,deleted,scene-pruned:admin-workspace-after,280f45c9:docs/design/admin-workspace-after/with-data/dashboard-1440-dark.png
+dashboard-1440-light-viewport.png,213062,6b3719d387cc5e3f584269dbf6405305,deleted,scene-pruned:admin-workspace-after,280f45c9:docs/design/admin-workspace-after/with-data/dashboard-1440-light-viewport.png
+dashboard-1440-light.png,318839,8b8feebda10c21eca4216535d79bec1f,deleted,scene-pruned:admin-workspace-after,280f45c9:docs/design/admin-workspace-after/with-data/dashboard-1440-light.png
+dashboard-390-dark.png,189909,ec9aee0248677ef044098c5a4fe84fc6,deleted,scene-pruned:admin-workspace-after,280f45c9:docs/design/admin-workspace-after/with-data/dashboard-390-dark.png
+dashboard-390-light.png,193132,37992944e550035f71034bb65024de93,deleted,scene-pruned:admin-workspace-after,280f45c9:docs/design/admin-workspace-after/with-data/dashboard-390-light.png
+page-data-analysis.png,190226,306b7ab0d23b5744273a6114bf7902e6,deleted,scene-pruned:admin-workspace-after,280f45c9:docs/design/admin-workspace-after/with-data/page-data-analysis.png
+page-diagnosis.png,212810,c17b6019e40bc7f04e73493c9cdac424,deleted,scene-pruned:admin-workspace-after,280f45c9:docs/design/admin-workspace-after/with-data/page-diagnosis.png
+page-knowledge.png,190409,bc1bb9210cebefaf8ee71d49a3ebb7a5,deleted,duplicate-of:docs/design/admin-workspace-after/no-data/page-knowledge.png,280f45c9:docs/design/admin-workspace-after/with-data/page-knowledge.png
+page-news-edit.png,134741,03fbe4a71429d509f537a0912e5f6d42,deleted,duplicate-of:docs/design/admin-workspace-after/no-data/page-news-edit.png,280f45c9:docs/design/admin-workspace-after/with-data/page-news-edit.png
+page-news.png,212934,2234c445bcd02d90816b407d2d36cc6b,deleted,duplicate-of:docs/design/admin-workspace-after/no-data/page-news.png,280f45c9:docs/design/admin-workspace-after/with-data/page-news.png
+page-users.png,147731,972f119592d444dca0b090d21255ca76,deleted,duplicate-of:docs/design/admin-workspace-after/no-data/page-users.png,280f45c9:docs/design/admin-workspace-after/with-data/page-users.png
+w390-diagnosis.png,107652,491dab6ccb49ead90d5345f11062312e,deleted,scene-pruned:admin-workspace-after,280f45c9:docs/design/admin-workspace-after/with-data/w390-diagnosis.png
+w390-news.png,103311,b0e88495b1b424ae8130c80bfffa7625,deleted,duplicate-of:docs/design/admin-workspace-after/no-data/w390-news.png,280f45c9:docs/design/admin-workspace-after/with-data/w390-news.png

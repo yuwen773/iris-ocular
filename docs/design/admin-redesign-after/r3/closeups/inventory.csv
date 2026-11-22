@@ -1,0 +1,9 @@
+file,bytes,md5,action,reason,retrieve_from
+r3-batchbar-news.png,162730,7bce12275af9e5de61c730063b159ff8,deleted,topic-pruned:admin-redesign-after,280f45c9:docs/design/admin-redesign-after/r3/closeups/r3-batchbar-news.png
+r3-batchbar-users.png,148402,e533a2358d409304bd669f79729b7bd9,deleted,topic-pruned:admin-redesign-after,280f45c9:docs/design/admin-redesign-after/r3/closeups/r3-batchbar-users.png
+r3-dialog-delete-news.png,170144,b20f999acc51d967cb25bd59c01fdb43,deleted,topic-pruned:admin-redesign-after,280f45c9:docs/design/admin-redesign-after/r3/closeups/r3-dialog-delete-news.png
+r3-drawer-diagnosis.png,291372,fccb72413886351d4530b46601df8d76,deleted,topic-pruned:admin-redesign-after,280f45c9:docs/design/admin-redesign-after/r3/closeups/r3-drawer-diagnosis.png
+r3-error-news.png,113136,ea79680768f067779508404daa988d2a,deleted,topic-pruned:admin-redesign-after,280f45c9:docs/design/admin-redesign-after/r3/closeups/r3-error-news.png
+r3-rowmenu-users.png,153727,a9fcf30d36c2d8cae847f62b25dcb92d,deleted,topic-pruned:admin-redesign-after,280f45c9:docs/design/admin-redesign-after/r3/closeups/r3-rowmenu-users.png
+r3-skeleton-news.png,125863,67e5f1ddf0aa9156a078ce46eae445e1,deleted,topic-pruned:admin-redesign-after,280f45c9:docs/design/admin-redesign-after/r3/closeups/r3-skeleton-news.png
+r3-w390-users-filter.png,7911,0d947bed2f9566a7fc01a0fbeb497ffe,deleted,duplicate-of:docs/design/admin-redesign-after/r3/closeups/r3-w390-diagnosis-filter.png,280f45c9:docs/design/admin-redesign-after/r3/closeups/r3-w390-users-filter.png

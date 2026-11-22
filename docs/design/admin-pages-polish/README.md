@@ -268,7 +268,7 @@
 | 未合并进 `ui` / `master`、未部署 | ✅ 已合入 `ui`（PR #80 merge commit `95beeef6`）；**未合并进 `master`、未部署** |
 | 视觉终判 | ✅ 已完成：第 3 轮视觉路的 P1 已修并复拍；收尾的定向修复（§9）按人工裁决落地，受影响的 Dashboard 整页证据已重拍 |
 
-**交接信号**：`docs/release/handoff-2026-11-16/ui-ready.json`（`ready=true`，原子写入：同目录临时文件 + `rename`）。若本分支在交接后再改动，先把 `ready` 置回 `false`，新提交通过验收后再重新发布。
+**交接信号**：`docs/archive/2026-11/handoff-2026-11-16/ui-ready.json`（`ready=true`，原子写入：同目录临时文件 + `rename`）。若本分支在交接后再改动，先把 `ready` 置回 `false`，新提交通过验收后再重新发布。
 
 ---
 
@@ -328,3 +328,16 @@
 `web/e2e/smoke.spec.ts` 的 3 条基线既有失败（选择器漂移 / 依赖账号数据 / 依赖外网 LLM）
 已另开**独立测试维护任务 [#81](https://github.com/yuwen773/eyes-diagnosis/issues/81)**。
 本 PR 的 e2e 状态如实记为「1 通过 / 3 失败」，**不得**描述成全量 E2E 通过。
+
+## 截图裁剪说明（2026-11-22）
+
+本目录属于一次性视觉取证。对比截图已按「每个主题 ≤12 张代表图（优先 1440 宽，light / dark 各一）」裁剪，
+被裁剪的每个文件都记录在各级 `inventory.csv` 里（文件名、字节、md5、理由、取回路径）。
+
+原始字节没有丢失，仍在 git 历史中，按 `retrieve_from` 列取回：
+
+```
+git show 280f45c9:<path> > <file>
+```
+
+裁剪规则与整体分层见 `docs/README.md` 的「目录分层」一节。

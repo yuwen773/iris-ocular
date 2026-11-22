@@ -1,0 +1,9 @@
+file,bytes,md5,action,reason,retrieve_from
+compare-before-after.png,1257013,9162025e982924b0f1c9a0f57fa4401e,deleted,topic-pruned:admin-redesign-after,280f45c9:docs/design/admin-redesign-after/r1/compare-before-after.png
+dashboard.png,282792,070554356bab9d1d622cfb6c939069cd,deleted,scene-pruned:admin-redesign-after,280f45c9:docs/design/admin-redesign-after/r1/dashboard.png
+data-analysis.png,163259,8673473dc4d11588f90a9d03f226bb7f,deleted,scene-pruned:admin-redesign-after,280f45c9:docs/design/admin-redesign-after/r1/data-analysis.png
+diagnosis.png,216877,37793e8bfabcbab18cb1268542dd783b,deleted,scene-pruned:admin-redesign-after,280f45c9:docs/design/admin-redesign-after/r1/diagnosis.png
+knowledge.png,205013,4d75cffab455ac093c9ff2a241ad632e,deleted,scene-pruned:admin-redesign-after,280f45c9:docs/design/admin-redesign-after/r1/knowledge.png
+news-edit.png,130345,8d6938f125d5ccb56066a6ccabe00910,deleted,scene-pruned:admin-redesign-after,280f45c9:docs/design/admin-redesign-after/r1/news-edit.png
+news.png,222214,61a39733469d408448bc757d203efdac,deleted,scene-pruned:admin-redesign-after,280f45c9:docs/design/admin-redesign-after/r1/news.png
+users.png,159268,66bfba41e1d5a98bf993556c0b0838da,deleted,scene-pruned:admin-redesign-after,280f45c9:docs/design/admin-redesign-after/r1/users.png

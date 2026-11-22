@@ -18,7 +18,7 @@
 | 独立复审 | 对本分支再跑一轮 `/code-review` 的 6 条发现 | 1 条已修于 `77e43f6c`，其余 5 条见下 |
 
 逐条对账、验证读数与**未做项的理由**见交接文档
-`docs/release/handoff-2026-11-16/iris-frontend-fix.md`。
+`docs/archive/2026-11/handoff-2026-11-16/iris-frontend-fix.md`。
 
 仍未处理、需要单独一批的：M-1（筛选草稿 state 下沉）、M-2（`columns` 稳定化）、
 B-1（`@base-ui/react` 首屏拆包，报告本身就要求单独 PR）、§4.4 卡片化块收敛、

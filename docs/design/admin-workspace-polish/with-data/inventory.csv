@@ -1,0 +1,13 @@
+file,bytes,md5,action,reason,retrieve_from
+account-menu-1440-dark.png,43199,c1bde1818052bed37527cbad3c943dd1,deleted,duplicate-of:docs/design/admin-workspace-polish/no-data/account-menu-1440-dark.png,280f45c9:docs/design/admin-workspace-polish/with-data/account-menu-1440-dark.png
+account-menu-1440-light.png,47461,aa84e20e56e83421232f9ce17b4560b0,deleted,duplicate-of:docs/design/admin-workspace-polish/no-data/account-menu-1440-light.png,280f45c9:docs/design/admin-workspace-polish/with-data/account-menu-1440-light.png
+dashboard-1440-dark-viewport.png,249990,8c77b58153e7c575a6b8e7e83d4ae8b1,deleted,scene-pruned:admin-workspace-polish,280f45c9:docs/design/admin-workspace-polish/with-data/dashboard-1440-dark-viewport.png
+dashboard-1440-light-viewport.png,254236,1a362b727597c3fbd355ee5d091540d0,deleted,scene-pruned:admin-workspace-polish,280f45c9:docs/design/admin-workspace-polish/with-data/dashboard-1440-light-viewport.png
+dashboard-390-dark.png,219773,4496409ff2ac1972cfb55291e12332d3,deleted,scene-pruned:admin-workspace-polish,280f45c9:docs/design/admin-workspace-polish/with-data/dashboard-390-dark.png
+dashboard-390-light.png,220431,33a4b71522c32e980344b7c3a005e0a6,deleted,scene-pruned:admin-workspace-polish,280f45c9:docs/design/admin-workspace-polish/with-data/dashboard-390-light.png
+nav-drawer-390-dark.png,40083,248097d1799b7b6331727400805ee966,deleted,scene-pruned:admin-workspace-polish,280f45c9:docs/design/admin-workspace-polish/with-data/nav-drawer-390-dark.png
+nav-drawer-390-light.png,43797,ef4d981274944153b86592dde20dd6d3,deleted,scene-pruned:admin-workspace-polish,280f45c9:docs/design/admin-workspace-polish/with-data/nav-drawer-390-light.png
+shell-1440-dark.png,72305,5e6fa3f1bafb48e88b67f20eb99b5bb9,deleted,scene-pruned:admin-workspace-polish,280f45c9:docs/design/admin-workspace-polish/with-data/shell-1440-dark.png
+shell-1440-light.png,75632,a64ebdc339b430ec503e5bb873cee324,deleted,scene-pruned:admin-workspace-polish,280f45c9:docs/design/admin-workspace-polish/with-data/shell-1440-light.png
+topbar-1440-dark.png,8082,d109662c76d60a1f959aa6039882e325,deleted,duplicate-of:docs/design/admin-workspace-polish/no-data/topbar-1440-dark.png,280f45c9:docs/design/admin-workspace-polish/with-data/topbar-1440-dark.png
+topbar-1440-light.png,8162,8a6247e9349b2e7619f438d74e7be7f8,deleted,duplicate-of:docs/design/admin-workspace-polish/no-data/topbar-1440-light.png,280f45c9:docs/design/admin-workspace-polish/with-data/topbar-1440-light.png

@@ -113,9 +113,8 @@ node_modules/
 /.tmp-e2e/
 /.tmp-docker-runs/
 
-# 非项目资料（专利/竞赛/文档附件）
-/docs/game/
-/docs/patent-response*/
+# 非项目资料（专利/竞赛/交付附件）：放在仓库根 delivery/，不进 docs/
+/delivery/
 *.rar
 *.zip
 *.xlsx

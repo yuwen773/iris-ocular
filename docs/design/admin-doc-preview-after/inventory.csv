@@ -1,0 +1,14 @@
+file,bytes,md5,action,reason,retrieve_from
+workspace-docx-1280-light.png,216576,5d52c80a1a4588faed23750aea0e75bd,deleted,scene-pruned:admin-doc-preview,280f45c9:docs/design/admin-doc-preview-after/workspace-docx-1280-light.png
+workspace-docx-390-light-table.png,60472,5468ab00337fae45382196200772259f,deleted,topic-pruned:admin-doc-preview,280f45c9:docs/design/admin-doc-preview-after/workspace-docx-390-light-table.png
+workspace-docx-390-light.png,76957,75b4c3732038dea9de28244e4b33e54d,deleted,scene-pruned:admin-doc-preview,280f45c9:docs/design/admin-doc-preview-after/workspace-docx-390-light.png
+workspace-md-1920-dark.png,359799,afad33e0ea5881979b6c407e2afd8598,deleted,scene-pruned:admin-doc-preview,280f45c9:docs/design/admin-doc-preview-after/workspace-md-1920-dark.png
+workspace-md-1920-light.png,363151,9e0c9d529d8e0639cac5d1b9fc2c2955,deleted,scene-pruned:admin-doc-preview,280f45c9:docs/design/admin-doc-preview-after/workspace-md-1920-light.png
+workspace-md-390-dark.png,76908,2e1528a658561b33c7a917f072c38406,deleted,scene-pruned:admin-doc-preview,280f45c9:docs/design/admin-doc-preview-after/workspace-md-390-dark.png
+workspace-md-390-light-chunks.png,84533,f5cfb2a726b3549eaf8341ec8ad6a440,deleted,topic-pruned:admin-doc-preview,280f45c9:docs/design/admin-doc-preview-after/workspace-md-390-light-chunks.png
+workspace-md-390-light.png,76792,b42c04732cba1bc704fc557d06424a70,deleted,scene-pruned:admin-doc-preview,280f45c9:docs/design/admin-doc-preview-after/workspace-md-390-light.png
+workspace-md-768-dark.png,126289,0a44c0ebf80ab0f55921ed22da926454,deleted,scene-pruned:admin-doc-preview,280f45c9:docs/design/admin-doc-preview-after/workspace-md-768-dark.png
+workspace-md-768-light.png,126368,bce7293f79d731b9b8d1605c54497a11,deleted,scene-pruned:admin-doc-preview,280f45c9:docs/design/admin-doc-preview-after/workspace-md-768-light.png
+workspace-pdf-390-light.png,61050,cfe223dd03015a24265d056138fc6378,deleted,scene-pruned:admin-doc-preview,280f45c9:docs/design/admin-doc-preview-after/workspace-pdf-390-light.png
+workspace-txt-1440-dark.png,323299,795fac5ac15cdab0bc7d0551a02e04da,deleted,topic-pruned:admin-doc-preview,280f45c9:docs/design/admin-doc-preview-after/workspace-txt-1440-dark.png
+workspace-txt-1440-light.png,324370,807d111041dbc71a026d33504f79596c,deleted,topic-pruned:admin-doc-preview,280f45c9:docs/design/admin-doc-preview-after/workspace-txt-1440-light.png

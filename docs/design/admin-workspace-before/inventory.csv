@@ -1,0 +1,6 @@
+file,bytes,md5,action,reason,retrieve_from
+dashboard-390-dark.png,205753,c2d444ce9e2338ec0196959c95f0cd7e,deleted,scene-pruned:admin-workspace-before,280f45c9:docs/design/admin-workspace-before/dashboard-390-dark.png
+dashboard-390-light.png,211255,f63fa554db61be7551d72900f2a86779,deleted,scene-pruned:admin-workspace-before,280f45c9:docs/design/admin-workspace-before/dashboard-390-light.png
+page-diagnosis.png,212316,8907a6866b909d75ea9e7c138cb6ee3b,deleted,topic-pruned:admin-workspace-before,280f45c9:docs/design/admin-workspace-before/page-diagnosis.png
+page-news.png,212885,59b6134664636885a7075cf6b2fd6232,deleted,topic-pruned:admin-workspace-before,280f45c9:docs/design/admin-workspace-before/page-news.png
+w390-news.png,118347,b72e7db80dfb78fdfb1c2d10c790d926,deleted,duplicate-of:docs/design/admin-redesign-after/r3/w390/news.png,280f45c9:docs/design/admin-workspace-before/w390-news.png
