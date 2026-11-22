@@ -2,7 +2,7 @@
 
 > 对应审计：[`iris22-admin-dashboard-b3-audit.md`](iris22-admin-dashboard-b3-audit.md)
 > 实施范围：只改 `web/` 的运营总览页与其读数归一；不动 D-01b、OOD、数据库迁移与
-> Analytics 口径。工作树保持未提交。
+> Analytics 口径。改动随本分支提交。
 > 日期：2026-11-22
 
 ## 1. 已确认的四项决策

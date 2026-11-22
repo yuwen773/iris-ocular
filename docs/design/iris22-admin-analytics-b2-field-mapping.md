@@ -1,7 +1,7 @@
 # Iris 2.2 · B2 数据分析工作台 · 字段映射表
 
 > 日期：2026-11-22
-> 依据：工作树内 B1 实际代码（`AdminAnalyticsVO` 等 13 个 VO、`AdminAnalyticsServiceImpl`、
+> 依据：本分支 B1 实际代码（`AdminAnalyticsVO` 等 13 个 VO、`AdminAnalyticsServiceImpl`、
 > `AdminAnalyticsMapper`），不是交付报告。
 > 用途：B2 页面上每个数字/文案 → 后端字段的**唯一对照表**。没有对应字段的展示项一律不做。
 
