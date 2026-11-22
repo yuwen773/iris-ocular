@@ -10,8 +10,6 @@ import com.csust.eyediagnosis.exception.BusinessException;
 import com.csust.eyediagnosis.exception.ErrorCode;
 import com.csust.eyediagnosis.exception.ThrowUtils;
 import com.csust.eyediagnosis.model.dto.file.UploadPictureDetail;
-import com.qcloud.cos.model.PutObjectResult;
-import com.qcloud.cos.model.ciModel.persistence.ImageInfo;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -38,7 +36,7 @@ public class FileManager {
     private CosClientConfig cosClientConfig;
 
     @Resource
-    private CosManager cosManager;
+    private ImageArchive imageArchive;
 
     /**
      * 上传图片
@@ -62,22 +60,17 @@ public class FileManager {
             //创建临时文件
             file = File.createTempFile(uploadPath,null);
             multipartFile.transferTo(file);
-            //上传图片
-            PutObjectResult putObjectResult = cosManager.putPictureObject(uploadPath,file);
-            ImageInfo imageInfo = putObjectResult.getCiUploadResult().getOriginalInfo().getImageInfo();
+            //上传图片（写失败时 ImageArchive 已经删过这个 key）
+            ImageArchive.StoredPicture stored = imageArchive.storePicture(uploadPath, file);
             //封装返回结果
             UploadPictureDetail uploadPictureDetail = new UploadPictureDetail();
-            //宽度
-            int picWidth = imageInfo.getWidth();
-            //高度
-            int picHeight = imageInfo.getHeight();
             //宽高比例
-            double picScale = NumberUtil.round(picWidth*1.0/picHeight,2).doubleValue();
+            double picScale = NumberUtil.round(stored.width()*1.0/stored.height(),2).doubleValue();
             //图片名称
-            uploadPictureDetail.setPicWidth(picWidth);
-            uploadPictureDetail.setPicHeight(picHeight);
+            uploadPictureDetail.setPicWidth(stored.width());
+            uploadPictureDetail.setPicHeight(stored.height());
             uploadPictureDetail.setPicScale(picScale);
-            uploadPictureDetail.setPicFormat(imageInfo.getFormat());
+            uploadPictureDetail.setPicFormat(stored.format());
             uploadPictureDetail.setPicSize(FileUtil.size(file));
             //拼接图片访问地址
             uploadPictureDetail.setUrl(cosClientConfig.getHost()+"/"+uploadPath);
@@ -85,14 +78,12 @@ public class FileManager {
             uploadPictureDetail.setObjectKey(uploadPath);
             return uploadPictureDetail;
         } catch (Exception e) {
-            // 对象可能已经写进存储，只是回包解析失败（CI 字段缺失、宽高信息为空等）：
-            // 那种情况下 key 从未返回给调用方，落库也不会发生，不删就是一张永久孤儿原图
-            // ——public/ 前缀没有对账器，只能靠人工排查。
-            //
-            // 为什么可以无条件删：uploadPath 是本方法刚用日期 + 16 位随机数现生成的，
-            // 没有任何记录引用它；deleteObject 对不存在的 key 是幂等成功的。
+            // 覆盖 ImageArchive 没管到的那一段：对象已经写好，但后面的封装（size / host）
+            // 失败。storePicture 在**写入本身**失败时已删过一次，这里再删一次是幂等的
+            // （COS 对不存在的 key 删除成功），换来的是「任何失败都不留孤儿」。
+            // public/ 前缀没有对账器，漏掉就是一张只能人工排查的原图。
             log.error("图片上传到对象存储失败，清理可能已写入的对象: key={}", uploadPath, e);
-            deleteUploadedPictureQuietly(uploadPath);
+            imageArchive.discardQuietly(uploadPath);
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, FileConstant.FAIL_UPLOAD);
         }finally{
             this.deleteTemFile(file);
@@ -112,14 +103,7 @@ public class FileManager {
      * @param objectKey {@link #uploadPicture} 返回的 key
      */
     public void deleteUploadedPictureQuietly(String objectKey) {
-        if (objectKey == null || objectKey.isBlank()) {
-            return;
-        }
-        try {
-            cosManager.deleteObject(objectKey);
-        } catch (Exception e) {
-            log.error("补偿删除对象失败，可能留下孤儿对象: key={}", objectKey, e);
-        }
+        imageArchive.discardQuietly(objectKey);
     }
 
     /**
