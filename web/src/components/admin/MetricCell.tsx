@@ -15,10 +15,24 @@ export function MetricCell(props: {
   foot?: ReactNode
   /** 主指标：左缘加一枚管理紫短柱 */
   primary?: boolean
+  /** 打开指标口径抽屉；不传则不渲染入口（仪表盘不用这一层）。 */
+  onInspect?: () => void
 }): ReactElement {
   return (
     <div className={`admin-metric-card${props.primary ? " admin-metric-card--primary" : ""}`}>
-      <span className="admin-metric-card__label">{props.label}</span>
+      <span className="admin-metric-card__label">
+        <span>{props.label}</span>
+        {props.onInspect ? (
+          <button
+            type="button"
+            className="admin-metric-card__inspect"
+            onClick={props.onInspect}
+            aria-label={`查看「${props.label}」的口径`}
+          >
+            查看口径
+          </button>
+        ) : null}
+      </span>
       <span className="admin-metric-card__value">{props.value}</span>
       <span className="admin-metric-card__foot">{props.foot}</span>
     </div>

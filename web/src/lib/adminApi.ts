@@ -311,29 +311,33 @@ export function fetchKnowledgeDocx(id: string, signal?: AbortSignal): Promise<Ar
 
 /* ── 统计 ─────────────────────────────────────────────────── */
 
-/** 统计总览（仪表盘与数据分析共用同一份口径）。 */
+/**
+ * 统计总览（仪表盘）。数据分析页自 B2 起走 {@link getAdminAnalytics}，
+ * 两页不再共用同一份响应。
+ */
 export type AdminStats = {
   days: number; rangeStart: string; rangeEnd: string
-  userTotal: number; userNew: number; previousUserNew: number; userAdmin: number
-  diagnosisTotal: number; diagnosisInRange: number; previousDiagnosisInRange: number
-  diagnosisToday: number
-  diagnosisAiRejected: number; diagnosisAwaitingReview: number; diagnosisReviewed: number
-  /** 待人工复核积压（全站累计）：现在还有多少没处理 */
-  diagnosisAwaitingReviewTotal: number
-  /** 平均置信度（0–1）；无样本时为 null */
+  /** 计数缺失时保持 undefined：界面显示「—」，不把未知补成 0。 */
+  userTotal?: number; userNew?: number; previousUserNew?: number; userAdmin?: number
+  diagnosisTotal?: number; diagnosisInRange?: number; previousDiagnosisInRange?: number
+  diagnosisToday?: number
+  diagnosisAiRejected?: number; diagnosisAwaitingReview?: number; diagnosisReviewed?: number
+  /** 待人工复核积压（全站累计）：B3 起不再作为当前待办展示 */
+  diagnosisAwaitingReviewTotal?: number
+  /** 平均置信度（0–100 量纲，模型自评；无样本时为 null）；B3 起不在仪表盘展示 */
   avgConfidence: number | null
-  knowledgeTotal: number; knowledgeChunks: number; knowledgeFailed: number
-  knowledgeByStatus: StatBucket[]
-  newsTotal: number; newsByStatus: StatBucket[]
-  trendDays: string[]
-  diagnosisTrend: StatDayCount[]
+  knowledgeTotal?: number; knowledgeChunks?: number; knowledgeFailed?: number
+  knowledgeByStatus?: StatBucket[]
+  newsTotal?: number; newsByStatus?: StatBucket[]
+  trendDays?: string[]
+  diagnosisTrend?: StatDayCount[]
   /** 上一等长窗口的日序列（与 diagnosisTrend 按天对齐） */
-  previousDiagnosisTrend: StatDayCount[]
-  previousUserTrend: StatDayCount[]
-  userTrend: StatDayCount[]
-  diagnosisDistribution: StatBucket[]
-  reviewDistribution: StatBucket[]
-  diagnosisTrendByResult: StatDayNameCount[]
+  previousDiagnosisTrend?: StatDayCount[]
+  previousUserTrend?: StatDayCount[]
+  userTrend?: StatDayCount[]
+  diagnosisDistribution?: StatBucket[]
+  reviewDistribution?: StatBucket[]
+  diagnosisTrendByResult?: StatDayNameCount[]
 }
 export type StatBucket = { name: string; value: number }
 export type StatDayCount = { day: string; value: number }
@@ -354,6 +358,16 @@ export function getAdminStats(days: number): Promise<AdminStats> {
 function num(value: unknown): number {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : 0
+}
+
+/**
+ * 计数归一：缺失 / null / 非法值保持 undefined，让界面能说「未知」。
+ * 真实 0 仍然返回 0——「读到是零」和「字段没来」不能混成一个数。
+ */
+function optNum(value: unknown): number | undefined {
+  if (value === undefined || value === null || value === "") return undefined
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : undefined
 }
 
 type RawAdminStats = Omit<AdminStats, "userTotal" | "userNew" | "userAdmin" | "diagnosisTotal"
@@ -385,33 +399,33 @@ type RawAdminStats = Omit<AdminStats, "userTotal" | "userNew" | "userAdmin" | "d
 
 function toStats(raw: RawAdminStats): AdminStats {
   const buckets = (rows?: { name: string; value: number | string }[]) =>
-    (rows ?? []).map((row) => ({ name: row.name, value: num(row.value) }))
+    rows?.map((row) => ({ name: row.name, value: num(row.value) }))
   const days = (rows?: { day: string; value: number | string }[]) =>
-    (rows ?? []).map((row) => ({ day: row.day, value: num(row.value) }))
+    rows?.map((row) => ({ day: row.day, value: num(row.value) }))
   return {
     days: num(raw.days),
     rangeStart: raw.rangeStart ?? "",
     rangeEnd: raw.rangeEnd ?? "",
-    userTotal: num(raw.userTotal),
-    userNew: num(raw.userNew),
-    previousUserNew: num(raw.previousUserNew),
-    userAdmin: num(raw.userAdmin),
-    diagnosisTotal: num(raw.diagnosisTotal),
-    diagnosisInRange: num(raw.diagnosisInRange),
-    previousDiagnosisInRange: num(raw.previousDiagnosisInRange),
-    diagnosisToday: num(raw.diagnosisToday),
-    diagnosisAiRejected: num(raw.diagnosisAiRejected),
-    diagnosisAwaitingReview: num(raw.diagnosisAwaitingReview),
-    diagnosisReviewed: num(raw.diagnosisReviewed),
-    diagnosisAwaitingReviewTotal: num(raw.diagnosisAwaitingReviewTotal),
+    userTotal: optNum(raw.userTotal),
+    userNew: optNum(raw.userNew),
+    previousUserNew: optNum(raw.previousUserNew),
+    userAdmin: optNum(raw.userAdmin),
+    diagnosisTotal: optNum(raw.diagnosisTotal),
+    diagnosisInRange: optNum(raw.diagnosisInRange),
+    previousDiagnosisInRange: optNum(raw.previousDiagnosisInRange),
+    diagnosisToday: optNum(raw.diagnosisToday),
+    diagnosisAiRejected: optNum(raw.diagnosisAiRejected),
+    diagnosisAwaitingReview: optNum(raw.diagnosisAwaitingReview),
+    diagnosisReviewed: optNum(raw.diagnosisReviewed),
+    diagnosisAwaitingReviewTotal: optNum(raw.diagnosisAwaitingReviewTotal),
     avgConfidence: raw.avgConfidence == null ? null : num(raw.avgConfidence),
-    knowledgeTotal: num(raw.knowledgeTotal),
-    knowledgeChunks: num(raw.knowledgeChunks),
-    knowledgeFailed: num(raw.knowledgeFailed),
+    knowledgeTotal: optNum(raw.knowledgeTotal),
+    knowledgeChunks: optNum(raw.knowledgeChunks),
+    knowledgeFailed: optNum(raw.knowledgeFailed),
     knowledgeByStatus: buckets(raw.knowledgeByStatus),
-    newsTotal: num(raw.newsTotal),
+    newsTotal: optNum(raw.newsTotal),
     newsByStatus: buckets(raw.newsByStatus),
-    trendDays: raw.trendDays ?? [],
+    trendDays: raw.trendDays,
     diagnosisTrend: days(raw.diagnosisTrend),
     userTrend: days(raw.userTrend),
     previousDiagnosisTrend: days(raw.previousDiagnosisTrend),
@@ -423,5 +437,262 @@ function toStats(raw: RawAdminStats): AdminStats {
       name: row.name,
       value: num(row.value),
     })),
+  }
+}
+
+/* ── 数据分析（B2） ───────────────────────────────────────── */
+
+/**
+ * 数据分析读数。字段与口径对照见
+ * `docs/design/iris22-admin-analytics-b2-field-mapping.md`。
+ *
+ * <p>与总览的关键差异：这里**没有**逐日趋势、病种构成、知识库/资讯读数。
+ * 页面不得拿总览数据补齐这些缺口——那会让两页重新耦合。
+ */
+export type AnalyticsReasonStat = {
+  reason: string
+  count: number
+  /** 后端给定分母算出的占比；分母不可用时为 null */
+  share: number | null
+}
+export type AnalyticsStatusStat = { status: string; count: number }
+export type AnalyticsReviewerStat = {
+  /** 雪花 id 经全局 Long→String，可能为 null（历史数据缺复核人） */
+  reviewerId: string | null
+  reviewerName: string | null
+  reviewed: number
+  overridden: number
+  avgMinutes: number | null
+}
+export type AnalyticsReview = {
+  /** 后端只对复核领域给出数据状态；当前恒为 HISTORICAL_ONLY */
+  dataStatus: string
+  awaitingTotal: number
+  queuedInWindow: number
+  completedInWindow: number
+  completionRate: number | null
+  reviewedInWindow: number
+  overriddenInWindow: number
+  overrideRate: number | null
+  latencySamples: number
+  avgMinutes: number | null
+  p50Minutes: number | null
+  p90Minutes: number | null
+  maxMinutes: number | null
+  reviewers: AnalyticsReviewerStat[]
+  queueReasons: AnalyticsReasonStat[]
+  unclassifiedReasonCount: number
+  unknownReasonCount: number
+}
+export type AnalyticsRejection = {
+  total: number
+  rejected: number
+  rate: number | null
+  reasons: AnalyticsReasonStat[]
+  unclassifiedReasonCount: number
+  unknownReasonCount: number
+}
+export type AnalyticsModelVersion = {
+  modelVersion: string
+  count: number
+  rejected: number
+  rejectionRate: number | null
+  /** 0–100 量纲；只由 1 < confidence <= 100 的样本计算；无样本为 null */
+  avgConfidence: number | null
+  confidenceSamples: number
+  ambiguousConfidence: number
+}
+export type AnalyticsConfidence = {
+  samples: number
+  avg: number | null
+  ambiguous: number
+  outOfRange: number
+  missing: number
+}
+export type AnalyticsHistogramBucket = { bucket: string; count: number }
+export type AnalyticsQualityScore = { score: number | null; count: number }
+export type AnalyticsModel = {
+  versions: AnalyticsModelVersion[]
+  confidence: AnalyticsConfidence
+  confidenceHistogram: AnalyticsHistogramBucket[]
+  qualityScores: AnalyticsQualityScore[]
+  qualityOutOfContract: number
+  qualityUnknown: number
+  qualityReasons: AnalyticsReasonStat[]
+  unclassifiedQualityReasonCount: number
+  oodStatuses: AnalyticsStatusStat[]
+  calibrationStatuses: AnalyticsStatusStat[]
+}
+export type AnalyticsDataQuality = {
+  unknownReviewStatuses: AnalyticsStatusStat[]
+  unknownOodStatuses: AnalyticsStatusStat[]
+  unknownCalibrationStatuses: AnalyticsStatusStat[]
+  qualityOutOfContract: number
+  ambiguousConfidence: number
+  confidenceOutOfRange: number
+  confidenceMissing: number
+  reviewedWithoutTime: number
+}
+export type AdminAnalytics = {
+  days: number
+  rangeStart: string
+  rangeEnd: string
+  review: AnalyticsReview
+  rejection: AnalyticsRejection
+  model: AnalyticsModel
+  dataQuality: AnalyticsDataQuality
+}
+
+export function getAdminAnalytics(days: number): Promise<AdminAnalytics> {
+  return request<Record<string, unknown>>(`/stats/admin/analytics?days=${days}`, {
+    method: "GET",
+  }).then(toAnalytics)
+}
+
+/* 转换层的小工具：响应字段可能缺失或类型漂移，读不到时给安全的「未知」，
+   不把缺失读成 0。 */
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {}
+}
+
+function asRows(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value) ? value.map(asRecord) : []
+}
+
+function textOf(value: unknown): string {
+  return typeof value === "string" ? value : ""
+}
+
+/** 可空数值：null / undefined / 非数字 → null（「不适用」），绝不变成 0。 */
+function optionalNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+/**
+ * 顶层领域必须存在：缺了整个对象时抛错，让页面进错误态，
+ * 而不是把「响应坏了一半」渲染成一排 0。
+ */
+/**
+ * 统计响应残缺的本地错误码：不与传输失败（-1）混用，
+ * 否则「响应少了字段」会被读成「连不上服务」。
+ */
+const STATS_PAYLOAD_CODE = -2
+
+function requireDomain(raw: Record<string, unknown>, key: string): Record<string, unknown> {
+  const value = raw[key]
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new ApiError(STATS_PAYLOAD_CODE, `统计响应缺少 ${key} 领域`)
+  }
+  return asRecord(value)
+}
+
+function reasonRows(value: unknown): AnalyticsReasonStat[] {
+  return asRows(value).map((row) => ({
+    // 后端已把空原因并成 UNRECORDED；这里的兜底只为防御半截响应。
+    reason: textOf(row.reason) || "UNRECORDED",
+    count: num(row.count),
+    share: optionalNumber(row.share),
+  }))
+}
+
+function statusRows(value: unknown): AnalyticsStatusStat[] {
+  return asRows(value).map((row) => ({
+    status: textOf(row.status) || "UNRECORDED",
+    count: num(row.count),
+  }))
+}
+
+function toAnalytics(raw: Record<string, unknown>): AdminAnalytics {
+  const review = requireDomain(raw, "review")
+  const rejection = requireDomain(raw, "rejection")
+  const model = requireDomain(raw, "model")
+  const dataQuality = requireDomain(raw, "dataQuality")
+  const confidence = requireDomain(model, "confidence")
+
+  return {
+    days: num(raw.days),
+    rangeStart: textOf(raw.rangeStart),
+    rangeEnd: textOf(raw.rangeEnd),
+    review: {
+      // 缺失时给空串：页面据此显示「无法确认复核数据状态」，不冒充历史/当前。
+      dataStatus: textOf(review.dataStatus),
+      awaitingTotal: num(review.awaitingTotal),
+      queuedInWindow: num(review.queuedInWindow),
+      completedInWindow: num(review.completedInWindow),
+      completionRate: optionalNumber(review.completionRate),
+      reviewedInWindow: num(review.reviewedInWindow),
+      overriddenInWindow: num(review.overriddenInWindow),
+      overrideRate: optionalNumber(review.overrideRate),
+      latencySamples: num(review.latencySamples),
+      avgMinutes: optionalNumber(review.avgMinutes),
+      p50Minutes: optionalNumber(review.p50Minutes),
+      p90Minutes: optionalNumber(review.p90Minutes),
+      maxMinutes: optionalNumber(review.maxMinutes),
+      reviewers: asRows(review.reviewers).map((row) => ({
+        reviewerId: row.reviewerId == null ? null : String(row.reviewerId),
+        reviewerName: textOf(row.reviewerName) || null,
+        reviewed: num(row.reviewed),
+        overridden: num(row.overridden),
+        avgMinutes: optionalNumber(row.avgMinutes),
+      })),
+      queueReasons: reasonRows(review.queueReasons),
+      unclassifiedReasonCount: num(review.unclassifiedReasonCount),
+      unknownReasonCount: num(review.unknownReasonCount),
+    },
+    rejection: {
+      total: num(rejection.total),
+      rejected: num(rejection.rejected),
+      rate: optionalNumber(rejection.rate),
+      reasons: reasonRows(rejection.reasons),
+      unclassifiedReasonCount: num(rejection.unclassifiedReasonCount),
+      unknownReasonCount: num(rejection.unknownReasonCount),
+    },
+    model: {
+      versions: asRows(model.versions).map((row) => ({
+        modelVersion: textOf(row.modelVersion) || "UNRECORDED",
+        count: num(row.count),
+        rejected: num(row.rejected),
+        rejectionRate: optionalNumber(row.rejectionRate),
+        avgConfidence: optionalNumber(row.avgConfidence),
+        confidenceSamples: num(row.confidenceSamples),
+        ambiguousConfidence: num(row.ambiguousConfidence),
+      })),
+      confidence: {
+        samples: num(confidence.samples),
+        avg: optionalNumber(confidence.avg),
+        ambiguous: num(confidence.ambiguous),
+        outOfRange: num(confidence.outOfRange),
+        missing: num(confidence.missing),
+      },
+      confidenceHistogram: asRows(model.confidenceHistogram).map((row) => ({
+        bucket: textOf(row.bucket),
+        count: num(row.count),
+      })),
+      qualityScores: asRows(model.qualityScores).map((row) => ({
+        score: optionalNumber(row.score),
+        count: num(row.count),
+      })),
+      qualityOutOfContract: num(model.qualityOutOfContract),
+      qualityUnknown: num(model.qualityUnknown),
+      qualityReasons: reasonRows(model.qualityReasons),
+      unclassifiedQualityReasonCount: num(model.unclassifiedQualityReasonCount),
+      oodStatuses: statusRows(model.oodStatuses),
+      calibrationStatuses: statusRows(model.calibrationStatuses),
+    },
+    dataQuality: {
+      unknownReviewStatuses: statusRows(dataQuality.unknownReviewStatuses),
+      unknownOodStatuses: statusRows(dataQuality.unknownOodStatuses),
+      unknownCalibrationStatuses: statusRows(dataQuality.unknownCalibrationStatuses),
+      qualityOutOfContract: num(dataQuality.qualityOutOfContract),
+      ambiguousConfidence: num(dataQuality.ambiguousConfidence),
+      confidenceOutOfRange: num(dataQuality.confidenceOutOfRange),
+      confidenceMissing: num(dataQuality.confidenceMissing),
+      reviewedWithoutTime: num(dataQuality.reviewedWithoutTime),
+    },
   }
 }

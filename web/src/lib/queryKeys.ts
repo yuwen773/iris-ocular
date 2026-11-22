@@ -18,6 +18,9 @@ export const queryKeys = {
   admin: {
     stats: (days: number) => ["admin", "stats", days] as const,
     statsAll: ["admin", "stats"] as const,
+    /** 数据分析读数：与总览分键，避免切页时互相串用缓存。 */
+    analytics: (days: number) => ["admin", "analytics", days] as const,
+    analyticsAll: ["admin", "analytics"] as const,
     recentDiagnoses: ["admin", "diagnosis", "recent"] as const,
     users: (q: UserQuery) => ["admin", "users", q] as const,
     usersAll: ["admin", "users"] as const,
