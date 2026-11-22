@@ -1,0 +1,120 @@
+{
+  "taskId": "iris21-multiagent-r13-nightly-d66e6e22",
+  "owner": "claude-code-nightly-r13",
+  "result": "REVIEW_PASS",
+  "startedAt": "2026-11-15T23:34:00+08:00",
+  "completedAt": "2026-11-15T23:59:30+08:00",
+  "handoff": {
+    "sha": "d66e6e22bb001188865e68805baa668c083b5988",
+    "branch": "feat/iris21-multiagent-integration",
+    "report": "D:/Work/code/iris-integration-handoff/codex-final-report.md",
+    "reportSha256Verified": true,
+    "worktreeClean": true,
+    "uiAncestryVerified": true,
+    "frozenTagSha": "80f53f7f55955c2d30a1a9c98479dcb87682051b",
+    "knownP0P1Blockers": 0
+  },
+  "nightly": {
+    "branch": "feat/iris21-multiagent-r13-nightly",
+    "worktree": "D:/Work/code/eye-diagnosis/.claude/worktrees/iris21-multiagent-r13-nightly",
+    "baseSha": "d66e6e22bb001188865e68805baa668c083b5988",
+    "codeSha": "ffb6ff4bb10204269282c2644fdcbb252520c830",
+    "finalSha": "7abfe50c50bf23ab7b6904e9e9c56f20e8e004bb",
+    "commitsAdded": 3,
+    "changedFiles": 6,
+    "worktreeCleanAtEnd": true,
+    "reportPath": "D:/Work/code/eye-diagnosis/.claude/worktrees/iris21-multiagent-r13-nightly/docs/testing/iris21-multiagent-integration-20261115/r13-nightly-report.md"
+  },
+  "reviewOfCodexChanges": {
+    "admissionCursor": {
+      "commit": "4f3645ae",
+      "verdict": "PASS",
+      "notes": "Snapshot captured inside the admission transaction under the run-row lock; watermark equals committed seq; deterministic latch/afterCommit test fails on old code; no new race; authorization unchanged."
+    },
+    "issue81Smoke": {
+      "commits": ["b9659a44", "d8bc8f84"],
+      "verdict": "PASS",
+      "notes": "Three historical problems covered with real backend API responses; assertions strengthened; fixme budget 0/0; seeds scoped to diagnosis_ci + irisSmokeFixture prefix; missing credentials skip honestly."
+    },
+    "uiFreeze": {
+      "verdict": "PASS",
+      "agentPageBlob": "df36b2deaebb553f53af2e30fa3b1a8e925c7d6b",
+      "tokensCssBlob": "d5de71e4ff251bcdaad7c9595de751439c7dae45",
+      "notes": "Frozen pages/styles byte-identical to 80f53f7f; only ProductHeader end-prop and flag-gated nav item differ; ToolRequestMessage status chips are a contract adaptation needing product sign-off."
+    }
+  },
+  "gates": {
+    "typecheck": {"status": "PASS"},
+    "eslint": {"status": "PASS"},
+    "fixmeBudget": {"status": "PASS", "value": "0/0"},
+    "nodeGateTests": {"status": "PASS", "passed": 6, "total": 6},
+    "vitest": {"status": "PASS", "files": 66, "passed": 637, "skipped": 0, "failed": 0},
+    "viteBuildFlagOff": {"status": "PASS"},
+    "playwrightCollaboration": {"status": "PASS", "passed": 29, "total": 29, "scope": "synthetic HTTP/SSE, not real provider"},
+    "playwrightDefaultOff": {"status": "PASS", "passed": 1, "total": 1},
+    "issue81SmokeEmptyRecords": {"status": "PASS", "passed": 4, "total": 4},
+    "issue81SmokeSeededRecord": {"status": "PASS", "passed": 1, "total": 1},
+    "issue81SmokeMissingCredentials": {"status": "SKIP", "skipped": 4, "passed": 0},
+    "backendVerifyPass1": {"status": "PASS", "total": 612, "failed": 0, "errors": 0, "skipped": 303, "note": "opt-in suites run in pass 3"},
+    "backendVerifyPass2": {"status": "PASS", "passed": 7, "total": 7},
+    "backendVerifyPass3": {"status": "PASS", "passed": 303, "total": 303, "skipped": 0},
+    "backendVerifyOverall": {"status": "PASS", "marker": "==> verify green", "exitCode": 0},
+    "fullApplicationAcceptance": {"status": "PASS", "passed": 7, "total": 7, "scope": "real Spring Boot + Redis session + SSE + browser"},
+    "graphExecution": {"status": "PASS", "passed": 37, "total": 37},
+    "collaborationRun": {"status": "PASS", "passed": 33, "total": 33},
+    "hostedCiFinalSha": {"status": "NOT_RUN", "reason": "push prohibited by user instruction"},
+    "hostedCiRemoteSha": {"status": "PASS", "sha": "01098ccb8d89afa464904489b6d2b1c268d56e83", "jobs": "20/20", "note": "Codex-reported; not re-executed this run and not evidence for the final local SHA"},
+    "realProviderOrClinical": {"status": "NOT_RUN", "reason": "not authorized"}
+  },
+  "environmentNotes": [
+    "First verify run failed at pass 1 because ChromaDB was not running; started chroma 1.0.0 on :8000 and re-ran.",
+    "Second verify run pass 3 had 5 CoordinationMySqlTest failures caused by a concurrent mvn spring-boot:run recompiling the same target/; after stopping the concurrent build the clean third run was 303/303 green.",
+    "Browser smoke used disposable Docker MySQL 8.0.26 (33307), Redis (36380), Chroma (8000) and synthetic account irisSmokeFixtureR13; all containers removed afterwards.",
+    "All Java results are same-clock-domain (containers and JVM both UTC via verify.sh); no WSL2 cross-clock-domain comparison was performed or substituted."
+  ],
+  "remediation": {
+    "files": [
+      "web/package.json",
+      "web/e2e/README.md",
+      "web/e2e/fixtures/smoke-record.sql",
+      "web/.gitignore",
+      "web/src/styles/agent.css"
+    ],
+    "summary": "Added test:smoke entry point; corrected seed severity to lowercase; ignored test-results-*/; replaced medical --risk-* tokens in tool status colors with --brand-cyan/--brand-primary/--danger.",
+    "sourceOrMigrationChanges": false,
+    "frozenUiChanges": false,
+    "testAssertionsRemoved": false
+  },
+  "independentReview": {
+    "reviewers": 2,
+    "readOnly": true,
+    "cursorSseAuthorization": "PASS_WITH_MINOR",
+    "testsAndUiFreeze": "PASS_WITH_MINOR",
+    "mergeBlockers": [],
+    "remediatedFindings": ["README test:e2e entry point", "seed severity vocabulary", "test-results ignore", "medical risk tokens in tool status"],
+    "recordedFindings": [
+      "ToolRequestMessage status chips not flag-gated (needs product sign-off)",
+      "fixme gate does not detect test.skip(true)/describe.skip",
+      "records empty/present remain two branches of one data-dependent test",
+      "admission snapshot not cleared after consumption (no live trigger)",
+      "initialSnapshot object-identity memo dependency (stable in current caller)",
+      "docs/collaboration-runs.md does not state the POST watermark contract",
+      "ui-freeze-regression.spec.ts is a coarse guard",
+      "SameOriginFilter scheme comparison (pre-existing)",
+      "refresh/deep-link drops pre-watermark event entries (state correct, pre-existing)"
+    ]
+  },
+  "unresolved": {
+    "P0": 0,
+    "P1": 0,
+    "P2": 9,
+    "productionMedicalCollaboration": "BLOCKED",
+    "historicalWpC": "UNEXPLAINED",
+    "pr87Body": "STALE_R1.2_PENDING_AUTHORIZATION"
+  },
+  "remoteActions": [],
+  "productionFlagsChanged": false,
+  "migrationsChanged": false,
+  "realPatientDataUsed": false,
+  "lockReleased": true
+}

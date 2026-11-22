@@ -1,0 +1,17 @@
+oldSHA=a0efaf46d6f8b53bea4a35d613fc806e2f6e9d47 rcSHA=03b14efd8f9bcc8d6326a104396d8b68a30d5e8b
+oldJarSHA256=E3DC71B8B33018C6799C5B70BE2F3DC7D04FB03103868FEF7423FBB3C7A62529
+oldJarMigrations=12 oldJarContainsV18=False
+spec-old-at-v17 port=60607 db=iris_rc2_spec2 latestMigration=17 openApi=3.0.1
+old pre-upgrade register id=2123292921861480450
+old pre-upgrade authenticated read id=2123292921861480450
+snapshotBytes=23877 snapshotSHA256=4B24D223C99E07E20D29C97AC1BB3FA2C5011C558004CB64603DF38B5E55E682
+spec-rc-upgrade-to-v28 port=60665 db=iris_rc2_spec2 latestMigration=28 openApi=3.0.1
+rc at v28 authenticated read id=2123292921861480450
+rc post-backup register id=2123292990350233601
+spec-old-rollback-on-v28 port=60725 db=iris_rc2_spec2 latestMigration=28 openApi=3.0.1
+old on v28 authenticated prior account id=2123292921861480450
+old on v28 authenticated post-upgrade account id=2123292990350233601
+old on v28 register id=2123293041898192897
+spec-old-restored-v17 port=60770 db=iris_rc2_spec2_restore latestMigration=17 openApi=3.0.1
+old on restored v17 authenticated prior account id=2123292921861480450
+old on restored v17 post-backup account rows=0

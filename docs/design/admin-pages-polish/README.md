@@ -268,7 +268,7 @@
 | 未合并进 `ui` / `master`、未部署 | ✅ 已合入 `ui`（PR #80 merge commit `95beeef6`）；**未合并进 `master`、未部署** |
 | 视觉终判 | ✅ 已完成：第 3 轮视觉路的 P1 已修并复拍；收尾的定向修复（§9）按人工裁决落地，受影响的 Dashboard 整页证据已重拍 |
 
-**交接信号**：`D:\Work\code\iris-integration-handoff\ui-ready.json`（`ready=true`，原子写入：同目录临时文件 + `rename`）。若本分支在交接后再改动，先把 `ready` 置回 `false`，新提交通过验收后再重新发布。
+**交接信号**：`docs/release/handoff-2026-11-16/ui-ready.json`（`ready=true`，原子写入：同目录临时文件 + `rename`）。若本分支在交接后再改动，先把 `ready` 置回 `false`，新提交通过验收后再重新发布。
 
 ---
 

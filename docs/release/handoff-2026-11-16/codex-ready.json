@@ -1,0 +1,189 @@
+{
+  "ready": true,
+  "branch": "feat/iris21-multiagent-integration",
+  "sha": "d66e6e22bb001188865e68805baa668c083b5988",
+  "worktree": "D:\\Work\\code\\eye-diagnosis\\.claude\\worktrees\\iris21-multiagent",
+  "reportPath": "D:\\Work\\code\\iris-integration-handoff\\codex-final-report.md",
+  "repoReportPath": "D:\\Work\\code\\eye-diagnosis\\.claude\\worktrees\\iris21-multiagent\\docs\\testing\\iris21-multiagent-integration-20261115\\r13-baseline-sync.md",
+  "reportSha256": "3d9c2ddb53180457739fe1226b0f8b3a87e3e26edbe7bd669110391c095620fc",
+  "changes": [
+    "deterministic backend admission cursor and real recovery replay",
+    "React first subscription uses admission snapshot",
+    "Issue81 real record/news API smoke and isolated SQL seeds",
+    "zero fixme budget and strict evidence gates",
+    "latest approved UI ancestry retained",
+    "context lifecycle and steering/controller gate repairs",
+    "legacy explicit browser path compatibility"
+  ],
+  "tests": [
+    {
+      "name": "real API smoke with published fixture and empty owned records",
+      "status": "PASS",
+      "total": 4,
+      "passed": 4,
+      "skipped": 0,
+      "sourceSha": "d8bc8f84134f539a3394ab8fd23b1c4b092b66f1"
+    },
+    {
+      "name": "real API seeded owned-record list to detail to paper",
+      "status": "PASS",
+      "total": 1,
+      "passed": 1,
+      "skipped": 0
+    },
+    {
+      "name": "missing E2E credentials",
+      "status": "SKIP",
+      "total": 4,
+      "passed": 0,
+      "skipped": 4
+    },
+    {
+      "name": "typecheck, lint, fixme budget",
+      "status": "PASS",
+      "fixme": "0/0"
+    },
+    {
+      "name": "Node evidence-gate and Playwright config regressions",
+      "status": "PASS",
+      "total": 6,
+      "passed": 6,
+      "skipped": 0
+    },
+    {
+      "name": "deterministic admission/recovery MySQL suite",
+      "status": "PASS",
+      "total": 33,
+      "passed": 33,
+      "skipped": 0,
+      "scope": "real create/recoverPending/subscribe/read; unchanged backend source"
+    },
+    {
+      "name": "full verify pass 1",
+      "status": "PASS",
+      "total": 612,
+      "passed": 309,
+      "skipped": 303,
+      "scope": "expected opt-in skips later executed in pass 3; unchanged backend source"
+    },
+    {
+      "name": "full verify pass 2",
+      "status": "PASS",
+      "total": 7,
+      "passed": 7,
+      "skipped": 0
+    },
+    {
+      "name": "full verify pass 3",
+      "status": "PASS",
+      "total": 303,
+      "passed": 303,
+      "skipped": 0
+    },
+    {
+      "name": "Vitest",
+      "status": "PASS",
+      "files": 66,
+      "total": 637,
+      "passed": 637,
+      "scope": "product and test sources unchanged since this run"
+    },
+    {
+      "name": "collaboration browser contracts",
+      "status": "PASS",
+      "total": 29,
+      "passed": 29,
+      "scope": "synthetic HTTP/SSE; not real-provider acceptance"
+    },
+    {
+      "name": "default-off build browser",
+      "status": "PASS",
+      "total": 1,
+      "passed": 1
+    },
+    {
+      "name": "Python documentation gate tests",
+      "status": "PASS",
+      "total": 39,
+      "passed": 39
+    },
+    {
+      "name": "Hosted CI historical remote SHA",
+      "status": "PASS",
+      "sha": "01098ccb8d89afa464904489b6d2b1c268d56e83",
+      "jobs": 20,
+      "success": 20,
+      "runId": 43729169948
+    },
+    {
+      "name": "Hosted CI final local SHA",
+      "status": "NOT_RUN",
+      "sha": "d66e6e22bb001188865e68805baa668c083b5988",
+      "reason": "User explicitly prohibits further push"
+    },
+    {
+      "name": "real-provider and clinical acceptance",
+      "status": "NOT_RUN",
+      "reason": "Not authorized; production medical collaboration remains BLOCKED"
+    }
+  ],
+  "unresolvedIssues": [
+    {
+      "id": "SAME_ORIGIN_SCHEME",
+      "severity": "MINOR",
+      "status": "DISCLOSED",
+      "blocksHandoff": false,
+      "detail": "Existing SameOriginFilter scheme comparison limitation is unchanged; see R1.2/R1.3."
+    },
+    {
+      "id": "LOCAL_HOSTED_CI",
+      "status": "NOT_RUN",
+      "blocksHandoff": false,
+      "detail": "Two local commits are intentionally unpublished under the latest user instruction."
+    },
+    {
+      "id": "PRODUCTION_MEDICAL",
+      "status": "BLOCKED",
+      "blocksHandoff": false,
+      "detail": "Engineering handoff readiness is not production or clinical approval; all production flags remain unchanged."
+    },
+    {
+      "id": "HISTORICAL_WP_C",
+      "status": "UNEXPLAINED",
+      "blocksHandoff": false,
+      "detail": "Historical missing evidence is not reconstructed from the current green run."
+    },
+    {
+      "id": "PR87_BODY",
+      "status": "PENDING_AUTHORIZATION",
+      "blocksHandoff": false,
+      "detail": "Remote PR description still contains older R1.2 text; no remote write after the night-handoff instruction. Update only with later authorization."
+    }
+  ],
+  "validationErrors": [],
+  "knownP0P1Blockers": [],
+  "completedAt": "2026-11-15T15:32:23Z",
+  "uiSha": "b5f37e5cbbe66b440b2f907746735174ff817533",
+  "parentPr": 86,
+  "integrationPr": 87,
+  "remoteSha": "01098ccb8d89afa464904489b6d2b1c268d56e83",
+  "localUnpushedCommits": 2,
+  "commitsAheadOfUi": 106,
+  "changedFilesVsUi": 433,
+  "worktreeClean": true,
+  "uiAncestryVerified": true,
+  "frozenTagSha": "80f53f7f55955c2d30a1a9c98479dcb87682051b",
+  "agentPageBlob": "df36b2deaebb553f53af2e30fa3b1a8e925c7d6b",
+  "frozenAgentPageBlob": "df36b2deaebb553f53af2e30fa3b1a8e925c7d6b",
+  "runtimeUnchangedSinceRemoteCi": true,
+  "independentReview": {
+    "standards": "PASS",
+    "spec": "PASS",
+    "latestScope": "01098ccb..d8bc8f8",
+    "reviewers": 2
+  },
+  "remoteActionsAfterNightInstruction": [],
+  "productionMedicalCollaboration": "BLOCKED",
+  "worktreeFrozenAfterPublish": true,
+  "atomicPublish": "same-directory temporary file, flush, fsync, os.replace; signal last"
+}

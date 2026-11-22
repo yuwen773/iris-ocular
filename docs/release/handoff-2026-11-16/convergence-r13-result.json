@@ -1,0 +1,73 @@
+{
+  "taskId": "iris21-multiagent-r13-convergence",
+  "owner": "claude-code-convergence-r13",
+  "result": "CONVERGED",
+  "completedAt": "2026-11-16T09:55:00+08:00",
+  "branch": "feat/iris21-multiagent-integration",
+  "finalSha": "6ba65478b8c88d2ef1a019044bbd2232e1842961",
+  "finalTree": "34adb27df0d22c4a650aad282414065cb00cb4f9",
+  "testedCodeSha": "7abfe50c50bf23ab7b6904e9e9c56f20e8e004bb",
+  "testedCodeTree": "20f8c4244b819fbb54eb3525c9b03260aed378ad",
+  "sourceTreeEqual": true,
+  "sourceTreeProof": "git diff --stat 7abfe50c HEAD -- src web scripts pom.xml .github  => empty; only docs/testing/.../r13-convergence-report.md added",
+  "ancestry": {
+    "codexSha": "d66e6e22bb001188865e68805aa668c083b5988",
+    "nightlySha": "7abfe50c50bf23ab7b6904e9e9c56f20e8e004bb",
+    "codexAncestorOfNightly": true,
+    "nightlyContainsAllCodex": true,
+    "divergence": "none (0 commits unique to integration branch)",
+    "convergenceMethod": "fast-forward (git merge --ff-only)",
+    "mergeCommitCreated": false,
+    "historyRewritten": false
+  },
+  "remotes": {
+    "originUi": "b5f37e5cbbe66b440b2f907746735174ff817533",
+    "localUi": "b5f37e5cbbe66b440b2f907746735174ff817533",
+    "freezeTag": "80f53f7f55955c2d30a1a9c98479dcb87682051b",
+    "pr87RemoteHead": "01098ccb8d89afa464904489b6d2b1c268d56e83",
+    "aheadOfRemote": 6,
+    "behindRemote": 0,
+    "pushWouldFastForward": true
+  },
+  "uiFreeze": {
+    "agentPageBlob": "df36b2deaebb553f53af2e30fa3b1a8e925c7d6b",
+    "tokensCssBlob": "d5de71e4ff251bcdaad7c9595de751439c7dae45",
+    "otherFrozenPagesIdentical": true,
+    "adminPlaneFiles": 39,
+    "adminPlaneDiff": "empty",
+    "pr86NotReverted": true,
+    "issue81FixmeBudget": "0/0, entries []",
+    "issue81RealTests": true
+  },
+  "incrementalGates": {
+    "typecheck": {"status": "PASS"},
+    "vitest": {"status": "PASS", "files": 66, "passed": 637, "skipped": 0, "failed": 0},
+    "fixmeBudget": {"status": "PASS", "value": "0/0"},
+    "nodeGateTests": {"status": "PASS", "passed": 6, "total": 6},
+    "smokeMissingCredentials": {"status": "SKIP", "skipped": 4, "note": "matches night record; skip is not a pass"}
+  },
+  "reusedEvidence": {
+    "reason": "fast-forward; source tree byte-identical to accepted tree",
+    "issue81RealApi": {"status": "PASS", "passed": 4, "total": 4},
+    "issue81SeededRecord": {"status": "PASS", "passed": 1, "total": 1},
+    "playwrightCollaboration": {"status": "PASS", "passed": 29, "total": 29},
+    "playwrightDefaultOff": {"status": "PASS", "passed": 1, "total": 1},
+    "backendVerify": {"status": "PASS", "marker": "==> verify green", "pass1": "612/0 fail/303 opt-in skip", "pass2": "7/7", "pass3": "303/303"},
+    "fullApplicationAcceptance": {"status": "PASS", "passed": 7, "total": 7},
+    "graphExecution": {"status": "PASS", "passed": 37, "total": 37},
+    "collaborationRun": {"status": "PASS", "passed": 33, "total": 33}
+  },
+  "notRun": {
+    "hostedCiFinalSha": "NOT_RUN (push prohibited)",
+    "backendMavenThisSession": "NOT_RUN (reused; tree equal)",
+    "realProviderOrClinical": "NOT_RUN"
+  },
+  "unresolvedMinor": 9,
+  "pr87Body": "STALE_R1.2_PENDING_AUTHORIZATION",
+  "productionMedicalCollaboration": "BLOCKED",
+  "remoteActions": [],
+  "productionFlagsChanged": false,
+  "deployed": false,
+  "worktreesClean": true,
+  "reportPath": "docs/testing/iris21-multiagent-integration-20261115/r13-convergence-report.md"
+}
