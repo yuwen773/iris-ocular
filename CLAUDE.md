@@ -19,7 +19,7 @@ Base package: `com.csust.eyediagnosis`
 - 写前端样式 / 评审前端 diff → 仓库根 `DESIGN.md`（**Iris 2.0 · Adaptive Visual System**，
   官方 DESIGN.md 格式：YAML 令牌 + 八段规范）+ `web/src/styles/tokens.css`（**已实现的令牌事实**）。
   两者不一致时以 `tokens.css` 为准；规则变更史见 `docs/design/iris-2-rule-change-matrix.md`，
-  实现偏差登记 Issue（冻结期见 Issue #84），规范里不再维护状态表。
+  实现偏差登记 Issue，规范里不再维护状态表。
 - 改数据库 → `src/main/resources/db/migration/V*.sql` 是迁移真源；版本编号与历史决策见 `docs/flyway-migration-history-plan.md`，各目标库的升级路径见 `docs/architecture/migration-matrix.md`。
 - 评审代码风格与判断类约定 → `CODING_STANDARDS.md`。
 - 多工作树协作、Windows 进程操作、临时验证产物清理 → `docs/agent-worktree-conventions.md`。
@@ -148,16 +148,12 @@ MySQL | Redis (session + cache) | ChromaDB (vector RAG) | DashScope (LLM + embed
 - **三套语义色互不顶替**：`--signal` 管当前态、`--brand-*` 管品牌身份、`--risk-*` 管医学严重度。
 - **严重度永远带文字标签**，颜色不是唯一信息载体。
 
-### UI 冻结（2026-11-15）
+### UI 冻结（已结束）
 
-**Iris 2.1 UI 开发已冻结**，冻结基线 = annotated tag `iris-ui-v2.1-freeze-20261115`
-→ 提交 `80f53f7f55955c2d30a1a9c98479dcb87682051b`（冻结当时的 `ui` tip，tag 不移动）。
-
-- **冻结范围**：首页 / 品牌层、管理端（外壳 + Dashboard + 六页）、知识库、新闻工作台。
-- **不再主动视觉迭代**这几处；一般 UI 优化**登记 Issue**，不在冻结基线上直接改。
-- **例外**：阻断性故障与安全修复。
-- 后续重心转向**多 Agent 系统**（PR #68 已合入 master；协作能力仍默认关闭、未部署）。
-- 规则正文见 `DESIGN.md` 的 Overview（冻结说明）与 `docs/design/iris21-ui-freeze-exceptions.md`，此处只作指针。
+**Iris 2.1 UI 冻结已于 2026-11-21 结束**（进入 Iris 2.2），首页 / 品牌层、管理端、
+知识库、新闻工作台恢复正常迭代。冻结基线 tag `iris-ui-v2.1-freeze-20261115`
+（`80f53f7f55955c2d30a1a9c98479dcb87682051b`）保留不动；冻结期间的历史放行登记见
+`docs/design/iris21-ui-freeze-exceptions.md`。
 
 ### 参考实现
 `web/src/styles/tokens.css`（全部令牌）、`web/src/components/RecordSheet.tsx`（记录纸）、
