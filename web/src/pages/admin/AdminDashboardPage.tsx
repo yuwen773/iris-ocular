@@ -209,23 +209,6 @@ export function AdminDashboardPage(): ReactElement {
   // 窗口内有没有判读，决定这一页是「工作台」还是「解释面板」。
   const noDiagnosis = stats ? stats.diagnosisInRange === 0 : false
 
-  /* 窗口内判读的去向尺：已复核 / 待复核 / AI 拒识 / 其余。
-     四段都用真实计数，宽度按计数分配；没有样本时整条不画。 */
-  const meterParts = (() => {
-    if (!stats || inRange <= 0) return []
-    const parts = [
-      { kind: "reviewed", label: "已复核", value: Math.max(0, stats.diagnosisReviewed) },
-      { kind: "awaiting", label: "待复核", value: Math.max(0, stats.diagnosisAwaitingReview) },
-      { kind: "rejected", label: "AI 拒识", value: Math.max(0, aiRejected) },
-    ]
-    const covered = parts.reduce((sum, part) => sum + part.value, 0)
-    return [...parts, { kind: "rest", label: "其余", value: Math.max(0, inRange - covered) }]
-  })()
-  const meterLabel = meterParts
-    .filter((part) => part.value > 0)
-    .map((part) => `${part.label} ${formatStatNumber(part.value)}`)
-    .join(" · ")
-
   /* ── 面板块（两种布局复用同一批内容）────────────────────────── */
 
   /**
