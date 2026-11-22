@@ -11,9 +11,14 @@
 | `backend-image-storage-failure-semantics.md` | 改判读影像上传 / 对象存储失败处理前读：影像存储失败为何终止而不是落「无原图记录」、补偿删除边界、已知限制 |
 | `backend-split.md` | 改动 `frontend/` 或 `algorithm/` 共享目录，判断是否需要人工搬运到另一条后端线 |
 | `flyway-migration-history-plan.md` | 新增迁移版本、处理 V8 checksum、`flyway repair`、分支版本号撞车 |
-| `../DESIGN.md` | 写 `web/` 页面 / 组件 / 样式，或评审前端 diff（**Iris 2.0 · Adaptive Visual System**，目标规范；令牌事实以 `web/src/styles/tokens.css` 为准）。旧版（2026-11-21 重写前）见 `git show 34e94c9a:DESIGN.md` |
-| **UI 冻结基线** tag `iris-ui-v2.1-freeze-20261115`（→ `80f53f7f`） | 查 Iris 2.1 UI 冻结点、冻结范围与冻结后的变更规则——规则正文见 `../DESIGN.md` 的 Overview（冻结说明）与 `design/iris21-ui-freeze-exceptions.md` |
-| `design/iris21-ui-freeze-exceptions.md` | 判断某笔改动「算不算冻结面、有没有被授权」——冻结后 `ui` 的 13 个 PR 放行台账与待裁定项 |
+| `../DESIGN.md` | 写 `web/` 页面 / 组件 / 样式，或评审前端 diff（**Iris 2.2 · Adaptive Visual System**，目标规范；令牌事实以 `web/src/styles/tokens.css` 为准）。旧版（2026-11-21 重写前）见 `git show 34e94c9a:DESIGN.md` |
+| **Iris 2.2**（2026-11-21 起） | 当前 UI 版本；2.1 UI 冻结已结束，一般视觉迭代按 `DESIGN.md` 现行规则执行。2.1 冻结 tag `iris-ui-v2.1-freeze-20261115`（→ `80f53f7f`）只作历史基线 |
+| `design/iris21-ui-freeze-exceptions.md` | **已归档**：2.1 冻结期的放行台账与历史事实，不再作为现行审批规则 |
+| `design/iris22-admin-metric-registry.md` | 改管理端任何统计读数前先读：指标定义、时间语义、缺失值规则、数据状态（B0 契约） |
+| `design/iris22-admin-analytics-backend-plan.md` | 改 `/stats/admin/analytics` 前读：接口形状、SQL、索引基准与迁移门槛（B1 已实施） |
+| `design/iris22-admin-analytics-b2-field-mapping.md` | 改数据分析页前读：每个数字对应的真实字段、不做项、页面状态与验证记录（B2） |
+| `design/iris22-admin-dashboard-b3-audit.md` | 改运营总览前读：逐卡数据源、真实可操作性、与数据分析的重复、已关闭能力与缺失的健康数据源（B3-0） |
+| `design/iris22-admin-dashboard-b3-implementation.md` | 改运营总览前读：四项决策的落地方式、四区结构、缺字段不补零、验证与截图（B3） |
 | `design/IRIS_2_DESIGN_REFERENCE_BRIEF.md` | 查 Iris 2.0 的视觉参考来源与取舍（A/B/F/G/H/I 代号定义、原始链接） |
 | `design/iris-2-rule-change-matrix.md` | 查旧「白色仪器」规则改成了什么、为什么改、落地到哪一步 |
 | `design/iris-2-implementation-roadmap.md` | 查首页 / 管理端 / 协作台各自的实施顺序、范围与验收门禁 |

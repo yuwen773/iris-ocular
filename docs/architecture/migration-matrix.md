@@ -2,6 +2,21 @@
 
 本文件记录 `codex/realtime-product-acceptance` 与 `master` 的迁移历史整合方式。执行任何数据库升级前，先按目标库的 `flyway_schema_history` 对照本矩阵。
 
+## 0. 数据库最低版本
+
+| 能力 | 最低版本 | 原因 |
+| --- | --- | --- |
+| Flyway 迁移 | MySQL 8.0 | 与 CI / 部署基线一致 |
+| 数据分析 `/api/stats/admin/analytics` | **MySQL 8.0** | 复核时延使用 CTE（`WITH latency AS …`）与窗口函数（`ROW_NUMBER() / COUNT() OVER`），5.7 不支持 |
+
+启动门禁 `com.csust.eyediagnosis.config.MySql8Requirement` 在应用启动时读取实际连接版本，
+低于 8.0 直接失败并提示数据源位置，避免等到统计请求才返回 `50000 系统错误`。
+紧急情况下可用 `eye-diagnosis.database.require-mysql8=false` 关闭门禁，但统计接口仍然不可用。
+
+本机若同时装有 3306（5.7）与 3307（8.0），开发数据源必须指向 **3307**。
+CI 的 MySQL 作业使用 `mysql:8.0` / `mysql:8.0.36`，`scripts/verify.sh` 与
+`scripts/verify-fast.sh` 默认 `mysql:8.0.26`；部署前确认目标实例版本 ≥ 8.0。
+
 ## 1. 已部署基线
 
 2026-11-13 之前，两条线各自维护了一套版本号：
