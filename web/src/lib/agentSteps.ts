@@ -11,6 +11,7 @@
  */
 
 import type { StreamMessage } from "./agentStream"
+import { indexRounds, type RoundIndex } from "./conversationRounds"
 
 /**
  * 步骤状态。
@@ -406,16 +407,12 @@ function findPendingToolStep(steps: AgentStep[], toolCallId?: string): AgentStep
 export function buildThread(
   messages: StreamMessage[],
   streaming: boolean,
+  /** 调用方已算好的回合索引；缺省时内部现算（单测仍可直接调用）。 */
+  rounds: RoundIndex = indexRounds(messages),
 ): ThreadItem[] {
   const items: ThreadItem[] = []
   let index = 0
-  // 与 deriveResources 同一口径：每条用户提问切一回合。
-  let round = 0
-  const roundBefore: number[] = []
-  for (const message of messages) {
-    if (message.type === "user") round += 1
-    roundBefore.push(round)
-  }
+  const roundBefore = rounds.roundBefore
 
   while (index < messages.length) {
     const current = messages[index]
