@@ -7,7 +7,6 @@ import {
   VizTooltip,
   formatVizNumber,
   formatVizPercent,
-  vizSeriesColor,
 } from "./ChartFrame"
 
 /**
@@ -17,8 +16,8 @@ import {
  * 横条要读者自己拿尺子比，分段条一眼看出「待复核占多大一块」。
  *
  * <p>颜色不是唯一信息载体：每一段都在下面的读数行里带文字标签 + 计数 + 占比。
- * 「待复核」用信号橙（当前要处理的重点），其余取分类色板——不再用同一墨色
- * 叠透明度，半透明段在暗底上会互相混成一种颜色。
+ * 「待复核」是唯一的管理紫（当前要处理的重点），其余是中性墨阶——
+ * 半透明叠色在暗底上会互相混成一种颜色，中性阶则始终分得开。
  */
 export type ShareRow = { name: string; value: number; share: number }
 
@@ -42,13 +41,24 @@ export function ShareBar(props: {
     ]),
   ]
 
-  const colors = rows.map((row, index) => ({
-    key: `s${index}`,
-    name: row.name,
-    value: row.value,
-    share: row.share,
-    fill: accentNames.includes(row.name) ? VIZ.accent : vizSeriesColor(index),
-  }))
+  const colors = rows.map((row, index) => {
+    const accent = accentNames.includes(row.name)
+    // 强调项是唯一的紫色，其余取中性墨阶（60 / 42 / 28%）。
+    // 之前非强调项也掺紫：一块 94.8% 的淡紫大段压在一个 3.7% 的满紫小段旁边，
+    // 读者会先看到「大块紫」——那恰好是已处理完的记录，强调关系被面积反转。
+    // 灰 = 已落定，紫 = 要处理；状态名与计数始终在读数行里，颜色不是唯一通道。
+    const neutralRank = rows.slice(0, index).filter((prev) => !accentNames.includes(prev.name)).length
+    const strength = [60, 42, 28][Math.min(neutralRank, 2)]
+    return {
+      key: `s${index}`,
+      name: row.name,
+      value: row.value,
+      share: row.share,
+      fill: accent
+        ? VIZ.accent
+        : `color-mix(in srgb, var(--admin-text-muted) ${strength}%, var(--admin-surface))`,
+    }
+  })
 
   return (
     <ChartView
@@ -69,7 +79,7 @@ export function ShareBar(props: {
             <p className="admin-viz__empty">窗口内没有可统计的记录。</p>
           ) : (
             <>
-              <ResponsiveContainer width="100%" height={56}>
+              <ResponsiveContainer width="100%" height={12}>
                 <BarChart
                   data={data}
                   layout="vertical"
@@ -89,6 +99,9 @@ export function ShareBar(props: {
                       name={segment.name}
                       stackId="share"
                       fill={segment.fill}
+                      radius={2}
+                      stroke="var(--admin-surface)"
+                      strokeWidth={1}
                       isAnimationActive={false}
                     />
                   ))}

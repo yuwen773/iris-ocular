@@ -1,0 +1,1029 @@
+/* ==========================================================================
+   Iris · 管理后台视觉层 v3（2026-11-21）
+   --------------------------------------------------------------------------
+   目标：把管理端从「把传统后台换成紫色」再推一档——一件安静、精密、
+   可被信任的临床运营仪器。只重画笔，不改业务与语义。
+
+   与旧层的分工：
+   - 旧层 admin.css / admin-redesign.css / admin-polish-* 仍负责结构与行为；
+   - 本文件最后加载，只覆盖**外观**（排版、间距、表面、层级、动效），
+     选择器统一加 `.admin-shell` 前缀，确保压过页面级 polish 文件。
+
+   约束（DESIGN.md）：
+   - 只消费 --admin-* / --fg-* / --hr / --surface / --risk-* 令牌；
+   - 本文件不写任何字面色值（硬编码色棘轮要求新增文件为 0）；
+   - 管理紫只做品牌与操作层，不表示医学严重度；
+   - 发丝线优先；阴影只留给真正离开页面的层与卡片本身，且克制；
+   - 数字一律等宽 + tabular-nums；状态永远带文字，不靠颜色单独承载。
+   ========================================================================== */
+
+.admin-shell .admin-workspace {
+  background: var(--admin-canvas);
+}
+
+.admin-shell .admin-topbar {
+  background: color-mix(in srgb, var(--admin-canvas) 84%, transparent);
+  border-bottom: 1px solid var(--admin-line-soft);
+  backdrop-filter: saturate(1.2) blur(14px);
+}
+
+.admin-shell .admin-crumbs {
+  font-size: 12px;
+  letter-spacing: 0.01em;
+}
+
+.admin-shell .admin-crumbs__root {
+  color: var(--admin-text-faint);
+}
+
+.admin-shell .admin-crumbs__current {
+  color: var(--admin-text);
+  font-weight: 600;
+}
+
+.admin-shell .admin-theme {
+  border: 1px solid var(--admin-line);
+  background: var(--admin-surface-deep);
+}
+
+.admin-shell .admin-theme__btn[aria-pressed="true"] {
+  background: var(--admin-surface);
+  color: var(--admin-primary);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--admin-primary-strong) 16%, transparent);
+}
+
+/* ── 页头 ─────────────────────────────────────────────────── */
+
+.admin-shell .admin-pagehead {
+  align-items: flex-end;
+  gap: 16px 40px;
+  padding-bottom: 22px;
+  margin-bottom: 22px;
+  border-bottom: 1px solid var(--admin-line);
+}
+
+.admin-shell .admin-pagehead__eyebrow {
+  gap: 10px;
+  margin-bottom: 12px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  color: var(--admin-text-faint);
+}
+
+.admin-shell .admin-pagehead__code {
+  min-width: 26px;
+  height: 20px;
+  border-radius: 5px;
+  background: var(--admin-primary-soft);
+  color: var(--admin-primary);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+
+.admin-shell .admin-pagehead__title {
+  font-family: var(--font-brand);
+  font-weight: 600;
+  font-size: clamp(26px, 1.9vw, 30px);
+  line-height: 1.18;
+  letter-spacing: -0.025em;
+  color: var(--admin-text);
+}
+
+/* 门面页（仪表盘）另起一档：它是工作区的首页，标题比台账页重。 */
+.admin-shell .admin-pagehead--lead .admin-pagehead__title {
+  font-size: clamp(32px, 2.6vw, 42px);
+  letter-spacing: -0.035em;
+}
+
+.admin-shell .admin-pagehead__desc {
+  /* 58ch 在中文里只有 31 个字：一句 33 字的职责说明会被挤出一个「级。」孤字。
+     64ch ≈ 35 个汉字，仍是舒服的行长，又让这类单句说明一行读完。 */
+  max-width: 64ch;
+  margin-top: 10px;
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: var(--admin-text-muted);
+}
+
+.admin-shell .admin-pagehead__aside {
+  gap: 12px 20px;
+  padding-bottom: 2px;
+}
+
+.admin-shell .admin-sample {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--admin-text-faint);
+  text-transform: none;
+}
+
+/* 时间窗段控：轨道 + 抬起键，与图卡内的「图 / 表」同一套控件语言。 */
+.admin-shell .admin-range {
+  padding: 3px;
+  gap: 2px;
+  border: 1px solid var(--admin-line);
+  border-radius: var(--admin-radius-control);
+  background: var(--admin-surface-deep);
+}
+
+.admin-shell .admin-range__btn {
+  min-width: 54px;
+  height: 30px;
+  padding-inline: 12px;
+  border: 0;
+  border-radius: calc(var(--admin-radius-control) - 3px);
+  background: transparent;
+  color: var(--admin-text-muted);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
+  transition:
+    background var(--fast) ease,
+    color var(--fast) ease,
+    box-shadow var(--fast) ease;
+}
+
+.admin-shell .admin-range__btn:hover {
+  color: var(--admin-text);
+}
+
+.admin-shell .admin-range__btn[aria-pressed="true"] {
+  background: var(--admin-surface);
+  color: var(--admin-primary);
+  font-weight: 600;
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--admin-primary-strong) 16%, transparent);
+}
+
+/* ── 读数轨 ───────────────────────────────────────────────── */
+
+.admin-shell .admin-metric-strip {
+  margin-bottom: 18px;
+  border: 1px solid var(--admin-line);
+  border-radius: var(--admin-radius-card);
+  background: var(--admin-surface);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--admin-on-primary) 55%, transparent);
+}
+
+.admin-shell .admin-metric-card {
+  gap: 10px;
+  padding: 22px 24px 20px;
+  border-left: 1px solid var(--admin-line-soft);
+}
+
+.admin-shell .admin-metric-card::after {
+  inset: 20px auto 20px 0;
+  width: 2px;
+  background: linear-gradient(
+    180deg,
+    var(--admin-accent),
+    color-mix(in srgb, var(--admin-accent) 30%, transparent)
+  );
+}
+
+.admin-shell .admin-metric-card__label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--font-sans);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--admin-text-faint);
+}
+
+.admin-shell .admin-metric-card__value {
+  font-size: clamp(36px, 3vw, 50px);
+  font-weight: 500;
+  letter-spacing: -0.045em;
+  line-height: 1;
+  color: var(--admin-text);
+}
+
+.admin-shell .admin-metric-card__foot {
+  gap: 8px;
+  min-height: 20px;
+}
+
+.admin-shell .admin-metric-card__delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: var(--admin-text-muted);
+}
+
+.admin-shell .admin-metric-card__delta::before {
+  content: "";
+  width: 0;
+  height: 0;
+  border-inline: 3.5px solid transparent;
+}
+
+.admin-shell .admin-metric-card__delta[data-trend="up"]::before {
+  border-bottom: 5px solid var(--admin-primary);
+}
+
+.admin-shell .admin-metric-card__delta[data-trend="down"]::before {
+  border-top: 5px solid var(--admin-text-faint);
+}
+
+.admin-shell .admin-metric-card__delta[data-trend="flat"]::before {
+  width: 8px;
+  height: 1px;
+  border: 0;
+  background: var(--admin-text-faint);
+}
+
+/* ── Bento 与卡片表面 ─────────────────────────────────────── */
+
+.admin-shell .admin-bento {
+  gap: 18px;
+  margin-top: 20px;
+}
+
+.admin-shell .panel,
+.admin-shell .admin-viz,
+.admin-shell .admin-dt,
+.admin-shell .admin-tile {
+  border: 1px solid var(--admin-line);
+  border-radius: var(--admin-radius-card);
+  background: var(--admin-surface);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--admin-on-primary) 45%, transparent);
+}
+
+.admin-shell .panel__head,
+.admin-shell .admin-viz__head {
+  padding: 18px 20px 12px;
+  border-bottom: 0;
+}
+
+.admin-shell .panel__body {
+  padding: 0 20px 20px;
+}
+
+.admin-shell .panel__title,
+.admin-shell .admin-sec-title {
+  font-family: var(--font-brand);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.005em;
+  color: var(--admin-text);
+}
+
+.admin-shell .panel__note,
+.admin-shell .admin-viz__head-extra {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--admin-text-faint);
+}
+
+/* 图卡：头部一条发丝线收口，卡体从顶部排起，多出来的高度留在底部；
+   底部口径说明用 margin-top:auto 锚住，留白因此读成「呼吸」而不是「洞」。 */
+.admin-shell .admin-viz__head {
+  min-height: 52px;
+  border-bottom: 1px solid var(--admin-line-soft);
+}
+
+.admin-shell .admin-viz__title {
+  font-family: var(--font-brand);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.005em;
+  color: var(--admin-text);
+}
+
+.admin-shell .admin-viz__body {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 12px;
+  align-content: stretch;
+  padding: 18px 20px 16px;
+}
+
+.admin-shell .admin-viz__note {
+  margin: auto 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--admin-line-soft);
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--admin-text-faint);
+}
+
+/* 运营底盘：状态细条只有 44px 时，75% 与 3% 画出来都是同一截短线。
+   名称列定宽（两列最长 4 字）把余量让给条；条高 6px，才看得出长短。 */
+.admin-shell .admin-analysis__status-list li {
+  grid-template-columns: 88px minmax(0, 1fr) 46px 46px;
+  gap: 10px;
+}
+
+.admin-shell .admin-analysis__status-track {
+  height: 6px;
+}
+
+/* 小倍数：病种名最长 9 字，窄格会折两行。标题统一预留两行高度、
+   头行顶对齐——否则只有折行的那一格把折线推低，六个小图错成两排。
+   不截字：截掉的「病变 / 变性」正是判断依据。 */
+.admin-shell .admin-viz__mini-head {
+  align-items: start;
+}
+
+.admin-shell .admin-viz__mini-title {
+  min-height: 2.5em;
+}
+
+.admin-shell .admin-viz__toggle {
+  padding: 2px;
+  background: var(--admin-surface-deep);
+}
+
+.admin-shell .admin-viz__toggle-btn {
+  padding: 3px 11px;
+  font-size: 11px;
+}
+
+.admin-shell .admin-viz__toggle-btn[aria-pressed="true"] {
+  background: var(--admin-surface);
+  color: var(--admin-text);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--admin-primary-strong) 14%, transparent);
+}
+
+/* ── 重点卡：待人工复核 ────────────────────────────────────
+   从「一整面饱和紫」收成一枚深紫墨锚点：有重量，但不抢读数。
+   卡面结构：状态眉线 → 大数 → 一句解释 → 占比尺 → 读数对 → 动作。 */
+
+.admin-shell .feature-card {
+  height: 100%;
+  gap: 14px;
+  padding: 24px 26px 22px;
+  border: 1px solid color-mix(in srgb, var(--admin-on-primary) 14%, transparent);
+  color: var(--admin-on-primary);
+  background:
+    radial-gradient(
+      120% 120% at 88% -12%,
+      color-mix(in srgb, var(--admin-accent) 88%, var(--admin-on-primary)),
+      transparent 62%
+    ),
+    linear-gradient(
+      158deg,
+      color-mix(in srgb, var(--admin-primary-strong) 74%, var(--admin-text)),
+      color-mix(in srgb, var(--admin-text) 92%, var(--admin-primary-strong))
+    );
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--admin-on-primary) 22%, transparent),
+    0 18px 40px -30px var(--admin-primary-strong);
+}
+
+.admin-shell .feature-card::before {
+  display: none;
+}
+
+.admin-shell .feature-card__kicker {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  opacity: 0.72;
+}
+
+.admin-shell .feature-card__value {
+  font-size: clamp(44px, 3.6vw, 56px);
+  font-weight: 500;
+  line-height: 0.98;
+  letter-spacing: -0.05em;
+}
+
+.admin-shell .feature-card__label {
+  max-width: 34ch;
+  font-size: 12.5px;
+  line-height: 1.65;
+  opacity: 0.8;
+}
+
+.admin-shell .feature-card__top,
+.admin-shell .feature-card__bottom {
+  gap: 12px;
+}
+
+.admin-shell .feature-card__bottom {
+  margin-top: auto;
+  gap: 16px;
+}
+
+.admin-shell .feature-card__cta {
+  height: 32px;
+  padding-inline: 14px;
+  border-radius: var(--admin-radius-control);
+  border-color: color-mix(in srgb, var(--admin-on-primary) 22%, transparent);
+  background: color-mix(in srgb, var(--admin-on-primary) 10%, transparent);
+  color: var(--admin-on-primary);
+  font-family: var(--font-brand);
+  font-size: 12px;
+  font-weight: 600;
+  backdrop-filter: blur(4px);
+  transition:
+    background var(--fast) ease,
+    border-color var(--fast) ease;
+}
+
+.admin-shell .feature-card__cta:hover {
+  background: color-mix(in srgb, var(--admin-on-primary) 18%, transparent);
+  border-color: color-mix(in srgb, var(--admin-on-primary) 34%, transparent);
+}
+
+.admin-shell .feature-card__sub {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  opacity: 0.66;
+}
+
+/* 占比尺：窗口内判读的三种去向，段内文字仍是唯一读数通道。 */
+.feature-card__meter {
+  display: flex;
+  gap: 2px;
+  height: 5px;
+  margin: 2px 0 0;
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  background: color-mix(in srgb, var(--admin-on-primary) 14%, transparent);
+}
+
+.feature-card__meter-seg {
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--admin-on-primary) 78%, transparent);
+}
+
+.feature-card__meter-seg[data-kind="awaiting"] {
+  background: var(--admin-on-primary);
+}
+
+.feature-card__meter-seg[data-kind="rejected"] {
+  background: color-mix(in srgb, var(--admin-on-primary) 46%, transparent);
+}
+
+.admin-shell .feature-card__stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  padding-top: 14px;
+  border-top: 1px solid color-mix(in srgb, var(--admin-on-primary) 18%, transparent);
+}
+
+/* 暗主题：旧层的 html.dark 规则（0,2,1）会盖住普通作用域，这里显式接管。
+   深色画布上不翻成浅色卡——一块浅紫高光面在暗房里会变成眩光。
+   重点卡仍是深紫墨，只把紫色抬到画布之上、把内文换成 --on-dark，
+   于是「重点」由色相与边缘微光表达，而不是由明度反差硬砸出来。 */
+html.dark .admin-shell .feature-card {
+  border-color: color-mix(in srgb, var(--admin-accent) 22%, transparent);
+  color: var(--on-dark);
+  /* 底色锚在暗画布（--admin-canvas），紫只按 16% 掺进去：
+     暗主题的 --admin-primary-strong 是提亮后的浅紫，
+     拿它当底色会得到一块发灰的浅紫面——正是要避免的眩光。 */
+  background:
+    radial-gradient(
+      120% 120% at 88% -12%,
+      color-mix(in srgb, var(--admin-accent) 20%, transparent),
+      transparent 62%
+    ),
+    linear-gradient(
+      158deg,
+      color-mix(in srgb, var(--admin-accent) 16%, var(--admin-canvas)),
+      color-mix(in srgb, var(--admin-accent) 6%, var(--admin-canvas))
+    );
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--on-dark) 10%, transparent),
+    0 18px 40px -30px color-mix(in srgb, var(--admin-accent) 60%, transparent);
+}
+
+html.dark .admin-shell .feature-card__cta {
+  background: color-mix(in srgb, var(--on-dark) 10%, transparent);
+  border-color: color-mix(in srgb, var(--on-dark) 24%, transparent);
+  color: var(--on-dark);
+}
+
+html.dark .admin-shell .feature-card__cta:hover {
+  background: color-mix(in srgb, var(--on-dark) 17%, transparent);
+  border-color: color-mix(in srgb, var(--on-dark) 38%, transparent);
+}
+
+html.dark .admin-shell .feature-card__meter {
+  background: color-mix(in srgb, var(--on-dark) 16%, transparent);
+}
+
+html.dark .admin-shell .feature-card__meter-seg {
+  background: color-mix(in srgb, var(--on-dark) 70%, transparent);
+}
+
+html.dark .admin-shell .feature-card__meter-seg[data-kind="awaiting"] {
+  background: var(--on-dark);
+}
+
+html.dark .admin-shell .feature-card__meter-seg[data-kind="rejected"] {
+  background: color-mix(in srgb, var(--on-dark) 44%, transparent);
+}
+
+html.dark .admin-shell .feature-card__stats {
+  border-top-color: color-mix(in srgb, var(--on-dark) 16%, transparent);
+}
+
+.admin-shell .admin-viz__body > .admin-viz__chart {
+  flex: 1 1 auto;
+}
+
+.admin-shell .feature-card__stats dt {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  opacity: 0.62;
+}
+
+.admin-shell .feature-card__stats dd {
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+
+/* ── 运营待办 ─────────────────────────────────────────────── */
+
+.admin-shell .admin-dashboard__todo .panel__body {
+  align-content: stretch;
+}
+
+.admin-shell .action-list {
+  display: grid;
+  gap: 0;
+  height: 100%;
+}
+
+.admin-shell .action-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 0;
+  border-top: 1px solid var(--admin-line-soft);
+}
+
+.admin-shell .action-row:first-child {
+  border-top: 0;
+  padding-top: 4px;
+}
+
+.admin-shell .action-row:last-child {
+  padding-bottom: 4px;
+}
+
+.admin-shell .action-row__label {
+  font-size: 13px;
+  color: var(--admin-text-muted);
+}
+
+.admin-shell .action-row__count {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  color: var(--admin-text);
+}
+
+.admin-shell .action-row__count--hot {
+  color: var(--admin-primary);
+}
+
+.admin-shell .action-row__link {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--admin-text-muted);
+  border-bottom: 1px solid transparent;
+  transition:
+    color var(--fast) ease,
+    border-color var(--fast) ease;
+}
+
+.admin-shell .action-row__link:hover {
+  color: var(--admin-primary);
+  border-bottom-color: var(--admin-primary);
+}
+
+/* ── 图表 ─────────────────────────────────────────────────── */
+
+.admin-shell .admin-viz__chart {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.admin-shell .admin-viz__legend {
+  gap: 18px;
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--admin-text-muted);
+}
+
+.admin-shell .admin-viz__legend--rows {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 0;
+  margin-top: 14px;
+}
+
+/* 状态行撑满卡体剩余高度：三行等高、分隔线贯穿，留白落在行内而不是卡底。 */
+.admin-shell .admin-viz__legend--rows .admin-viz__legend-item {
+  flex: 1 1 0;
+  min-height: 44px;
+  padding: 6px 0;
+  border-top: 1px solid var(--admin-line-soft);
+}
+
+.admin-shell .admin-viz__legend--rows .admin-viz__legend-item {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 9px 0;
+  border-top: 1px solid var(--admin-line-soft);
+}
+
+.admin-shell .admin-viz__legend--rows .admin-viz__legend-item:first-child {
+  border-top: 0;
+}
+
+.admin-shell .admin-viz__legend-name {
+  color: var(--admin-text-muted);
+}
+
+.admin-shell .admin-viz__legend-value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--admin-text);
+}
+
+.admin-shell .admin-viz__legend-share {
+  min-width: 46px;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--admin-text-faint);
+}
+
+.admin-shell .admin-viz__swatch {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+}
+
+.admin-shell .admin-viz__bar-value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  fill: var(--admin-text-muted);
+}
+
+/* ── 表格 ─────────────────────────────────────────────────── */
+
+.admin-shell .admin-dt__head {
+  padding: 12px 18px 11px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  background: color-mix(in srgb, var(--admin-surface-deep) 42%, var(--admin-surface));
+}
+
+.admin-shell .admin-dt__cell {
+  padding: 14px 18px;
+  font-size: 13px;
+}
+
+.admin-shell .admin-dt__row:hover {
+  background: color-mix(in srgb, var(--admin-accent) 4%, transparent);
+}
+
+.admin-shell .admin-dt__pager {
+  padding: 12px 18px;
+}
+
+.admin-shell .admin-dashboard__recent .panel__head {
+  padding-bottom: 8px;
+}
+
+.admin-shell .admin-dashboard__recent .admin-dt {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+.admin-shell .admin-dashboard__recent .admin-dt__head {
+  background: transparent;
+  border-bottom: 1px solid var(--admin-line);
+}
+
+.admin-shell .admin-dashboard__recent .admin-dt__cell {
+  padding-inline: 0;
+}
+
+.admin-shell .admin-dashboard__recent .admin-dt__head:first-child,
+.admin-shell .admin-dashboard__recent .admin-dt__cell:first-child {
+  padding-left: 0;
+}
+
+.admin-shell .admin-dashboard__recent .admin-dt__head:last-child,
+.admin-shell .admin-dashboard__recent .admin-dt__cell:last-child {
+  padding-right: 0;
+}
+
+.admin-shell .admin-diagnosis__thumb {
+  width: 38px;
+  height: 38px;
+  border-radius: 9px;
+  border: 1px solid var(--admin-line);
+  object-fit: cover;
+  background: var(--admin-surface-deep);
+}
+
+.admin-shell .admin-diagnosis__thumb--empty {
+  display: grid;
+  place-items: center;
+  color: var(--admin-text-faint);
+}
+
+/* 页脚口径注：与表格隔一道发丝线，读数等宽。 */
+.admin-shell .admin-dashboard__note {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--admin-line-soft);
+  font-size: 11px;
+  letter-spacing: 0.01em;
+  color: var(--admin-text-faint);
+}
+
+/* ── 行内动作：安静到不抢台账的读数 ─────────────────────────
+   每一行都摆一枚实心紫按钮，整张表会读成「一排按钮」而不是「一份台账」。
+   主动作退成紫字，悬停 / 键盘聚焦时才浮出淡紫底；菜单钮同理。 */
+
+.admin-shell .admin-dt__row-actions {
+  gap: 4px;
+}
+
+.admin-shell .admin-dt__row-actions .admin-btn {
+  height: 30px;
+  padding-inline: 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  box-shadow: none;
+}
+
+.admin-shell .admin-dt__row-actions .admin-btn--primary {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--admin-primary);
+}
+
+.admin-shell .admin-dt__row-actions .admin-btn--primary:hover:not(:disabled),
+.admin-shell .admin-dt__row:focus-within .admin-dt__row-actions .admin-btn--primary {
+  border-color: color-mix(in srgb, var(--admin-primary) 18%, transparent);
+  background: var(--admin-primary-soft);
+  transform: none;
+}
+
+.admin-shell .admin-iconbtn {
+  width: 30px;
+  height: 30px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--admin-text-faint);
+  transition:
+    background var(--fast) ease,
+    color var(--fast) ease,
+    border-color var(--fast) ease;
+}
+
+.admin-shell .admin-iconbtn:hover {
+  border-color: var(--admin-line);
+  background: var(--admin-primary-soft);
+  color: var(--admin-primary);
+}
+
+/* ── 台账筛选控件 ─────────────────────────────────────────── */
+
+.admin-shell :is(
+  .admin-users__input,
+  .admin-news__input,
+  .admin-diagnosis__input,
+  .admin-knowledge__input,
+  .admin-newsedit__input
+) {
+  height: 42px;
+  padding-inline: 13px;
+  border: 1px solid var(--admin-line);
+  border-radius: var(--admin-radius-control);
+  background: var(--admin-surface);
+  color: var(--admin-text);
+  font-size: 13px;
+  transition:
+    border-color var(--fast) ease,
+    background var(--fast) ease;
+}
+
+.admin-shell :is(
+  .admin-users__input,
+  .admin-news__input,
+  .admin-diagnosis__input,
+  .admin-knowledge__input,
+  .admin-newsedit__input
+):hover {
+  border-color: var(--admin-line-strong);
+}
+
+.admin-shell :is(
+  .admin-users__input,
+  .admin-news__input,
+  .admin-diagnosis__input,
+  .admin-knowledge__input,
+  .admin-newsedit__input
+):focus {
+  border-color: var(--admin-accent);
+  background: color-mix(in srgb, var(--admin-accent) 3%, var(--admin-surface));
+}
+
+/* ── 按钮与表单控件 ───────────────────────────────────────── */
+
+.admin-shell .admin-btn {
+  height: 36px;
+  padding-inline: 14px;
+  border-radius: var(--admin-radius-control);
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.005em;
+  transition:
+    background var(--fast) ease,
+    border-color var(--fast) ease,
+    box-shadow var(--fast) ease,
+    transform var(--fast) ease;
+}
+
+.admin-shell .admin-btn--primary {
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--admin-on-primary) 22%, transparent),
+    0 8px 18px -14px var(--admin-primary-strong);
+}
+
+.admin-shell .admin-btn--primary:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.admin-shell .admin-btn--primary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.admin-shell .admin-btn--ghost {
+  background: var(--admin-surface);
+  border-color: var(--admin-line);
+}
+
+.admin-shell .admin-btn--ghost:hover:not(:disabled) {
+  border-color: var(--admin-line-strong);
+  background: var(--admin-surface);
+}
+
+/* ── 动效：入场一次，绑定挂载，不绑定时间；reduced-motion 下不播 ── */
+
+@keyframes admin-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.admin-shell .admin-main > * {
+  animation: admin-rise 520ms cubic-bezier(0.22, 0.68, 0.2, 1) both;
+}
+
+.admin-shell .admin-bento > * {
+  animation: admin-rise 560ms cubic-bezier(0.22, 0.68, 0.2, 1) both;
+}
+
+.admin-shell .admin-bento > *:nth-child(1) { animation-delay: 40ms; }
+.admin-shell .admin-bento > *:nth-child(2) { animation-delay: 90ms; }
+.admin-shell .admin-bento > *:nth-child(3) { animation-delay: 140ms; }
+.admin-shell .admin-bento > *:nth-child(4) { animation-delay: 190ms; }
+.admin-shell .admin-bento > *:nth-child(5) { animation-delay: 240ms; }
+.admin-shell .admin-bento > *:nth-child(6) { animation-delay: 290ms; }
+
+.admin-shell .admin-btn,
+.admin-shell .admin-range__btn,
+.admin-shell .admin-viz__toggle-btn {
+  will-change: auto;
+}
+
+/* ── 响应式 ───────────────────────────────────────────────── */
+
+@media (max-width: 1280px) {
+  .admin-shell .admin-metric-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-shell .admin-metric-card:nth-child(odd) {
+    border-left: 0;
+  }
+
+  .admin-shell .admin-metric-card:nth-child(n + 3) {
+    border-top: 1px solid var(--admin-line-soft);
+  }
+
+  /* 小倍数在 6 列放不下时不要留一张孤卡：固定三列（640 以下两列）。 */
+  .admin-shell .admin-analysis__grid--trend {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  /* 图卡头：读数列较长时，标题会被压成两行（中文的最小内容宽度是一个字）。
+     让标题不收缩、整行允许换行，读数改落到标题下方右侧。 */
+  .admin-shell .admin-viz__head {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+
+  .admin-shell .admin-viz__title {
+    flex: none;
+  }
+}
+
+/* 1280 笔记本上不把整页折成一列：旧规则把所有跨列都打成 12，
+   一张 400px 的重点卡会变成 1200px 的紫色横幅，页面也跟着拉长一倍。
+   这一档改为：趋势独占一行（660px 画布仍然可读），4 / 6 列卡两两成行。
+   下限 901px 与单列断点对齐，避免 span-6 在 1 列栅格里生成隐式列。 */
+@media (min-width: 901px) and (max-width: 1280px) {
+  .admin-shell .admin-bento > .span-8 {
+    grid-column: span 12;
+  }
+
+  .admin-shell .admin-bento > .span-4,
+  .admin-shell .admin-bento > .span-6 {
+    grid-column: span 6;
+  }
+
+  /* 分析页的状态分布跟在 6+6 行之后：留半行空位不如让它独占一行。 */
+  .admin-shell .admin-bento > .admin-analysis__share {
+    grid-column: span 12;
+  }
+}
+
+@media (max-width: 900px) {
+  .admin-shell .admin-pagehead {
+    gap: 14px 20px;
+  }
+
+  .admin-shell .admin-pagehead__title {
+    font-size: clamp(24px, 5.4vw, 30px);
+  }
+
+  .admin-shell .admin-pagehead--lead .admin-pagehead__title {
+    font-size: clamp(28px, 6vw, 34px);
+  }
+}
+
+@media (max-width: 640px) {
+  .admin-shell .admin-metric-card {
+    padding: 18px 18px 16px;
+  }
+
+  .admin-shell .admin-metric-card__value {
+    font-size: 30px;
+  }
+
+  .admin-shell .admin-bento {
+    gap: 14px;
+  }
+
+  .admin-shell .admin-viz__body {
+    padding: 14px 16px;
+  }
+
+  .admin-shell .admin-analysis__grid--trend {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-shell .admin-main > *,
+  .admin-shell .admin-bento > * {
+    animation: none;
+  }
+
+  .admin-shell .admin-btn--primary:hover:not(:disabled) {
+    transform: none;
+  }
+}

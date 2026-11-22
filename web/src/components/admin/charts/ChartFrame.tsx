@@ -38,6 +38,27 @@ export function vizSeriesColor(index: number): string {
   return VIZ_SERIES[((index % VIZ_SERIES.length) + VIZ_SERIES.length) % VIZ_SERIES.length]
 }
 
+/**
+ * 好看的整数刻度：步长只取 1 / 2 / 5 × 10ⁿ，上限抬到最近的整步长。
+ *
+ * <p>Recharts 默认会给出 0 / 35 / 70 / 105 / 140 这种刻度。读者要用它在心里
+ * 比高低，步长不是整十整百时，每次心算都在替图表做它该做的事。
+ * 30 个点全标 X 轴同样会挤成一条灰带——日期刻度另有取舍，见 TrendAreaChart。
+ */
+export function niceTicks(max: number, count = 4): number[] {
+  if (!Number.isFinite(max) || max <= 0) return [0, 1]
+  const rawStep = max / Math.max(1, count)
+  const magnitude = 10 ** Math.floor(Math.log10(rawStep))
+  const normalized = rawStep / magnitude
+  const step = (normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10) * magnitude
+  const top = Math.ceil(max / step) * step
+  const ticks: number[] = []
+  for (let value = 0; value <= top + step / 1000; value += step) {
+    ticks.push(Math.round(value))
+  }
+  return ticks
+}
+
 /** 图表配色：全部引用 CSS 变量，深色主题自动跟随。 */
 export const VIZ = {
   /** 强调（管理紫，--admin-accent）：只给「当前要处理的重点」用，不做大面积填充。 */

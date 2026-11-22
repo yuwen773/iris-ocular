@@ -250,7 +250,8 @@ export function AdminDataAnalysisPage(): ReactElement {
     <TrendAreaChart
       data={trendRows}
       ariaLabel="判读趋势"
-      height={288}
+      /* 与本行右侧的重点卡等高：288 时卡底会剩一条空带，图表在体量上输给旁边的构成表。 */
+      height={360}
       /* 本页的卡头读数说的是整条曲线代表的量（合计 · 日均），
          不与冻结的仪表盘共用口径。 */
       readout="window"
@@ -344,28 +345,36 @@ export function AdminDataAnalysisPage(): ReactElement {
     <section className="admin-viz admin-analysis__trend" aria-label="病种日趋势">
       <div className="admin-viz__head">
         <span className="admin-viz__title">病种日趋势</span>
-        <span className="admin-viz__head-extra num">
-          统一纵轴上限 {formatStatNumber(domainMax)} 条 · 跨病种可比
-          {diseaseSeries.length < distribution.length
-            ? ` · 只画判读量前 ${diseaseSeries.length} 个类别（共 ${distribution.length} 个）`
-            : ""}
-        </span>
+        {/* 没有序列时不摆「统一纵轴上限 0 条」：那不是读数，是把空态说成一张图。 */}
+        {diseaseSeries.length > 0 ? (
+          <span className="admin-viz__head-extra num">
+            统一纵轴上限 {formatStatNumber(domainMax)} 条 · 跨病种可比
+            {diseaseSeries.length < distribution.length
+              ? ` · 只画判读量前 ${diseaseSeries.length} 个类别（共 ${distribution.length} 个）`
+              : ""}
+          </span>
+        ) : null}
       </div>
       <div className="admin-viz__body admin-viz__body--flush">
-        <div className="admin-analysis__grid admin-analysis__grid--trend">
-          {diseaseSeries.map((series, index) => (
-            <SmallMultipleTrend
-              key={series.name}
-              title={series.name}
-              code={classCode(series.name)}
-              points={series.points}
-              domainMax={domainMax}
-              total={series.total}
-              windowDays={stats?.days ?? days}
-              colorIndex={index}
-            />
-          ))}
-        </div>
+        {diseaseSeries.length === 0 ? (
+          <p className="admin-viz__empty">
+            窗口内还没有能拆到病种的判读记录——有结论的判读才会进入这张小倍数图。
+          </p>
+        ) : (
+          <div className="admin-analysis__grid admin-analysis__grid--trend">
+            {diseaseSeries.map((series) => (
+              <SmallMultipleTrend
+                key={series.name}
+                title={series.name}
+                code={classCode(series.name)}
+                points={series.points}
+                domainMax={domainMax}
+                total={series.total}
+                windowDays={stats?.days ?? days}
+              />
+            ))}
+          </div>
+        )}
       </div>
     </section>
   )

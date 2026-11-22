@@ -1,5 +1,6 @@
 import "@/styles/admin.css"
 import "@/styles/admin-redesign.css"
+import "@/styles/admin-visual.css"
 
 import { useState, type ReactElement } from "react"
 import { Link, Outlet, useLocation } from "react-router-dom"
