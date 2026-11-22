@@ -17,10 +17,16 @@ import {
 import {
   useAgentStream,
   mapHistoryMessage,
-  parseServerTime,
   AgentSendError,
   type StreamMessage,
 } from "@/lib/agentStream"
+import {
+  HISTORY_PAGE_SIZE,
+  applyDelivery,
+  historyTailIsFresh,
+  mergeHistoryWithLocalTurn,
+  reconcileAcceptedUser,
+} from "@/lib/conversationHistory"
 import { createAgentUploader } from "@/lib/agentUpload"
 import { countResources, type AgentResource } from "@/lib/agentResources"
 import { useSession } from "@/lib/session"
@@ -37,14 +43,6 @@ import { SessionList } from "@/components/agent/SessionList"
 import { ResourcePanel } from "@/components/agent/ResourcePanel"
 import { ProductHeader } from "@/components/shell/ProductHeader"
 import { IrisPageLoading } from "@/components/system/IrisStates"
-
-const HISTORY_PAGE_SIZE = 100
-
-/**
- * 历史核对时允许的时钟偏差。服务端时间不带时区、按本地解析，客户端与服务端
- * 也可能有偏差；10 分钟足够宽，又能把「用户半小时前问过一模一样的话」排除掉。
- */
-const RECONCILE_CLOCK_SKEW_MS = 10 * 60 * 1000
 
 /**
  * 断点：1024px 以下会话导航与资源面板都改成抽屉。
@@ -228,33 +226,14 @@ export function AgentPage() {
         }
         const raw = data.messages ?? []
         const history = raw.map(mapHistoryMessage)
-        // 时间门槛与 reconcileDelivery 同一口径：只比内容会把「用户十分钟前问过
-        // 一模一样的一句话」当成副本删掉，而删的是带 delivery / images 的本地气泡。
-        const tailAt = parseServerTime(raw[raw.length - 1]?.createdTime)
-        const freshTail = tailAt === null || tailAt >= requestedAt - RECONCILE_CLOCK_SKEW_MS
+        // 时间门槛与送达核对同一口径（规则见 lib/conversationHistory）：
+        // 只比内容会把「用户十分钟前问过一模一样的一句话」当成副本删掉，
+        // 而删的是带 delivery / images 的本地气泡。
+        const freshTail = historyTailIsFresh(raw[raw.length - 1], requestedAt)
         if (turnCounter.current !== turnsAtRequest) {
-          // 请求期间用户又发了消息：历史里没有这一轮，整表替换会把它抹掉。
-          // 但直接丢弃会让这段历史**永远**加载不上（守卫不会复位）。所以把
-          // 本地这一轮接在历史后面——既不丢历史，也不丢提问。
-          setMessages((prev) => {
-            // 本地回合从**第一条带 delivery 的用户气泡**开始，之后才是流里长出来的
-            // 助手内容、推理与工具卡。只挑用户气泡会把助手回复和工具卡一起扔掉
-            // （用户看到「问题还在、回答没了」），整表替换则连提问都抹掉。
-            const localStart = prev.findIndex(
-              (message) => message.type === "user" && message.delivery,
-            )
-            const local = localStart < 0 ? [] : prev.slice(localStart)
-            const tail = history[history.length - 1]
-            const first = local[0]
-            // 这一页偶尔已经包含刚发的那条（新会话的第一页就是整段会话）：
-            // 此时本地第一条用户气泡是它的副本，只丢这一条，后面的照接。
-            const duplicated =
-              freshTail &&
-              first?.type === "user" &&
-              tail?.type === "user" &&
-              tail.content === first.content
-            return [...history, ...(duplicated ? local.slice(1) : local)]
-          })
+          // 请求期间用户又发了消息：历史里没有这一轮，整表替换会把它抹掉，
+          // 丢弃这段历史又会让它永远加载不上——把本地这一轮接在历史后面。
+          setMessages((prev) => mergeHistoryWithLocalTurn(prev, history, freshTail))
           return
         }
         setMessages(history)
@@ -305,15 +284,7 @@ export function AgentPage() {
   /** 只改这一条气泡的送达状态，不动其它消息。 */
   const markDelivery = useCallback(
     (id: string, delivery: NonNullable<StreamMessage["delivery"]>) => {
-      setMessages((prev) => {
-        const index = prev.findIndex((message) => message.id === id)
-        if (index < 0) return prev
-        const current = prev[index]
-        if (current.delivery === delivery) return prev
-        const next = [...prev]
-        next[index] = { ...current, delivery }
-        return next
-      })
+      setMessages((prev) => applyDelivery(prev, id, delivery))
     },
     [setMessages],
   )
@@ -335,17 +306,9 @@ export function AgentPage() {
         const data = await getChatHistory(threadId, undefined, HISTORY_PAGE_SIZE)
         // 核对期间换了账号：这条结果属于上一个身份的会话，一律不许写回。
         if (userKeyRef.current !== expectedUser) return
-        // 不带游标返回的是**最早**一页。hasMore 为真说明后面还有消息，
-        // 刚发的那条不可能在这一页里——没有判断依据，停在「未确认」。
-        if (data.hasMore) return
-        const lastUser = [...(data.messages ?? [])]
-          .reverse()
-          .find((message) => (message.role ?? "").toUpperCase() === "USER")
-        // 只能「升级」不能「证伪」：查不到 ≠ 没送到（落库还在队列里），
-        // 所以绝不标成「未送达」。
-        if (!lastUser || lastUser.content !== text) return
-        const at = parseServerTime(lastUser.createdTime)
-        if (at !== null && at < sentAt - RECONCILE_CLOCK_SKEW_MS) return
+        // 只认「最早一页 + 最后一条 USER 内容一致 + 时间不早于发起时刻减时钟偏差」；
+        // 只能升级成 accepted，绝不证伪（规则见 lib/conversationHistory）。
+        if (!reconcileAcceptedUser(data, { text, sentAt })) return
         markDelivery(localId, "accepted")
       } catch {
         // 核对不了就保持「未确认」：不猜服务端有没有收到。
