@@ -28,6 +28,7 @@ import { AdminEmpty } from "@/components/admin/AdminEmpty"
 import { AdminPageHead } from "@/components/admin/AdminPageHead"
 import { RowMenu } from "@/components/admin/RowMenu"
 import { DataTable, type Column } from "@/components/admin/DataTable"
+import { useListWorkspace } from "@/hooks/useListWorkspace"
 import { Modal } from "@/components/admin/Modal"
 import { KnowledgeWorkspace } from "@/components/admin/KnowledgeWorkspace"
 import { BatchBar } from "@/components/admin/BatchBar"
@@ -52,7 +53,6 @@ import { queryKeys } from "@/lib/queryKeys"
 import { formatTimestamp } from "@/lib/domain"
 import { fault } from "@/lib/faults"
 
-const DEFAULT_PAGE_SIZE = 10
 const POLL_MS = 3000
 const ACCEPT = ".pdf,.doc,.docx,.txt,.md,.markdown"
 
@@ -126,7 +126,8 @@ export function AdminKnowledgePage(): ReactElement {
     startDate: "",
     endDate: "",
   }))
-  const [page, setPage] = useState({ current: 1, pageSize: DEFAULT_PAGE_SIZE })
+  // 分页 / 勾选连同「回第一页、清勾选」的不变式都在 hook 里（本页不排序）。
+  const { page, selectedIds, setSelectedIds, applyFilter, changePage } = useListWorkspace()
 
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [uploading, setUploading] = useState(false)
@@ -137,7 +138,6 @@ export function AdminKnowledgePage(): ReactElement {
   // 本次会话上传过的文件名：用于「处理中」条立即显示，列表回来后再按服务端状态收口。
   const [uploadedNames, setUploadedNames] = useState<string[]>([])
 
-  const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [deleteTarget, setDeleteTarget] = useState<KnowledgeDoc | null>(null)
   const [deleting, setDeleting] = useState(false)
   /** 批量删除的待确认目标：选中文档 id 的快照。批量删除不可撤销，
@@ -213,8 +213,7 @@ export function AdminKnowledgePage(): ReactElement {
       startDate: startDraft,
       endDate: endDraft,
     })
-    setPage((prev) => ({ ...prev, current: 1 }))
-    setSelectedIds([])
+    applyFilter()
   }
 
   function onReset() {
@@ -226,8 +225,7 @@ export function AdminKnowledgePage(): ReactElement {
     setEndDraft("")
     setActionError(null)
     setQuery({ fileName: "", title: "", status: "", fileType: "", startDate: "", endDate: "" })
-    setPage((prev) => ({ ...prev, current: 1 }))
-    setSelectedIds([])
+    applyFilter()
   }
 
   /** 枚举筛选（处理状态 / 文件类型）用段控件，点一下即生效。 */
@@ -235,27 +233,14 @@ export function AdminKnowledgePage(): ReactElement {
     setStatusDraft(value)
     setActionError(null)
     setQuery((prev) => ({ ...prev, status: value }))
-    setPage((prev) => ({ ...prev, current: 1 }))
-    setSelectedIds([])
+    applyFilter()
   }
 
   function applyTypeFilter(value: string) {
     setFileTypeDraft(value)
     setActionError(null)
     setQuery((prev) => ({ ...prev, fileType: value }))
-    setPage((prev) => ({ ...prev, current: 1 }))
-    setSelectedIds([])
-  }
-
-  function onPageChange(next: { current: number; pageSize: number }) {
-    // pageSize 变化一律回第 1 页（DataTable 已传 current:1，这里再钉死一次）。
-    setActionError(null)
-    setPage(
-      next.pageSize !== page.pageSize
-        ? { current: 1, pageSize: next.pageSize }
-        : { current: next.current, pageSize: next.pageSize },
-    )
-    setSelectedIds([])
+    applyFilter()
   }
 
   /**
@@ -882,7 +867,10 @@ export function AdminKnowledgePage(): ReactElement {
             />
           }
           page={{ current: page.current, pageSize: page.pageSize, total }}
-          onPageChange={onPageChange}
+          onPageChange={(next) => {
+            setActionError(null)
+            changePage(next)
+          }}
           selectable
           selectedKeys={selectedIds}
           onSelectionChange={setSelectedIds}

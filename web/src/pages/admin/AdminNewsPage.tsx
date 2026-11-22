@@ -20,7 +20,8 @@ import { useMediaQuery } from "@/lib/useMediaQuery"
 import { AdminEmpty } from "@/components/admin/AdminEmpty"
 import { AdminPageHead } from "@/components/admin/AdminPageHead"
 import { RowMenu } from "@/components/admin/RowMenu"
-import { DataTable, type Column, type SortState } from "@/components/admin/DataTable"
+import { DataTable, type Column } from "@/components/admin/DataTable"
+import { useListWorkspace } from "@/hooks/useListWorkspace"
 import { Modal } from "@/components/admin/Modal"
 import { BatchBar } from "@/components/admin/BatchBar"
 import { RiskTag } from "@/components/RiskTag"
@@ -44,7 +45,6 @@ import { describeError, type ErrorDetail } from "@/lib/api"
 import { queryKeys } from "@/lib/queryKeys"
 import { fault } from "@/lib/faults"
 
-const DEFAULT_PAGE_SIZE = 10
 const SUMMARY_LIMIT = 96
 
 /** 已应用的筛选条件。 */
@@ -135,11 +135,18 @@ export function AdminNewsPage(): ReactElement {
     startDate: "",
     endDate: "",
   }))
-  const [page, setPage] = useState({ current: 1, pageSize: DEFAULT_PAGE_SIZE })
+  // 分页 / 排序 / 勾选连同「回第一页、清勾选」的不变式都在 hook 里。
   // 服务端排序：字段必须落在后端白名单里。
-  const [sort, setSort] = useState<SortState>(null)
-
-  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const {
+    page,
+    sort,
+    selectedIds,
+    setSelectedIds,
+    applyFilter,
+    resetFilters,
+    changePage,
+    changeSort,
+  } = useListWorkspace()
   // 删除的确认目标：单行或批量（批量删除不可恢复，同样要拦一道确认）。
   const [deleteTarget, setDeleteTarget] = useState<
     { kind: "row"; row: AdminNews } | { kind: "batch"; ids: string[] } | null
@@ -199,8 +206,7 @@ export function AdminNewsPage(): ReactElement {
       startDate: startDraft,
       endDate: endDraft,
     })
-    setPage((prev) => ({ ...prev, current: 1 }))
-    setSelectedIds([])
+    applyFilter()
   }
 
   function onReset() {
@@ -210,9 +216,7 @@ export function AdminNewsPage(): ReactElement {
     setEndDraft("")
     setActionError(null)
     setQuery({ title: "", status: "", startDate: "", endDate: "" })
-    setPage((prev) => ({ ...prev, current: 1 }))
-    setSelectedIds([])
-    setSort(null)
+    resetFilters()
   }
 
   /**
@@ -223,8 +227,7 @@ export function AdminNewsPage(): ReactElement {
     setStatusDraft(value)
     setActionError(null)
     setQuery((prev) => ({ ...prev, status: value }))
-    setPage((prev) => ({ ...prev, current: 1 }))
-    setSelectedIds([])
+    applyFilter()
   }
 
   /**
@@ -304,17 +307,6 @@ export function AdminNewsPage(): ReactElement {
       target.status === NEWS_STATUS_OFFLINE ? "批量下架" : "批量转为草稿",
       () => changeNewsStatusBatch(target.ids, target.status, note),
     )
-  }
-
-  function onPageChange(next: { current: number; pageSize: number }) {
-    // pageSize 变化一律回第 1 页（DataTable 已传 current:1，这里再钉死一次）。
-    setActionError(null)
-    setPage(
-      next.pageSize !== page.pageSize
-        ? { current: 1, pageSize: next.pageSize }
-        : { current: next.current, pageSize: next.pageSize },
-    )
-    setSelectedIds([])
   }
 
   function openDelete(row: AdminNews) {
@@ -738,13 +730,14 @@ export function AdminNewsPage(): ReactElement {
             />
           }
           page={{ current: page.current, pageSize: page.pageSize, total }}
-          onPageChange={onPageChange}
+          onPageChange={(next) => {
+            setActionError(null)
+            changePage(next)
+          }}
           sort={sort}
           onSortChange={(next) => {
             setActionError(null)
-            setPage((prev) => ({ ...prev, current: 1 }))
-            setSelectedIds([])
-            setSort(next)
+            changeSort(next)
           }}
           selectable
           selectedKeys={selectedIds}
