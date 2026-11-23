@@ -261,7 +261,7 @@ WHERE isDelete = 0 AND qualityReasons IS NOT NULL AND qualityReasons <> ''
 ### 4.3 建议索引（待真实数据量复核）
 
 ```sql
--- V32（V31 已被 PR #142 占用；实施时重新核对）
+-- V34+（V31 已被 PR #142 占用；V32/V33 已被 P1 整改 PR 占用；实施时重新核对迁移矩阵）
 ALTER TABLE t_diagnosis
   ADD INDEX idx_review_cover
     (humanReviewStatus, humanReviewedAt, humanReviewerId, createTime, isDelete),
@@ -302,7 +302,7 @@ ALTER TABLE t_diagnosis
 
 1. ✅ 契约评审通过（本文件 + metric registry）
 2. ✅ VO / Mapper / Service / Controller + 单测（不含索引）
-3. ⏸ 在真实数据量上跑 `EXPLAIN ANALYZE` → 决定 V32（本轮按约束不建索引、不建 V32）
+3. ⏸ 在真实数据量上跑 `EXPLAIN ANALYZE` → 决定是否加索引（本轮按约束不建索引；V32/V33 已被其他 PR 占用）
 4. ✅ 数据质量自检接进接口（`dataQuality`）
 5. ⏸ 前端 B2/B3
 

@@ -158,7 +158,10 @@ run_static() {
       run_bounded "web-typecheck" "$LOG_DIR/web-typecheck.log" bash -c 'cd web && node_modules/.bin/tsc -b'
       rc=$?; record_stage "web-typecheck" $rc; [[ $rc -ne 0 ]] && { tail -20 "$LOG_DIR/web-typecheck.log"; rc_any=$rc; }
     else
-      echo "    跳过 web 类型检查：web/node_modules 不存在（先在 web/ 下 npm ci）"
+      # 没跑 ≠ 通过：改了 web/ 却连 tsc 都找不到，这次 L0 对前端什么都没证明。
+      echo "!!! web 类型检查未执行：web/node_modules/.bin/tsc 不存在（先在 web/ 下 npm ci）"
+      record_stage "web-typecheck(NOT_RUN)" 1
+      rc_any=1
     fi
   else
     echo "    （没有 web/ 改动，跳过类型检查）"

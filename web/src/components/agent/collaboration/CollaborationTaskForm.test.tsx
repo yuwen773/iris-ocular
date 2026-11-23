@@ -18,7 +18,9 @@ import {
 import { snapshot } from "@/lib/collaborationTestFixtures"
 import { CollaborationTaskForm } from "./CollaborationTaskForm"
 
-vi.mock("@/lib/diagnosisTaskApi", () => ({
+// 只替换网络层，保留 restrictReasonLabel 等纯函数（受限原因的措辞是产品文案，要真跑）。
+vi.mock("@/lib/diagnosisTaskApi", async (original) => ({
+  ...(await original<typeof import("@/lib/diagnosisTaskApi")>()),
   diagnosisTaskApi: { create: vi.fn(), get: vi.fn(), list: vi.fn() },
 }))
 vi.mock("@/lib/api", () => ({ createAgentSession: vi.fn() }))

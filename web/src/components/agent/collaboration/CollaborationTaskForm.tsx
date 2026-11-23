@@ -5,7 +5,11 @@ import {
   collaborationApi,
   CollaborationHttpError,
 } from "@/lib/collaborationApi"
-import { diagnosisTaskApi, type ImageTask } from "@/lib/diagnosisTaskApi"
+import {
+  diagnosisTaskApi,
+  restrictReasonLabel,
+  type ImageTask,
+} from "@/lib/diagnosisTaskApi"
 import type { CollaborationSnapshot } from "@/lib/collaborationProtocol"
 
 const key = () =>
@@ -145,8 +149,11 @@ export function CollaborationTaskForm({
             ))
               throw failure
             if (task.status === "RESTRICTED") {
+              // 只说「受限」等于没说：准入可能卡在质量、分布外未评估、影像不可读…
+              // 服务端已经给出原因码，这里如实转述，让人知道下一步该做什么。
+              const why = restrictReasonLabel(task.restrictReason)
               setPhase(
-                "本次影像处理受限，尚无可用的可信推理。协作角色未启动，请联系医生或重新提交合格影像。"
+                `本次影像处理受限，尚无可用的可信推理${why ? `（${why}）` : ""}。协作角色未启动，请联系医生或重新提交合格影像。`
               )
               return
             }
@@ -250,7 +257,7 @@ export function CollaborationTaskForm({
                   {task.status === "PROCESSING"
                     ? "推理中"
                     : task.status === "RESTRICTED"
-                      ? "受限"
+                      ? `受限${task.restrictReason ? `（${restrictReasonLabel(task.restrictReason)}）` : ""}`
                       : task.status === "UNKNOWN"
                         ? "状态未知（不可受理）"
                         : "推理已就绪"}

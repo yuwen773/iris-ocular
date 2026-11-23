@@ -137,4 +137,17 @@ public interface UserService extends IService<User> {
      * @return 逐条结果回执
      */
     BatchResultVO updateUserRole(List<Long> userIds, String userRole);
+
+    /**
+     * 单条删除用户。
+     *
+     * <p>与批量删除共用同一条策略：管理员账号不可删除。单条入口不再直接
+     * {@code removeById}，否则批量入口的保护会被绕过。
+     */
+    boolean deleteUser(Long id);
+
+    /**
+     * 单条更新用户。角色字段与批量改角色共用白名单，且管理员账号不可单条降级。
+     */
+    boolean updateUser(com.csust.eyediagnosis.model.dto.user.UserUpdateDTO input);
 }

@@ -8,6 +8,11 @@ export type ImageTaskStatus =
 export type ImageTask = {
   taskId: string
   status: ImageTaskStatus
+  /**
+   * 仅 RESTRICTED 时有值：准入拒绝的原因码（服务端受控枚举）。
+   * 可缺省：老服务端不返回这个字段，缺省时界面只显示「受限」。
+   */
+  restrictReason?: string | null
 }
 const base = `${import.meta.env.VITE_API_BASE_URL ?? "/api"}/diagnosis-tasks`
 
@@ -53,7 +58,46 @@ function task(value: unknown): ImageTask {
   const status = KNOWN_STATUSES.includes(raw as ImageTaskStatus)
     ? (raw as ImageTaskStatus)
     : "UNKNOWN"
-  return { taskId: value.taskId, status }
+  const reason =
+    "restrictReason" in value &&
+    typeof value.restrictReason === "string" &&
+    value.restrictReason
+      ? value.restrictReason
+      : null
+  return { taskId: value.taskId, status, restrictReason: reason }
+}
+
+const RESTRICT_REASONS: Record<string, string> = {
+  OOD_NOT_EVALUATED: "分布外检测尚未评估，暂不形成患者结论",
+  OOD_EVALUATION_FAILED: "分布外检测失败，暂不形成患者结论",
+  OOD_OUT_OF_DISTRIBUTION: "影像不在模型的适用分布内",
+  PREDICTION_MISSING: "模型没有给出分类结果",
+  IMAGE_UNREADABLE: "影像不可读或与登记摘要不一致",
+  ATTEMPTS_EXHAUSTED: "多次推理均未成功",
+  INFERENCE_FAILED: "推理服务返回失败",
+  INFERENCE_UNAVAILABLE: "推理服务暂时不可用",
+  STORAGE_VERSION_MISSING: "影像归档未成功",
+}
+
+const ABSTAIN_REASONS: Record<string, string> = {
+  QUALITY_FAIL: "影像质量不合格",
+  OOD: "影像被判定为分布外",
+  LOW_CONFIDENCE: "模型置信度不足",
+  NOT_ASSESSED: "评估未完成",
+  MODEL_NOT_LOADED: "模型未加载",
+}
+
+/**
+ * 受限原因 → 一句人话。服务端枚举之外的值原样说明，不猜：
+ * 猜错原因比只说「受限」更糟——它会让人按错误的方向处理。
+ */
+export function restrictReasonLabel(reason: string | null | undefined): string {
+  if (!reason) return ""
+  if (reason.startsWith("ABSTAIN_")) {
+    const inner = reason.slice("ABSTAIN_".length)
+    return ABSTAIN_REASONS[inner] ?? `模型输出未通过准入（${inner}）`
+  }
+  return RESTRICT_REASONS[reason] ?? `准入条件未满足（${reason}）`
 }
 export const diagnosisTaskApi = {
   async create(file: File, key: string, signal: AbortSignal) {

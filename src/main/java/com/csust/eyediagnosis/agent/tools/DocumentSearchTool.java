@@ -69,7 +69,16 @@ public class DocumentSearchTool {
 
     private final Bm25Segmenter segmenter = new Bm25Segmenter();
 
-    private final Map<Long, UserDocumentCache> documentCaches = new HashMap<>();
+    /** 文档缓存的最大用户数；超出按 LRU 驱逐，避免按 userId 只增不减。 */
+    private static final int CACHE_MAX_USERS = 200;
+
+    private final Map<Long, UserDocumentCache> documentCaches =
+            new LinkedHashMap<>(16, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<Long, UserDocumentCache> eldest) {
+                    return size() > CACHE_MAX_USERS;
+                }
+            };
     private static final long CACHE_REFRESH_INTERVAL = 60_000; // 1 minute
 
     /**
@@ -399,6 +408,14 @@ public class DocumentSearchTool {
     public void init() {
         log.info("DocumentSearchTool initialized, hybrid-search: {}, rerank: {}",
                 hybridSearchEnabled, rerankEnabled);
+        if (hybridSearchEnabled) {
+            // 说清楚这条通道到底是什么：词法召回建在「语义近邻 top-1000」这份子集上，
+            // 不是全量倒排索引。片段数超过上限、或语料分布偏离查询语义时，词法召回会
+            // 静默漏掉本该命中的片段，且词法命中不带 similarity 分数（不受阈值约束）。
+            log.warn("混合检索已开启：词法通道基于语义近邻前 1000 条片段做 BM25，"
+                    + "不是全量倒排索引；命中数超过该上限时词法召回不完整。"
+                    + "生产默认关闭，确需开启请先评估语料规模。");
+        }
     }
 
     private synchronized List<Document> refreshDocumentCache(Long userId) {
@@ -408,6 +425,9 @@ public class DocumentSearchTool {
         }
         try {
             if (vectorStore != null) {
+                // 注意：这不是「该用户的全部片段」。相似度检索没有全量列举语义，
+                // "*" 只是拿语义近邻的前 1000 条，且阈值设为 0 只是关掉过滤。
+                // 所以基于它的 BM25 是「子集上的词法召回」，不是独立倒排召回。
                 List<Document> allDocs = vectorStore.similaritySearch(SearchRequest.builder()
                         .query("*")
                         .topK(1000)

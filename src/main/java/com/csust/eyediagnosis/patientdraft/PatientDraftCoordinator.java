@@ -90,7 +90,10 @@ public class PatientDraftCoordinator implements AutoCloseable {
         catch (DraftMailbox.Rejected e) { restrict(taskId, e.reason, claimed.lease()); }
         catch (ControlledEvidenceRetriever.EvidenceUnavailable e) { restrict(taskId, "SOURCE_INVALIDATED", claimed.lease()); }
         catch (InterruptedException e) { Thread.currentThread().interrupt(); restrict(taskId, "INTERRUPTED", claimed.lease()); }
-        catch (Exception e) { log.error("Patient draft run failed for an unexpected reason", e); restrict(taskId, "INVALID_OUTPUT", claimed.lease()); }
+        // 兜底不能写成 INVALID_OUTPUT：那是「模型输出不合契约」的结论，而这里恰恰是
+        // 没被归类的内部故障（空指针、数据库异常、编码错误）。记成模型的问题会让排查
+        // 从错误的角色开始，也会让界面对用户说「输出未通过安全检查」——一句不成立的话。
+        catch (Exception e) { log.error("Patient draft run failed for an unexpected reason", e); restrict(taskId, "INTERNAL_ERROR", claimed.lease()); }
         finally { run.cancel(); }
     }
 
@@ -675,6 +678,9 @@ public class PatientDraftCoordinator implements AutoCloseable {
             }
             if (cause instanceof java.io.IOException || cause instanceof TimeoutException) return "PROVIDER_UNAVAILABLE";
         }
+        // 走到这里说明失败发生在「调用已返回、输出不可用」这一段（Spring AI 用
+        // IllegalArgumentException 报解析失败），仍属模型输出的问题。
+        // 进程内部的意外异常不走这里：那是 run() 兜底的 INTERNAL_ERROR。
         return "INVALID_OUTPUT";
     }
 

@@ -35,7 +35,8 @@ public class TitleGenerationService {
             AgentSession session = sessionMapper.selectBySessionId(sessionId);
             if (session != null && (session.getTitle() == null || session.getTitle().length() < 5)) {
                 sessionMapper.updateTitle(sessionId, title);
-                log.info("会话标题已更新, sessionId={}, title={}", sessionId, title);
+                log.info("会话标题已更新, sessionId={}, titleLength={}", sessionId,
+                        title == null ? 0 : title.length());
             }
         } catch (Exception e) {
             // 生成失败不影响主流程，记录日志

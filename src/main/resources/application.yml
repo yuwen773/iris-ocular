@@ -3,12 +3,15 @@ server:
   port: 8081
   servlet:
     context-path: /api
-    # cookie 30 天过期；SameSite=Lax 是 CSRF 基线防护，生产必须 HTTPS 时再加 secure
+    # cookie 30 天过期；SameSite=Lax 是 CSRF 基线防护。
+    # Secure 默认关闭（本地 http 调试需要），生产由 SESSION_COOKIE_SECURE=true 打开，
+    # 且 StartupSafetyGuard 会在 server/prod profile 下强制要求它。
     session:
       cookie:
         max-age: 2592000
         same-site: lax
         http-only: true
+        secure: ${SESSION_COOKIE_SECURE:false}
 spring:
   servlet:
     multipart:
@@ -34,8 +37,10 @@ spring:
 mybatis-plus:
   configuration:
     map-underscore-to-camel-case: false
-    # 仅在开发环境下开启日志
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    # SQL 日志默认关闭：StdOut 会把每条语句与参数打到标准输出，患者影像路径、
+    # 会话内容、用户输入都会进日志文件。本地要看得见 SQL 就设
+    # MYBATIS_LOG_IMPL=org.apache.ibatis.logging.stdout.StdOutImpl。
+    log-impl: ${MYBATIS_LOG_IMPL:org.apache.ibatis.logging.nologging.NoLoggingImpl}
   global-config:
     db-config:
       logic-delete-field: isDelete # 逻辑删除字段
@@ -55,13 +60,16 @@ springdoc:
       paths-to-match: '/**'
       packages-to-scan: com.csust.eyediagnosis.controller
 # knife4j
+# 接口文档默认关闭：它把全部接口与数据模型摊开在 /doc.html，生产不需要也不该有。
+# 本地要浏览文档就设 KNIFE4J_ENABLE=true。
 knife4j:
-  enable: true
+  enable: ${KNIFE4J_ENABLE:false}
   setting:
     language: zh_cn
 logging:
   level:
-    org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor: debug
+    # 模型调用调试日志默认 warn：debug 会把完整 prompt / 消息体打进日志。
+    org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor: ${ADVISOR_LOG_LEVEL:warn}
     com.csust.eyediagnosis.service.impl.DocumentProcessingService: info
 
 # MCP 远程白名单：精确 Origin 列表（如 https://mcp.example.com），默认空（拒绝所有远程）
@@ -111,10 +119,11 @@ eye-diagnosis:
     outbox:
       enabled: false
   # 上传补偿对账：清理 COS 上没有任务行登记的孤儿图片。
-  # 该任务会真实删除对象存储中的文件，默认关闭，需显式开启。
+  # 默认开启：该任务是「对象已写入、任务行没写成」这类残留的唯一周期性兜底，
+  # 关闭会让孤儿对象无限累积。清理前有 30 分钟宽限期，且只删没有有效任务行的对象。
   upload:
     compensation:
-      enabled: false
+      enabled: true
       interval-ms: 3600000
       initial-delay-ms: 600000
       # 宽限期：最近 N 分钟内被修改的对象不参与清理，避免误删正在上传的图片
@@ -144,7 +153,10 @@ eye-diagnosis:
       enabled: true
       model: gte-rerank-v2
     hybrid-search:
-      enabled: true
+      # 默认关闭：词法通道是在「语义近邻前 1000 条片段」上算的 BM25，不是全量倒排
+      # 索引；片段数超过上限时词法召回会静默不完整，且词法命中不受 similarity-threshold
+      # 约束。开启前请确认语料规模，并接受这两条已知限制。
+      enabled: false
       rrf-k: 60
     # B2 来源标记：默认关闭。开启后只会在既有 owner 过滤之后进一步收窄
     # 可见集合（BUILTIN/USER_UPLOAD 保留，UNKNOWN/AUTHORIZED_EXTERNAL 一律排除），

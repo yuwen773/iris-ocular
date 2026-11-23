@@ -231,10 +231,7 @@ class DiagnosisTaskRecoveryTest {
         Assumptions.assumeTrue(url != null && url.matches("jdbc:mysql://127\\.0\\.0\\.1:[0-9]+/issue17_test"));
         var dataSource = new DriverManagerDataSource(url, "issue17", "issue17");
         var jdbc = new JdbcTemplate(dataSource);
-        if (jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 't_diagnosis_task'", Integer.class) == 0) {
-            new org.springframework.jdbc.datasource.init.ResourceDatabasePopulator(
-                    new org.springframework.core.io.ClassPathResource("db/migration/V18__diagnosis_task.sql")).execute(dataSource);
-        }
+        com.csust.eyediagnosis.integration.DiagnosisTaskSchemaFixture.apply(dataSource, jdbc);
     }
     @Test
     void failuresAndUncertainCallsRespectTheBudget() throws Exception {

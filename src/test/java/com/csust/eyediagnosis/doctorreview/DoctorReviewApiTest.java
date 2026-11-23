@@ -42,6 +42,7 @@ class DoctorReviewApiTest {
     private MockMvc mvc;
     private String taskId;
     private String documentId;
+    private DiagnosisTaskService tasks;
 
     @BeforeEach
     void setup() throws Exception {
@@ -60,6 +61,8 @@ class DoctorReviewApiTest {
             if (jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=?", Integer.class, table) == 0)
                 new ResourceDatabasePopulator(new ClassPathResource("db/migration/" + migration)).execute(ds);
         }
+        // V33 只加一列，不建表：按列存在性补齐，不能靠上面的建表守卫。
+        com.csust.eyediagnosis.integration.DiagnosisTaskSchemaFixture.apply(ds, jdbc);
         jdbc.execute("CREATE TABLE IF NOT EXISTS t_user (id BIGINT PRIMARY KEY,userRole VARCHAR(32),isDelete INT DEFAULT 0)");
         for (String table : List.of("t_doctor_review", "t_patient_draft_message", "t_patient_draft_version", "t_patient_evidence_version", "t_patient_draft_run", "t_diagnosis_task", "t_controlled_reference_chunk", "t_controlled_reference", "t_user")) jdbc.update("DELETE FROM " + table);
         jdbc.update("INSERT INTO t_user (id,userRole) VALUES (1,'admin'),(2,'doctor'),(3,'doctor'),(42,'user')");
@@ -79,9 +82,10 @@ class DoctorReviewApiTest {
         actor.set(user(1, "admin"));
         var users = mock(UserService.class);
         when(users.getLoginUser(any())).thenAnswer(inv -> actor.get());
-        mvc = MockMvcBuilders.standaloneSetup(new DoctorReviewController(new DoctorReviewService(jdbc, new ControlledEvidenceRetriever(jdbc)), users),
+        mvc = MockMvcBuilders.standaloneSetup(new DoctorReviewController(new DoctorReviewService(jdbc, new ControlledEvidenceRetriever(jdbc)), users, tasks = mock(DiagnosisTaskService.class)),
                         new DiagnosisTaskController(new DiagnosisTaskService(jdbc, mock(DiagnosisTaskStorage.class)), users))
-                .setMessageConverters(new org.springframework.http.converter.json.MappingJackson2HttpMessageConverter(
+                .setMessageConverters(new org.springframework.http.converter.ByteArrayHttpMessageConverter(),
+                        new org.springframework.http.converter.json.MappingJackson2HttpMessageConverter(
                         new com.csust.eyediagnosis.config.JsonConfig().jacksonObjectMapper(new org.springframework.http.converter.json.Jackson2ObjectMapperBuilder())))
                 .setControllerAdvice(new GlobalExceptionHandler()).build();
     }
@@ -102,11 +106,41 @@ class DoctorReviewApiTest {
                 .andExpect(jsonPath("$.data.decidedBy").value("2"));
         var users = mock(UserService.class);
         when(users.getLoginUser(any())).thenAnswer(inv -> actor.get());
-        mvc = MockMvcBuilders.standaloneSetup(new DoctorReviewController(new DoctorReviewService(jdbc, new ControlledEvidenceRetriever(jdbc)), users))
-                .setMessageConverters(new org.springframework.http.converter.json.MappingJackson2HttpMessageConverter(
+        mvc = MockMvcBuilders.standaloneSetup(new DoctorReviewController(new DoctorReviewService(jdbc, new ControlledEvidenceRetriever(jdbc)), users, mock(com.csust.eyediagnosis.diagnosistask.DiagnosisTaskService.class)))
+                .setMessageConverters(new org.springframework.http.converter.ByteArrayHttpMessageConverter(),
+                        new org.springframework.http.converter.json.MappingJackson2HttpMessageConverter(
                         new com.csust.eyediagnosis.config.JsonConfig().jacksonObjectMapper(new org.springframework.http.converter.json.Jackson2ObjectMapperBuilder())))
                 .setControllerAdvice(new GlobalExceptionHandler()).build();
         assertEquals("APPROVED", read(assigned).path("status").asText());
+    }
+
+    /**
+     * 复核取图走 {@code DiagnosisTaskService.readImage}：格式、大小、摘要与对象版本
+     * 都在读取侧校验，控制器只负责把结果按 inline 流出去。
+     */
+    @Test
+    void imageEndpointStreamsArchivedFundusWithNosniff() throws Exception {
+        JsonNode assigned = assign(2);
+        when(tasks.readImage(taskId)).thenReturn(new DiagnosisTaskService.TaskImage(new byte[]{1, 2, 3}, "png"));
+        actor.set(user(2, "doctor"));
+        mvc.perform(get("/doctor-reviews/" + assigned.path("reviewId").asText() + "/image"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("X-Content-Type-Options", "nosniff"))
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(content().contentType("image/png"))
+                .andExpect(content().bytes(new byte[]{1, 2, 3}));
+    }
+
+    /** 影像不可读是服务侧问题（未归档/对象存储失败），不是「复核不存在」，回 503。 */
+    @Test
+    void imageEndpointReportsUnreadableArchiveAsServiceUnavailable() throws Exception {
+        JsonNode assigned = assign(2);
+        when(tasks.readImage(taskId)).thenThrow(new DiagnosisTaskService.ImageUnavailable("IMAGE_UNAVAILABLE"));
+        actor.set(user(2, "doctor"));
+        mvc.perform(get("/doctor-reviews/" + assigned.path("reviewId").asText() + "/image"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value(50300))
+                .andExpect(jsonPath("$.msg").value("IMAGE_UNAVAILABLE"));
     }
 
     private JsonNode assign(long doctor) throws Exception {
@@ -375,7 +409,9 @@ class DoctorReviewApiTest {
         var response = mvc.perform(get("/diagnosis-tasks/" + taskId))
                 .andExpect(jsonPath("$.code").value(0)).andExpect(jsonPath("$.data.status").value(expected))
                 .andReturn().getResponse().getContentAsString();
-        assertEquals(2, json.readTree(response).path("data").size());
+        // 面向患者的任务视图只有三个字段：任务号、状态、受限原因；草稿与 agent 输出一律不出现。
+        assertEquals(3, json.readTree(response).path("data").size());
+        assertTrue(json.readTree(response).path("data").has("restrictReason"));
         assertFalse(response.contains("Synthetic draft"));
         assertFalse(response.contains("Synthetic objection"));
         mvc.perform(get("/diagnosis-tasks")).andExpect(jsonPath("$.data[0].status").value(expected));

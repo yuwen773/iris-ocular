@@ -16,11 +16,11 @@ import java.util.List;
 public class DoctorReviewController {
     private final DoctorReviewService reviews;
     private final UserService users;
-    @org.springframework.beans.factory.annotation.Autowired(required = false)
-    private com.csust.eyediagnosis.collaboration.CollaborationImages images;
+    private final com.csust.eyediagnosis.diagnosistask.DiagnosisTaskService tasks;
 
-    public DoctorReviewController(DoctorReviewService reviews, UserService users) {
-        this.reviews = reviews; this.users = users;
+    public DoctorReviewController(DoctorReviewService reviews, UserService users,
+            com.csust.eyediagnosis.diagnosistask.DiagnosisTaskService tasks) {
+        this.reviews = reviews; this.users = users; this.tasks = tasks;
     }
 
     public record Assignment(String taskId, Long doctorId) {}
@@ -61,12 +61,19 @@ public class DoctorReviewController {
     public ResponseEntity<byte[]> image(@PathVariable String id, HttpServletRequest request) {
         var user = users.getLoginUser(request);
         var review = reviews.detail(user, id);
-        if (images == null) throw new com.csust.eyediagnosis.collaboration.CollaborationRunService.Fault(503, "IMAGE_UNAVAILABLE");
-        var image = images.readTask(review.taskId(), user.getId());
+        var image = tasks.readImage(review.taskId());
         return ResponseEntity.ok().header("X-Content-Type-Options", "nosniff")
                 .header("Content-Disposition", "inline; filename=fundus." + image.format())
-                .contentType(org.springframework.http.MediaType.parseMediaType(image.format().equals("png") ? "image/png" : "image/jpeg"))
+                .contentType(org.springframework.http.MediaType.parseMediaType(
+                        image.format().equals("png") ? "image/png" : "image/jpeg"))
                 .body(image.bytes());
+    }
+
+    @ExceptionHandler(com.csust.eyediagnosis.diagnosistask.DiagnosisTaskService.ImageUnavailable.class)
+    public ResponseEntity<BaseResponse<?>> imageUnavailable(
+            com.csust.eyediagnosis.diagnosistask.DiagnosisTaskService.ImageUnavailable error) {
+        return ResponseEntity.status(503).contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                .body(ResultUtils.error(50300, error.getMessage()));
     }
 
     @ExceptionHandler(com.csust.eyediagnosis.collaboration.CollaborationRunService.Fault.class)

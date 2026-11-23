@@ -65,16 +65,16 @@ public class DiagnosisTaskService {
             if (concurrent == null) throw e;
             return concurrent;
         }
-        return new SafeStatus(id, safeStatus(status));
+        return new SafeStatus(id, safeStatus(status), validVersion ? null : "STORAGE_VERSION_MISSING");
     }
 
     private SafeStatus findRequest(long userId, String key, String requestDigest) {
-        var rows = jdbc.query("SELECT taskId,requestDigest,status FROM t_diagnosis_task WHERE userId=? AND idempotencyKey=?",
-                (rs, n) -> new String[]{rs.getString(1), rs.getString(2), rs.getString(3)}, userId, key);
+        var rows = jdbc.query("SELECT taskId,requestDigest,status,restrictReason FROM t_diagnosis_task WHERE userId=? AND idempotencyKey=?",
+                (rs, n) -> new String[]{rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4)}, userId, key);
         if (rows.isEmpty()) return null;
         var row = rows.getFirst();
         if (!requestDigest.equals(row[1])) throw new RequestConflict();
-        return new SafeStatus(row[0], safeStatus(row[2]));
+        return new SafeStatus(row[0], safeStatus(row[2]), row[3]);
     }
 
     static String digest(byte[] bytes) {
@@ -85,8 +85,8 @@ public class DiagnosisTaskService {
     public static class RequestConflict extends RuntimeException { }
 
     public SafeStatus getOwned(String id, long userId) {
-        var rows = jdbc.query("SELECT status FROM t_diagnosis_task WHERE taskId = ? AND userId = ?",
-                (rs, row) -> new SafeStatus(id, safeStatus(rs.getString("status"))), id, userId);
+        var rows = jdbc.query("SELECT status,restrictReason FROM t_diagnosis_task WHERE taskId = ? AND userId = ?",
+                (rs, row) -> new SafeStatus(id, safeStatus(rs.getString("status")), rs.getString("restrictReason")), id, userId);
         if (rows.isEmpty()) {
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR);
         }
@@ -94,8 +94,40 @@ public class DiagnosisTaskService {
     }
 
     public java.util.List<SafeStatus> listOwned(long userId) {
-        return jdbc.query("SELECT taskId,status FROM t_diagnosis_task WHERE userId=? ORDER BY createdAt DESC, taskId DESC LIMIT 50",
-                (rs, row) -> new SafeStatus(rs.getString(1), safeStatus(rs.getString(2))), userId);
+        return jdbc.query("SELECT taskId,status,restrictReason FROM t_diagnosis_task WHERE userId=? ORDER BY createdAt DESC, taskId DESC LIMIT 50",
+                (rs, row) -> new SafeStatus(rs.getString(1), safeStatus(rs.getString(2)), rs.getString(3)), userId);
+    }
+
+    public record TaskImage(byte[] bytes, String format) { }
+
+    /** 任务影像不可读（未归档或对象存储失败），与"任务不存在"区分。 */
+    public static class ImageUnavailable extends RuntimeException {
+        public ImageUnavailable(String message) { super(message); }
+    }
+
+    /**
+     * 读取任务影像。调用方必须先完成授权（例如医生复核的 {@code detail()}），
+     * 本方法只按 taskId 做存储读取与绑定校验，不再重复用户归属判断。
+     */
+    public TaskImage readImage(String taskId) {
+        var rows = jdbc.query(
+                "SELECT objectKey,objectVersion,imageDigest,imageFormat FROM t_diagnosis_task WHERE taskId=?",
+                (rs, n) -> new String[]{rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4)},
+                taskId);
+        if (rows.isEmpty()) throw new BusinessException(ErrorCode.NOT_FOUND_ERROR);
+        String[] row = rows.getFirst();
+        if (row[1] == null || row[1].isBlank()) throw new ImageUnavailable("IMAGE_NOT_ARCHIVED");
+        try {
+            byte[] bytes = storage.readVersion(row[0], row[1]);
+            boolean validFormat = "png".equals(row[3]) || "jpeg".equals(row[3]);
+            if (bytes == null || bytes.length == 0 || bytes.length > MAX_IMAGE_BYTES || !validFormat
+                    || !digest(bytes).equals(row[2])) {
+                throw new IllegalStateException("Image binding mismatch");
+            }
+            return new TaskImage(bytes, row[3]);
+        } catch (Exception e) {
+            throw new ImageUnavailable("IMAGE_UNAVAILABLE");
+        }
     }
 
     private String safeStatus(String status) {
@@ -106,5 +138,12 @@ public class DiagnosisTaskService {
         };
     }
 
-    public record SafeStatus(String taskId, String status) { }
+    /**
+     * 面向客户端的任务状态。
+     *
+     * @param restrictReason 仅 {@code RESTRICTED} 时有值，是准入拒绝的原因码
+     *                       （{@code OOD_NOT_EVALUATED}、{@code ABSTAIN_QUALITY_FAIL} 等）。
+     *                       前端据此说明「为什么受限」，不再只有一句「受限」。
+     */
+    public record SafeStatus(String taskId, String status, String restrictReason) { }
 }

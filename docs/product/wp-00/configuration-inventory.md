@@ -53,7 +53,7 @@
 | `spring.datasource.*` | `application-server.example.yml:4-8`、`application-ci.yml:2-6` | Spring | MySQL 连接 | DEPLOY_ONLY | startup | 高 | 保留（永不动态） |
 | `spring.session.store-type` / `spring.data.redis.*` | `application-server.example.yml:13-26` | Spring Session / Redis | 会话存储 | DEPLOY_ONLY | startup | 高 | 保留（永不动态） |
 | `spring.jackson.*` | `application-server.example.yml:9-12` | Jackson | 日期格式 | STATIC_POLICY | startup | 中 | 保留 |
-| `springdoc.*` / `knife4j.*` | `application.yml:39-54` | 文档组件 | Swagger/Knife4j | DEPLOY_ONLY | startup | 低 | 保留 |
+| `springdoc.*` / `knife4j.*`（`KNIFE4J_ENABLE`，默认 `false`） | `application.yml` `knife4j` | 文档组件 | Swagger/Knife4j；部署 profile 下 `StartupSafetyGuard` 禁止开启 | DEPLOY_ONLY | startup | 低 | 保留 |
 | `logging.level.*` | `application.yml:55-58` | Logback | 日志级别 | DEPLOY_ONLY | startup | 低 | 保留 |
 
 ### 2.2 安全边界（STATIC_POLICY，永不可由数据库覆盖）
@@ -112,7 +112,7 @@
 | `agent.max-iterations` / `agent.model-call-limit` | **无 yml** | **无消费者**（只绑定在 `agent/config/AgentConstants.java:12-13`；`DiagnosisAgent.java:85` 注入后未使用） | — | — | — | 低（死配置） | 后续重构（删除） |
 | `agent.queue.parallelism`（默认 8） | **无 yml** | `agent/queue/AgentQueueConfig.java:12` | 会话队列并行度 | DEPLOY_ONLY | startup | 中 | 保留 |
 | `document.executor.core-size` / `max-size` / `queue-capacity` | **无 yml** | `config/AsyncConfig.java:28-34` | 文档 ETL 线程池 | DEPLOY_ONLY | startup | 中 | 保留 |
-| `eye-diagnosis.upload.compensation.enabled` | `application.yml:84-86` | `upload/state/UploadCompensationScheduler.java:18` | 破坏性对账开关 | STATIC_POLICY | startup | **高**（会真实删 COS 对象） | 保留 |
+| `eye-diagnosis.upload.compensation.enabled`（默认 `true`） | `application.yml` `eye-diagnosis.upload.compensation` | `upload/state/UploadCompensationScheduler.java` | 破坏性对账开关；默认开启（孤儿对象唯一周期性兜底），显式 `false` 时启动打警告 | STATIC_POLICY | startup | **高**（会真实删 COS 对象） | 保留 |
 | `eye-diagnosis.upload.compensation.interval-ms` / `initial-delay-ms` / `min-age-minutes` | `application.yml:87-90` | `UploadCompensationScheduler.java:24-25`、`UploadCompensationService.java:48,120` | 对账节奏与宽限期 | DYNAMIC | startup / scheduled | 中 | 后续重构 |
 
 ### 2.6 测试与本地验证（per-test-run，不入产品配置）

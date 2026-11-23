@@ -139,8 +139,7 @@ public class ProductAcceptanceServer {
             context.registerBean(AgentController.class, () -> agent);
             context.registerBean(CollaborationRunController.class, () -> new CollaborationRunController(runs, streams, repository(context), new CollaborationImages(jdbc, runs, storage)));
             context.registerBean(DiagnosisTaskController.class, () -> new DiagnosisTaskController(tasks, users));
-            var reviewController = new DoctorReviewController(reviews, users);
-            ReflectionTestUtils.setField(reviewController, "images", new CollaborationImages(jdbc, runs, storage));
+            var reviewController = new DoctorReviewController(reviews, users, tasks);
             context.registerBean(DoctorReviewController.class, () -> reviewController);
             context.registerBean(PatientExplanationController.class, () -> new PatientExplanationController(new com.csust.eyediagnosis.patientexplanation.PatientExplanationService(jdbc, reviews), users));
             context.registerBean(PatientAuthorizationController.class, () -> new PatientAuthorizationController(new com.csust.eyediagnosis.patientauthorization.PatientAuthorizationService(jdbc, reviews), users));

@@ -155,7 +155,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
             passwordUpgrade.setUserPassword(passwordService.encode(userPassword));
             this.updateById(passwordUpgrade);
         }
-        // 记录用户的登录状态
+        // 记录用户的登录状态：先轮换会话标识，避免登录前后沿用同一 SessionId。
+        request.getSession(true);
+        request.changeSessionId();
         request.getSession().setAttribute(USER_LOGIN_STATE,user);
         return this.getLoginUserVO(user);
     }
@@ -167,9 +169,12 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
      */
     @Override
     public User getLoginUser(HttpServletRequest request) {
-        // 先判断是否登录
-        //1. 从Session 中获取存入的User对象
-        Object userObj = request.getSession().getAttribute(USER_LOGIN_STATE);
+        // 先判断是否登录：匿名请求不创建新会话
+        jakarta.servlet.http.HttpSession session = request.getSession(false);
+        if (session == null) {
+            throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR);
+        }
+        Object userObj = session.getAttribute(USER_LOGIN_STATE);
         //强转
         User currentUser = (User) userObj;
         if(currentUser==null || currentUser.getId()==null){
@@ -182,7 +187,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
             throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR);
         }
         if (AuthConstant.BAN_ROLE.equals(currentUser.getUserRole())) {
-            request.getSession().removeAttribute(USER_LOGIN_STATE);
+            session.invalidate();
             throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR, "账号已被封禁");
         }
         return currentUser;
@@ -205,12 +210,13 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
 
     @Override
     public Boolean userLogout(HttpServletRequest request) {
-        //先判断是否登录
-        Object user = request.getSession().getAttribute(USER_LOGIN_STATE);
-        if(user==null){
+        //先判断是否登录：匿名请求不创建新会话
+        jakarta.servlet.http.HttpSession session = request.getSession(false);
+        if (session == null || session.getAttribute(USER_LOGIN_STATE) == null) {
             throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR,NO_LOGIN);
         }
-        request.getSession().removeAttribute(USER_LOGIN_STATE);
+        // 退出登录销毁整个会话容器，而不是只移除登录属性
+        session.invalidate();
         return Boolean.TRUE;
     }
     /**
@@ -443,6 +449,34 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
                 ? "已更新 " + succeeded + " 个用户的角色"
                 : String.join("；", reasons);
         return new BatchResultVO(targets.size(), succeeded, failedIds, message);
+    }
+
+    @Override
+    public boolean deleteUser(Long id) {
+        ThrowUtils.throwIf(id == null || id <= 0, ErrorCode.PARAMS_ERROR);
+        User target = this.getById(id);
+        ThrowUtils.throwIf(target == null, ErrorCode.NOT_FOUND_ERROR);
+        ThrowUtils.throwIf(AuthConstant.ADMIN_ROLE.equals(target.getUserRole()),
+                ErrorCode.FORBIDDEN_ERROR, "管理员账号不可删除");
+        return this.removeById(id);
+    }
+
+    @Override
+    public boolean updateUser(com.csust.eyediagnosis.model.dto.user.UserUpdateDTO input) {
+        ThrowUtils.throwIf(input == null || input.getId() == null, ErrorCode.PARAMS_ERROR);
+        User target = this.getById(input.getId());
+        ThrowUtils.throwIf(target == null, ErrorCode.NOT_FOUND_ERROR);
+        String role = input.getUserRole();
+        if (role != null) {
+            ThrowUtils.throwIf(!ASSIGNABLE_ROLES.contains(role), ErrorCode.PARAMS_ERROR,
+                    "角色只能是 user / ban / admin");
+            ThrowUtils.throwIf(AuthConstant.ADMIN_ROLE.equals(target.getUserRole())
+                            && !AuthConstant.ADMIN_ROLE.equals(role),
+                    ErrorCode.FORBIDDEN_ERROR, "管理员账号不可单条降级");
+        }
+        User patch = new User();
+        BeanUtils.copyProperties(input, patch);
+        return this.updateById(patch);
     }
 
     /** id 列表去重 + 去空。 */

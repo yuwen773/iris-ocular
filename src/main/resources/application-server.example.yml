@@ -82,10 +82,29 @@ eye-diagnosis:
       enabled: true
       model: gte-rerank-v2
     hybrid-search:
-      enabled: true
+      # 词法通道是「语义近邻前 1000 条」上的 BM25，不是全量倒排索引；开启前先评估语料规模。
+      enabled: false
       rrf-k: 60
+
+# ── 生产安全基线 ────────────────────────────────────────────────────────────
+# 下面四项在 application.yml 里已经是安全默认值；这里显式写出来，是因为它们一旦被
+# 改回开发值（旧配置文件、临时调试忘了改），患者数据就会进日志或接口文档页。
+# StartupSafetyGuard 在 server/prod profile 下会逐项检查，任一项不满足即拒绝启动。
+mybatis-plus:
+  configuration:
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
+knife4j:
+  enable: false
 
 logging:
   level:
-    org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor: debug
+    # 模型 prompt 与消息体只在排查时临时开 debug，排查完改回来。
+    org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor: warn
     com.csust.eyediagnosis.service.impl.DocumentProcessingService: info
+
+server:
+  servlet:
+    session:
+      cookie:
+        # 站点走 HTTPS 时必须为 true；由 StartupSafetyGuard 强制。
+        secure: true

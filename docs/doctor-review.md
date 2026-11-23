@@ -30,6 +30,7 @@ V13 新增 `t_doctor_review`，不修改已应用迁移。分配时保存任务�
 | `GET /doctor-reviews` | 医生 | 本人获授权任务摘要 |
 | `GET /doctor-reviews/{reviewId}` | 获授权医生 | 冻结材料、版本、决定与审计信息 |
 | `POST /doctor-reviews/{reviewId}/decision` | 获授权医生 | `{expectedTaskVersion, expectedDraftVersion, expectedEvidenceVersion, expectedMaterialDigest, decision, note}`；`decision` 为 `APPROVED` 或 `REJECTED` |
+| `GET /doctor-reviews/{reviewId}/image` | 获授权医生 | 回放冻结影像；按任务登记的对象 key/版本/摘要逐项校验后返回字节。归档缺失（`IMAGE_NOT_ARCHIVED`）或校验不通过 / 对象存储失败（`IMAGE_UNAVAILABLE`）返回 503，`msg` 为原因码（不是 403：授权已经通过，缺的是影像本身） |
 
 前端提交后锁定已有决定；来源或版本冲突、网络中断时关闭材料并要求重新打开，避免重用旧表单。切换身份会清理材料并丢弃迟到响应。页面使用纯文本渲染草稿和资料，展示来源版本和协作历史异议。
 

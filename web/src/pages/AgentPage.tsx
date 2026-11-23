@@ -30,6 +30,7 @@ import {
 import { createAgentUploader } from "@/lib/agentUpload"
 import { countResources, type AgentResource } from "@/lib/agentResources"
 import { useSession } from "@/lib/session"
+import { downloadText, exportDescriptor } from "@/lib/sessionExport"
 import { loadThreadId, saveThreadId } from "@/lib/threadStorage"
 import { newId } from "@/lib/id"
 import { formatClock } from "@/lib/time"
@@ -51,26 +52,6 @@ import { IrisPageLoading } from "@/components/system/IrisStates"
  * 400px。1024 把平板也交给抽屉，桌面才有完整的 264 / 320 两根侧栏。
  */
 const COMPACT_QUERY = "(max-width: 1023px)"
-
-/** 文件名净化：去掉路径分隔符与系统不允许的字符。 */
-function safeFileName(name: string): string {
-  const cleaned = name.replace(/[\\/:*?"<>|]/g, "_").trim()
-  return cleaned || "会话"
-}
-
-/** Blob 下载：必须挂进 DOM 再点击，且 revoke 要等一拍，否则部分浏览器下载静默失败。 */
-function downloadText(content: string, filename: string, mime: string) {
-  const blob = new Blob([content], { type: mime })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement("a")
-  a.href = url
-  a.download = filename
-  a.style.display = "none"
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  window.setTimeout(() => URL.revokeObjectURL(url), 0)
-}
 
 export function AgentPage() {
   const { status, user } = useSession()
@@ -542,16 +523,20 @@ export function AgentPage() {
     (id: string, format: "markdown" | "json") => {
       void afterSessionChange(async () => {
         const content = await exportSession(id, format)
-        const session = sessions.find((s) => s.sessionId === id)
-        const base = safeFileName(session?.title || "会话")
-        downloadText(
-          content,
-          `${base}.${format === "json" ? "json" : "md"}`,
-          format === "json" ? "application/json" : "text/markdown",
-        )
+        // 文件名只用会话 id，不拼会话标题：标题由首条用户消息生成，可能带症状等隐私文本，
+        // 而导出的文件会离开浏览器。规则与用例见 lib/sessionExport。
+        const failure = downloadText(content, exportDescriptor(id, format))
+        if (failure) {
+          pushFault(fault({
+            severity: "attention",
+            kind: "client",
+            title: "导出未完成",
+            detail: failure,
+          }))
+        }
       })
     },
-    [afterSessionChange, sessions],
+    [afterSessionChange, pushFault],
   )
 
   // 子组件的 memo 依赖：这些回调必须引用稳定，否则 SessionList / MessageList

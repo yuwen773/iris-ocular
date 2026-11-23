@@ -32,7 +32,9 @@ public class DiagnosisTaskCrashWorker {
                         if (method.getName().equals("commit") && targetExecuted.get()) Runtime.getRuntime().halt(72);
                         if (method.getName().equals("prepareStatement") && arguments[0] instanceof String sql
                                 && ((phase.equals("reserved") && sql.contains("SET attemptCount=attemptCount+1"))
-                                || (!phase.equals("reserved") && sql.contains("SET status=?, inferenceSnapshot=?")))) {
+                                // 不写死整段 SET 子句：finish() 的列会随迁移增加（V33 加了 restrictReason）。
+                                || (!phase.equals("reserved") && sql.contains("SET status=?")
+                                        && sql.contains("inferenceSnapshot=?")))) {
                             PreparedStatement statement = (PreparedStatement) result;
                             return Proxy.newProxyInstance(getClass().getClassLoader(), new Class[]{PreparedStatement.class}, (p, m, a) -> {
                                 try {

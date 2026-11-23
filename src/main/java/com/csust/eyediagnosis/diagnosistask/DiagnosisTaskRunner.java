@@ -69,12 +69,12 @@ public class DiagnosisTaskRunner {
                 (rs, n) -> new Claimed(candidate.id(), owner, rs.getLong(1), rs.getString(2), rs.getString(3), rs.getString(4), rs.getString(5), rs.getInt(6), rs.getLong(7), rs.getLong(8)), candidate.id(), owner);
         if (rows.isEmpty()) return;
         var task = rows.getFirst();
-        if (task.attempts() >= 2) { finish(task, "RESTRICTED", null); return; }
+        if (task.attempts() >= 2) { finish(task, "RESTRICTED", "ATTEMPTS_EXHAUSTED", null); return; }
         byte[] bytes;
         try {
             bytes = storage.readVersion(task.objectKey(), task.objectVersion());
             if (bytes == null || !task.imageDigest().equals(DiagnosisTaskService.digest(bytes))) throw new IllegalStateException("Input digest mismatch");
-        } catch (Exception e) { finish(task, "RESTRICTED", null); return; }
+        } catch (Exception e) { finish(task, "RESTRICTED", "IMAGE_UNREADABLE", null); return; }
         var toReserve = task;
         int reserved = fencedUpdate(task.id(), () -> jdbc.update("UPDATE t_diagnosis_task SET attemptCount=attemptCount+1, version=version+1, updatedAt=COALESCE(?,CURRENT_TIMESTAMP(6)) WHERE taskId=? AND BINARY status=BINARY 'RUNNING' AND leaseOwner=? AND leaseToken=? AND version=? AND leaseUntil>COALESCE(?,CURRENT_TIMESTAMP(6)) AND attemptCount<2",
                 now(), toReserve.id(), toReserve.owner(), toReserve.token(), toReserve.version(), now()));
@@ -87,23 +87,45 @@ public class DiagnosisTaskRunner {
             boolean deterministic = code == io.grpc.Status.Code.INVALID_ARGUMENT
                     || code == io.grpc.Status.Code.FAILED_PRECONDITION
                     || code == io.grpc.Status.Code.OUT_OF_RANGE;
-            finish(task, !deterministic && task.attempts() < 2 ? "PENDING" : "RESTRICTED", null);
+            boolean retry = !deterministic && task.attempts() < 2;
+            finish(task, retry ? "PENDING" : "RESTRICTED", retry ? null : "INFERENCE_FAILED", null);
             return;
         }
-        if (response == null) { finish(task, "RESTRICTED", null); return; }
+        if (response == null) { finish(task, "RESTRICTED", "INFERENCE_UNAVAILABLE", null); return; }
         String snapshot = InferenceSnapshot.write(
                 new InferenceSnapshot.Identity(task.id(), task.userId(), task.objectKey(),
                         task.objectVersion(), task.imageDigest(), task.format()),
                 response);
-        boolean restricted = response.getRejected() || response.getIsOod()
-                || response.getOodStatus() != DiagnosisProto.OodStatus.IN_DISTRIBUTION
-                || response.getPredictedLabel().isBlank();
-        finish(task, restricted ? "RESTRICTED" : "WAITING_REVIEW", snapshot);
+        // 准入 fail-closed，并把「为什么受限」记下来：只有 IN_DISTRIBUTION 才说明
+        // 有版本绑定的 OOD 证据。NOT_EVALUATED / EVALUATION_FAILED 都不是「在分布内」，
+        // 不能为了跑通把它们当成通过；前端据此说明受限原因，而不是只说一句「受限」。
+        String restrictReason = restrictReason(response);
+        finish(task, restrictReason == null ? "WAITING_REVIEW" : "RESTRICTED", restrictReason, snapshot);
     }
 
-    private void finish(Claimed task, String status, String snapshot) {
-        fencedUpdate(task.id(), () -> jdbc.update("UPDATE t_diagnosis_task SET status=?, inferenceSnapshot=?, leaseOwner=NULL, leaseUntil=NULL, version=version+1, updatedAt=COALESCE(?,CURRENT_TIMESTAMP(6)) WHERE taskId=? AND BINARY status=BINARY 'RUNNING' AND leaseOwner=? AND leaseToken=? AND version=? AND leaseUntil>COALESCE(?,CURRENT_TIMESTAMP(6)) AND inferenceSnapshot IS NULL",
-                status, snapshot, now(), task.id(), task.owner(), task.token(), task.version(), now()));
+    /** 患者任务准入的拒绝原因；返回 null 表示四条准入都满足。 */
+    static String restrictReason(DiagnosisProto.DiagnosisResponse response) {
+        if (response.getRejected()) {
+            String abstain = response.getAbstainReason();
+            return abstain == null || abstain.isBlank() ? "ABSTAIN_UNSPECIFIED" : "ABSTAIN_" + abstain;
+        }
+        if (response.getIsOod() || response.getOodStatus() == DiagnosisProto.OodStatus.OUT_OF_DISTRIBUTION) {
+            return "OOD_OUT_OF_DISTRIBUTION";
+        }
+        if (response.getOodStatus() == DiagnosisProto.OodStatus.EVALUATION_FAILED) {
+            return "OOD_EVALUATION_FAILED";
+        }
+        if (response.getOodStatus() != DiagnosisProto.OodStatus.IN_DISTRIBUTION) {
+            // NOT_EVALUATED 与任何认不出的取值：没有版本绑定的 OOD 证据，准入不成立。
+            return "OOD_NOT_EVALUATED";
+        }
+        if (response.getPredictedLabel().isBlank()) return "PREDICTION_MISSING";
+        return null;
+    }
+
+    private void finish(Claimed task, String status, String restrictReason, String snapshot) {
+        fencedUpdate(task.id(), () -> jdbc.update("UPDATE t_diagnosis_task SET status=?, restrictReason=?, inferenceSnapshot=?, leaseOwner=NULL, leaseUntil=NULL, version=version+1, updatedAt=COALESCE(?,CURRENT_TIMESTAMP(6)) WHERE taskId=? AND BINARY status=BINARY 'RUNNING' AND leaseOwner=? AND leaseToken=? AND version=? AND leaseUntil>COALESCE(?,CURRENT_TIMESTAMP(6)) AND inferenceSnapshot IS NULL",
+                status, restrictReason, snapshot, now(), task.id(), task.owner(), task.token(), task.version(), now()));
     }
 
     private int fencedUpdate(String taskId, java.util.function.IntSupplier update) {

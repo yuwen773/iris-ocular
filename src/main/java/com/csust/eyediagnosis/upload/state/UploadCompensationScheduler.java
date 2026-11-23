@@ -9,13 +9,15 @@ import org.springframework.stereotype.Component;
 /**
  * 上传补偿定时任务：周期性地把 COS 上的孤儿图片清理掉。
  *
- * <p>默认关闭（{@code eye-diagnosis.upload.compensation.enabled=false}）：
- * 该任务会真实删除对象存储中的文件，需要显式开启。
+ * <p>默认开启（{@code eye-diagnosis.upload.compensation.enabled}，缺省视为 true）。
+ * 显式设为 {@code false} 可关闭，但那样「对象已写入、任务行没写成」的残留就只能靠人工排查，
+ * {@link UploadCompensationService} 会在启动时打出警告。
  */
 @Slf4j
 @Component
 @RequiredArgsConstructor
-@ConditionalOnProperty(prefix = "eye-diagnosis.upload.compensation", name = "enabled", havingValue = "true")
+@ConditionalOnProperty(prefix = "eye-diagnosis.upload.compensation", name = "enabled",
+        havingValue = "true", matchIfMissing = true)
 public class UploadCompensationScheduler {
 
     private final UploadCompensationService compensationService;

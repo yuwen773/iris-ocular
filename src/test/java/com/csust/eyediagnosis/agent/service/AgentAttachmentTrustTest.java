@@ -3,6 +3,7 @@ package com.csust.eyediagnosis.agent.service;
 import com.csust.eyediagnosis.agent.queue.SessionMessageQueue;
 import com.csust.eyediagnosis.config.CosClientConfig;
 import com.csust.eyediagnosis.exception.BusinessException;
+import com.csust.eyediagnosis.manager.CosManager;
 import com.csust.eyediagnosis.mapper.*;
 import com.csust.eyediagnosis.model.entity.*;
 import com.csust.eyediagnosis.upload.state.UploadStatus;
@@ -26,6 +27,10 @@ class AgentAttachmentTrustTest {
         when(config.getHost()).thenReturn("https://owned.invalid");
         ReflectionTestUtils.setField(images, "cosClientConfig", config);
         ReflectionTestUtils.setField(images, "uploadTaskMapper", uploads);
+        CosManager cos = mock(CosManager.class);
+        when(cos.generatePresignedUrl(eq("agent-chat/7/a.png"), any()))
+                .thenReturn("https://owned.invalid/agent-chat/7/a.png?sign=x");
+        ReflectionTestUtils.setField(images, "cosManager", cos);
         history.setImageUploadService(images);
     }
 
@@ -63,7 +68,8 @@ class AgentAttachmentTrustTest {
         var message = history.loadHistory("s", null, 20).getMessages().get(0);
         assertEquals("body", message.getContent());
         assertEquals(List.of(VIEW), message.getImages());
-        assertEquals("https://owned.invalid/agent-chat/7/a.png", images.resolveViewTarget("a.png", 7L));
+        // 302 目标是短时签名 URL，不是对象存储直链（桶公有读时直链等于绕过归属门）。
+        assertEquals("https://owned.invalid/agent-chat/7/a.png?sign=x", images.resolveViewTarget("a.png", 7L));
         when(uploads.selectByObjectKey(7L, "agent-chat/7/a.png")).thenReturn(null);
         assertEquals(List.of(), history.loadHistory("s", null, 20).getMessages().get(0).getImages());
         assertThrows(BusinessException.class, () -> images.resolveViewTarget("a.png", 7L));

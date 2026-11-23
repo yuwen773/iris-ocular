@@ -108,19 +108,12 @@ function ReviewWorkspace({ role }: { role: string }) {
   const request = useRef<AbortController | null>(null)
   const pending = useRef(false)
   useEffect(() => {
-    const clear = () => {
-      request.current?.abort()
-      setDetail(null)
-      setNote("")
-      setSelected("")
-      setList([])
-      pending.current = false
-      setBusy(false)
-    }
-    window.addEventListener("blur", clear)
+    // 只在卸载时中止在途请求。不要监听 window blur：切窗口、系统弹窗、点开
+    // 输入法候选框都会触发失焦，而这里清的是冻结材料视图和**已填写的复核意见**，
+    // 一次 alt-tab 就把医生写了一半的结论抹掉。失焦也不代表任何授权失效。
     return () => {
       request.current?.abort()
-      window.removeEventListener("blur", clear)
+      pending.current = false
     }
   }, [])
   async function perform(

@@ -2,6 +2,7 @@ import logging
 
 from mcp.server.fastmcp import FastMCP
 
+from mcp_server.auth import BearerTokenMiddleware
 from mcp_server.config import MCPConfig
 from mcp_server.tools import diagnose, load_model
 
@@ -33,6 +34,29 @@ async def eye_disease_diagnosis(image_input: str) -> str:
     return await diagnose(image_input)
 
 
+def _serve(config: MCPConfig) -> None:
+    """按配置启动 HTTP 传输。
+
+    - 只绑回环：直接交给 SDK 启动。
+    - 对外绑定：必须带 `MCP_AUTH_TOKEN`（配置层已强制），这里再把它装成
+      逐请求 Bearer 校验的中间件。SDK 不提供可注入的 app 时直接失败，
+      不退化成「没装鉴权也照跑」。
+    """
+    if not config.auth_token:
+        mcp.run(transport="streamable-http", host=config.host, port=config.port)
+        return
+    if not hasattr(mcp, "streamable_http_app"):
+        raise RuntimeError(
+            "当前 MCP SDK 无法注入鉴权中间件：请使用支持 streamable_http_app() 的版本，"
+            "或不要设置 MCP_AUTH_TOKEN 并把 MCP_HOST 保持为 127.0.0.1"
+        )
+    import uvicorn
+
+    app = mcp.streamable_http_app()
+    app.add_middleware(BearerTokenMiddleware, token=config.auth_token)
+    uvicorn.run(app, host=config.host, port=config.port, log_level=config.log_level.lower())
+
+
 def main():
     config = MCPConfig.from_env()
 
@@ -41,11 +65,13 @@ def main():
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
 
-    logger.info(f"Starting MCP server on {config.host}:{config.port}")
+    logger.info(f"Starting MCP server on {config.host}:{config.port} "
+                f"(auth={'bearer' if config.auth_token else 'none'}, "
+                f"image_root={config.image_root or 'disabled'})")
     load_model(config)
     logger.info("Model loaded, server ready")
 
-    mcp.run(transport="streamable-http", host=config.host, port=config.port)
+    _serve(config)
 
 
 if __name__ == "__main__":
