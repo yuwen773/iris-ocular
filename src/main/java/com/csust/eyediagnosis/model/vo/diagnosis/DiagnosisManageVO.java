@@ -1,8 +1,8 @@
 package com.csust.eyediagnosis.model.vo.diagnosis;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
-import com.csust.eyediagnosis.service.DiagnosisEvidence;
 import com.csust.eyediagnosis.model.entity.Diagnosis;
+import com.csust.eyediagnosis.service.DiagnosisEvidence;
 import lombok.Data;
 import org.springframework.beans.BeanUtils;
 
@@ -56,6 +56,15 @@ public class DiagnosisManageVO implements Serializable{
 
     /** 原始 softmax top-1（0–1）。模型输出强度，不是校准概率，也不是可靠性。 */
     private Double classificationProbability;
+
+    /**
+     * 原始 softmax top-1 百分数（0–100）。V34 之前写入的记录只有这一列。
+     *
+     * <p>与 {@link #classificationProbability} 是同一件事的两种刻度：老行没有分类概率
+     * 列时，列表读数退到它，仍按「模型输出概率（未标定）」标注。它不是置信度，
+     * 更不是诊断可靠性。
+     */
+    private Double probability;
 
     /**
      * 严重程度

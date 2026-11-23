@@ -446,6 +446,11 @@ export type DiagnosisManage = {
   calibrationStatus?: string | null
   /** 原始 softmax top-1（0–1）：模型输出强度，不是校准概率，也不是可靠性。 */
   classificationProbability?: number | null
+  /**
+   * 原始 softmax top-1 百分数（0–100），V34 之前写入的记录只有这一列。
+   * 列表读数在没有分类概率时退到它，仍标「模型输出概率（未标定）」。
+   */
+  probability?: number | null
   severity?: string | null
   /** 复诊状态：0 未复审（历史值 1 同义）/ 2 复审中 / 3 已复审 */
   reexamineStatus?: number

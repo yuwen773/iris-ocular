@@ -72,8 +72,9 @@ public final class DiagnosisEvidence {
         this.inferencePolicyVersion = StrUtil.blankToDefault(
                 resp.getInferencePolicyVersion(), configuredPolicyVersion);
         this.calibrationStatus = resp.getCalibrationStatus();
-        this.exposedCalibratedProbability = CALIBRATED.equals(resp.getCalibrationStatus())
-                ? resp.getCalibratedProbability() : null;
+        // 与三处 VO 映射同一条规则：未校准时不留可被当成置信度的值。
+        this.exposedCalibratedProbability = exposedConfidence(
+                resp.getCalibrationStatus(), resp.getCalibratedProbability());
         this.qualityScore = resp.getQualityScore();
         this.qualityReasons = resp.getQualityReasons();
         this.oodStatus = resp.getOodStatus().name();
@@ -156,8 +157,13 @@ public final class DiagnosisEvidence {
                 configuredPreprocessVersion, configuredPolicyVersion);
     }
 
-    /** 是否真的做过概率校准。缺字段、大小写不符都按「没校准」。 */
-    public static boolean isCalibrated(String calibrationStatus) {
+    /**
+     * 是否真的做过概率校准。缺字段、大小写不符都按「没校准」。
+     *
+     * <p>只在本类内使用：调用方一律走 {@link #exposedConfidence}，免得有人拿了
+     * 「是否校准」自己再拼一遍取值规则。
+     */
+    private static boolean isCalibrated(String calibrationStatus) {
         return CALIBRATED.equals(calibrationStatus);
     }
 

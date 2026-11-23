@@ -129,7 +129,10 @@ export function uploadNewsCover(id: string, file: File): Promise<string> {
 
 export type AdminDiagnosis = {
   id: string; url?: string; username?: string; result?: string | null
-  /** 三个概率字段的口径与 {@link DiagnosisManage} 相同：未标定时 confidence 为 null。 */
+  /**
+   * 三个概率字段的口径与 `DiagnosisManage` 相同：未标定时 confidence 为 null，
+   * 其余两个字段是原始模型输出，标签必须写「未标定」。
+   */
   confidence?: number | null
   calibrationStatus?: string | null
   classificationProbability?: number | null

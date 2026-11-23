@@ -73,7 +73,7 @@ export function formatMinutes(value: number | null): string {
 const REASON_LABELS: Record<string, string> = {
   QUALITY_FAIL: "图像质量不合格",
   OOD: "分布外影像（OOD）",
-  LOW_CONFIDENCE: "置信度偏低",
+  LOW_CONFIDENCE: "模型自评置信度偏低",
   NOT_ASSESSED: "未评估",
   MODEL_NOT_LOADED: "模型未加载",
   UNCLASSIFIED: "未归类原因",
@@ -623,15 +623,15 @@ export function metricLiveRows(
       ]
     case "B-03":
       return [
-        { label: "有效置信度样本", value: count(data.model.confidence.samples) },
-        { label: "平均置信度（0–100）", value: formatConfidence(data.model.confidence.avg) },
+        { label: "有效自评置信度样本", value: count(data.model.confidence.samples) },
+        { label: "平均自评置信度（0–100）", value: formatConfidence(data.model.confidence.avg) },
         { label: "量纲歧义 (0,1]", value: count(data.model.confidence.ambiguous) },
         { label: "越界（≤0 或 >100）", value: count(data.model.confidence.outOfRange) },
         { label: "缺失", value: count(data.model.confidence.missing) },
       ]
     case "B-04":
       return [
-        { label: "有效置信度样本", value: count(data.model.confidence.samples) },
+        { label: "有效自评置信度样本", value: count(data.model.confidence.samples) },
         {
           label: "直方图记录合计",
           value: count(
@@ -718,8 +718,8 @@ export function buildAvailability(data: AdminAnalytics): AvailabilityItem[] {
       title: "模型与图像质量",
       statusLabel: "当前窗口统计",
       statusTone: "live",
-      value: `${formatCount(data.model.confidence.samples)} 个有效置信度样本`,
-      caption: `平均置信度 ${formatConfidence(data.model.confidence.avg)}（0–100）· 模型版本 ${
+      value: `${formatCount(data.model.confidence.samples)} 个有效自评置信度样本`,
+      caption: `平均自评置信度 ${formatConfidence(data.model.confidence.avg)}（0–100）· 模型版本 ${
         data.model.versions.length
       } 个`,
     },

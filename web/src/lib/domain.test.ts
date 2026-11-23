@@ -329,6 +329,16 @@ describe("summaryProbabilityReading", () => {
   it("两个值都没有时不给读数，而不是画成 0", () => {
     expect(summaryProbabilityReading({ confidence: null }).value).toBeNull()
   })
+
+  it("V34 之前的老记录没有分类概率列，退到 probability 并仍标未标定", () => {
+    // 老行只有 probability（0–100 的 softmax 百分数）：读数立得住，但不能叫置信度
+    const reading = summaryProbabilityReading({
+      confidence: null,
+      probability: 82,
+      calibrationStatus: "NOT_CALIBRATED",
+    })
+    expect(reading).toEqual({ label: "模型输出概率（未标定）", value: 82 })
+  })
 })
 
 describe("probabilityReading", () => {

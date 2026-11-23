@@ -29,7 +29,7 @@ function TableWrap(props: { label: string; children: ReactNode }): ReactElement 
   )
 }
 
-/** 模型版本对照表。平均置信度只在有效样本内计算，必须同时读样本数。 */
+/** 模型版本对照表。平均自评置信度只在有效样本内计算，必须同时读样本数。 */
 export function ModelVersionsTable(props: {
   versions: AnalyticsModelVersion[]
   onInspect: () => void
@@ -46,8 +46,8 @@ export function ModelVersionsTable(props: {
             <th scope="col" className="admin-analytics__th--right">判读</th>
             <th scope="col" className="admin-analytics__th--right">拒识</th>
             <th scope="col" className="admin-analytics__th--right">拒识率</th>
-            <th scope="col" className="admin-analytics__th--right">置信度样本</th>
-            <th scope="col" className="admin-analytics__th--right">平均置信度</th>
+            <th scope="col" className="admin-analytics__th--right">自评置信度样本</th>
+            <th scope="col" className="admin-analytics__th--right">平均自评置信度</th>
             <th scope="col" className="admin-analytics__th--right">量纲歧义</th>
           </tr>
         </thead>

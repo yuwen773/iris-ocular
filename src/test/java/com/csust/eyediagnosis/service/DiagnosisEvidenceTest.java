@@ -136,6 +136,16 @@ class DiagnosisEvidenceTest {
         assertEquals(0.82, listRow.getClassificationProbability(), "但不隐藏「模型输出概率」");
         assertEquals("NOT_CALIBRATED", listRow.getCalibrationStatus());
 
+        // V34 之前写入的行只有 probability（0–100 的 softmax 百分数）：
+        // 列表读数要能退到它，否则老记录在列表里一片「—」。
+        Diagnosis legacyRow = new Diagnosis();
+        legacyRow.setCalibrationStatus("NOT_CALIBRATED");
+        legacyRow.setConfidence(82.0);
+        legacyRow.setProbability(82.0);
+        DiagnosisManageVO legacyView = DiagnosisManageVO.objToVo(legacyRow);
+        assertNull(legacyView.getConfidence());
+        assertEquals(82.0, legacyView.getProbability(), "老记录的概率列要带到列表 VO");
+
         Diagnosis calibrated = new Diagnosis();
         calibrated.setCalibrationStatus("CALIBRATED");
         calibrated.setConfidence(82.0);
