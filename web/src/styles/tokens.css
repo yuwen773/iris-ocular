@@ -61,10 +61,15 @@
   --risk-critical: var(--paper-risk-critical);
   /* 承载文字的风险标记（chip 文字与圆点）用压深一档的 ink：
      8% 同色底上，normal/attention 原色在浅色主题只有 4.5 / 4.4:1，
-     落在紫画布上更低。ink 只改标记内的文字，不动 --risk-* 的语义值。 */
-  --risk-normal-ink: #296e4b;
-  --risk-attention-ink: #845c0d;
-  --risk-critical-ink: var(--paper-risk-critical);
+     落在紫画布上更低。ink 只改标记内的文字，不动 --risk-* 的语义值。
+     纸面原语 + 上下文别名：记录纸（.is-sheet）里这块纸永远是白的，
+     ink 必须跟着纸走，不能继承暗主题的 lit 提亮值（normal 2.6:1、attention 2.5:1）。 */
+  --paper-risk-normal-ink: #296e4b;
+  --paper-risk-attention-ink: #845c0d;
+  --paper-risk-critical-ink: var(--paper-risk-critical);
+  --risk-normal-ink: var(--paper-risk-normal-ink);
+  --risk-attention-ink: var(--paper-risk-attention-ink);
+  --risk-critical-ink: var(--paper-risk-critical-ink);
   --risk-normal-lit: #58b183;
   --risk-attention-lit: #cf9a37;
   --risk-critical-lit: #d96153;
@@ -335,6 +340,11 @@
   --risk-normal: var(--paper-risk-normal);
   --risk-attention: var(--paper-risk-attention);
   --risk-critical: var(--paper-risk-critical);
+  /* 承载文字的一档也钉回纸面值：这张纸在任何主题下都是白的，
+     继承暗主题的 lit 提亮值会变成浅色压白纸（normal 2.6:1、attention 2.5:1）。 */
+  --risk-normal-ink: var(--paper-risk-normal-ink);
+  --risk-attention-ink: var(--paper-risk-attention-ink);
+  --risk-critical-ink: var(--paper-risk-critical-ink);
   /* 删除红也钉回纸面值：暗主题的 --danger 是提亮版，落在白纸上约 1.7:1。 */
   --danger: var(--paper-danger);
   --danger-soft: var(--paper-danger-soft);

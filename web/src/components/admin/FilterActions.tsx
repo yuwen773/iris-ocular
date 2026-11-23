@@ -10,6 +10,8 @@ import { ChevronDown, ChevronUp } from "lucide-react"
  *
  * <p>移动端筛选折叠时，字段不可见，「查询」没有可提交的对象，
  * 因此折叠态只留「展开筛选」；只有已有生效条件时才保留「重置」出口。
+ * 折叠态的未应用提示改说「展开筛选后生效」——草稿仍挂在表单状态里，
+ * 但「按「查询」生效」指向的按钮此刻并不存在。
  */
 export function FilterActions({
   compact,
@@ -27,12 +29,17 @@ export function FilterActions({
   onReset: () => void
 }): ReactElement {
   const fieldsVisible = !compact || filtersOpen
+  /* 折叠态没有「查询」按钮可点，提示语不能把用户指向一个当前不存在的出口：
+     草稿还挂在表单状态里（字段只是没渲染），展开后按「查询」才生效。 */
+  const pendingHint = fieldsVisible
+    ? `有 ${pendingCount} 项未应用 · 按「查询」生效`
+    : `有 ${pendingCount} 项未应用 · 展开筛选后生效`
 
   return (
     <div className="admin-filter__actions">
       {pendingCount > 0 ? (
         <span className="admin-filter__pending num" role="status">
-          有 {pendingCount} 项未应用 · 按「查询」生效
+          {pendingHint}
         </span>
       ) : null}
       {compact ? (

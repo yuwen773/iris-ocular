@@ -589,6 +589,28 @@ describe("上下文解析 · 纸面原语在任何主题下都是那张纸", () 
     expect(contrast(at(DARK_SHEET, "--danger"), at(DARK_SHEET, "--surface"))).toBeGreaterThanOrEqual(4.5)
   })
 
+  it("风险文字（ink）在纸上取纸面值：暗主题下不落回 lit 提亮值", () => {
+    // 承载文字的一档若跟着主题翻，暗主题的记录纸（白纸）上会出现浅色压白纸
+    // （normal 2.6:1、attention 2.5:1），纸面必须钉回自己的 ink。
+    expect(at(DARK_SHEET, "--risk-normal-ink")).toBe(at(LIGHT_SHEET, "--risk-normal-ink"))
+    expect(at(DARK_SHEET, "--risk-attention-ink")).toBe(at(LIGHT_SHEET, "--risk-attention-ink"))
+    expect(at(DARK_SHEET, "--risk-critical-ink")).toBe(at(LIGHT_SHEET, "--risk-critical-ink"))
+    for (const name of [
+      "--risk-normal-ink",
+      "--risk-attention-ink",
+      "--risk-critical-ink",
+    ]) {
+      expect(
+        contrast(at(DARK_SHEET, name), at(DARK_SHEET, "--surface")),
+        `${name} 在纸面上不足 4.5:1`,
+      ).toBeGreaterThanOrEqual(4.5)
+      expect(
+        contrast(at(DARK_SHEET_IN_NIGHT, name), at(DARK_SHEET_IN_NIGHT, "--surface")),
+        `${name} 在暗房里的纸面上不足 4.5:1`,
+      ).toBeGreaterThanOrEqual(4.5)
+    }
+  })
+
   it("橙色文字在纸上 ≥ 4.5", () => {
     expect(contrast(at(DARK_SHEET, "--signal-text"), at(DARK_SHEET, "--surface"))).toBeGreaterThanOrEqual(4.5)
   })
