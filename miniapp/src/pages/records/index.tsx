@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { EmptyState, ErrorState, LoadingState } from '@/components/Feedback'
 import { OutcomeTag } from '@/components/Tags'
 import { listMyDiagnoses, type DiagnosisSummary } from '@/lib/api'
-import { canonicalClassName, outcomeLabel, outcomeOf } from '@/lib/domain'
+import { canonicalClassName, outcomeLabel, outcomeOf, outcomeTone } from '@/lib/domain'
 import { ApiError } from '@/lib/raw'
 import './index.scss'
 
@@ -62,10 +62,7 @@ export default function RecordsPage() {
           <View className="record-card" key={item.id ?? `${item.createTime}-${item.result}`} onClick={() => open(item.id)}>
             <View className="record-card__head">
               <Text className="mp-label">{item.createTime ? item.createTime.slice(0, 10) : '日期未知'}</Text>
-              <OutcomeTag
-                label={outcomeLabel(outcome)}
-                tone={outcome === 'classified' ? 'normal' : outcome === 'rejected' ? 'critical' : 'attention'}
-              />
+              <OutcomeTag label={outcomeLabel(outcome)} tone={outcomeTone(outcome)} />
             </View>
             <View className="record-card__body">
               {item.url ? <Image className="record-card__thumb" src={item.url} mode="aspectFill" /> : null}

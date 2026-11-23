@@ -134,6 +134,49 @@ export function outcomeOf(result: {
   return 'classified'
 }
 
+/** 结局 → 标签色调。记录列表与结果页共用，避免同一条记录两处两种颜色。 */
+export function outcomeTone(outcome: Outcome): 'normal' | 'attention' | 'critical' {
+  switch (outcome) {
+    case 'classified':
+      return 'normal'
+    case 'rejected':
+      return 'critical'
+    default:
+      return 'attention'
+  }
+}
+
+/** 未标定读数的标签：与 web/src/lib/domain.ts 同一句，患者端不许另写一套。 */
+export const UNVERIFIED_PROBABILITY_LABEL = '模型输出概率（未标定）'
+
+export interface ProbabilityReading {
+  label: string
+  calibrated: boolean
+}
+
+/**
+ * 判读概率怎么读。
+ *
+ * <p>未标定的 softmax **不是置信度**：它只是模型输出强度，没有经过真实数据标定。
+ * 界面照此标注，否则患者会把一个未标定的数字读成「诊断有多可靠」。已标定才叫
+ * 「校准后概率」；`patientConclusionAllowed === false` 时连「校准后」都不说。
+ */
+export function probabilityReading(result: {
+  calibratedProbability?: number | null
+  calibrationStatus?: string | null
+  patientConclusionAllowed?: boolean | null
+}): ProbabilityReading {
+  if (result.patientConclusionAllowed === false) {
+    return { label: '模型输出概率（不作患者结论）', calibrated: false }
+  }
+  const calibrated =
+    typeof result.calibratedProbability === 'number' ||
+    (result.calibrationStatus ?? '').trim().toUpperCase() === 'CALIBRATED'
+  return calibrated
+    ? { label: '校准后概率', calibrated: true }
+    : { label: UNVERIFIED_PROBABILITY_LABEL, calibrated: false }
+}
+
 export function outcomeLabel(outcome: Outcome): string {
   switch (outcome) {
     case 'rejected':

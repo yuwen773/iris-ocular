@@ -1,3 +1,20 @@
+import themeJson from './theme.json'
+
+interface ThemePalette {
+  navBgColor: string
+  navTxtStyle: 'black' | 'white'
+  bgColor: string
+  bgTxtStyle: 'dark' | 'light'
+  tabBgColor: string
+  tabBorderStyle: 'black' | 'white'
+  tabFontColor: string
+  tabSelectedColor: string
+}
+
+// 色值来自生成的 theme.json（`npm run gen:tokens` 从 web/src/styles/tokens.css 生成），
+// 这里不再手写十六进制：手写的那一份会和 web/ 的令牌漂移，还过得了 typecheck 和构建。
+const theme = themeJson as { light: ThemePalette; dark: ThemePalette }
+
 export default defineAppConfig({
   pages: [
     'pages/diagnosis/index',
@@ -7,19 +24,18 @@ export default defineAppConfig({
     'pages/diagnosis/result',
   ],
   window: {
-    backgroundTextStyle: 'dark',
-    // 这里的色值是「浅色兜底」：`darkmode: true` 时以生成的 `src/theme.json` 为准
-    //（`npm run gen:tokens` 从 web/src/styles/tokens.css 生成，勿手改 theme.json）。
-    navigationBarBackgroundColor: '#f3f4f1',
+    backgroundTextStyle: theme.light.bgTxtStyle,
+    // 浅色兜底值；`darkmode: true` 时系统切深色以 theme.json 的 dark 段为准。
+    navigationBarBackgroundColor: theme.light.navBgColor,
     navigationBarTitleText: 'Iris 眼底影像判读',
-    navigationBarTextStyle: 'black',
-    backgroundColor: '#f3f4f1',
+    navigationBarTextStyle: theme.light.navTxtStyle,
+    backgroundColor: theme.light.bgColor,
   },
   tabBar: {
-    color: '#5c6367',
-    selectedColor: '#14171a',
-    backgroundColor: '#ffffff',
-    borderStyle: 'white',
+    color: theme.light.tabFontColor,
+    selectedColor: theme.light.tabSelectedColor,
+    backgroundColor: theme.light.tabBgColor,
+    borderStyle: theme.light.tabBorderStyle,
     list: [
       { pagePath: 'pages/diagnosis/index', text: '判读' },
       { pagePath: 'pages/records/index', text: '记录' },

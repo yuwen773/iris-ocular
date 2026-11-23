@@ -12,6 +12,7 @@ import {
   normalizeConfidence,
   outcomeLabel,
   outcomeOf,
+  probabilityReading,
 } from '@/lib/domain'
 import { ApiError } from '@/lib/raw'
 import './result.scss'
@@ -40,6 +41,7 @@ export default function DiagnosisResultPage() {
   const [fault, setFault] = useState('')
   const [result, setResult] = useState<DiagnosisResult | null>(null)
   const [showDetail, setShowDetail] = useState(false)
+  const reading = result ? probabilityReading(result) : null
 
   async function load() {
     if (!id) {
@@ -138,7 +140,7 @@ export default function DiagnosisResultPage() {
         {showDetail ? (
           <View className="result-detail">
             {/* 没有分类结论时不给模型概率：拒识/待复核的原始概率会被当成「其实还是判出来了」。 */}
-            {classified ? <DetailRow label="模型概率" value={probabilityText(result)} /> : null}
+            {classified && reading ? <DetailRow label={reading.label} value={probabilityText(result)} /> : null}
             <DetailRow label="校准状态" value={result.calibrationStatus || '未评估'} />
             <DetailRow label="图像质量" value={result.imageQualityState || '未评估'} />
             <DetailRow label="质量评分" value={typeof result.qualityScore === 'number' ? result.qualityScore.toFixed(2) : '—'} />

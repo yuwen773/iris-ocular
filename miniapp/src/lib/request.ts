@@ -5,8 +5,6 @@ import { getToken } from './token'
 export interface RequestOptions {
   method?: HttpMethod
   data?: unknown
-  /** 默认 true。登录类接口显式传 false。 */
-  auth?: boolean
   timeout?: number
 }
 
@@ -15,15 +13,14 @@ export interface RequestOptions {
  * 重登策略在 `authedCall.ts` 里，上传与其它带身份调用共用同一份。
  */
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const send = () =>
+  const raw = await withAuthRetry(() =>
     rawRequest<T>({
       path,
       method: options.method,
       data: options.data,
-      token: options.auth === false ? null : getToken(),
+      token: getToken(),
       timeout: options.timeout,
-    })
-
-  const raw = options.auth === false ? await send() : await withAuthRetry(send)
+    }),
+  )
   return unpack<T>(raw)
 }

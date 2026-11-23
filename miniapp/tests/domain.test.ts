@@ -4,9 +4,13 @@ import {
   canonicalClassName,
   classCode,
   confidenceBand,
+  outcomeLabel,
   outcomeOf,
+  outcomeTone,
+  probabilityReading,
   severityLabel,
   severityRisk,
+  UNVERIFIED_PROBABILITY_LABEL,
 } from '@/lib/domain'
 
 describe('判读结果口径', () => {
@@ -41,6 +45,37 @@ describe('判读结果口径', () => {
     expect(abstainReasonLabel('ABSTAIN_QUALITY_FAIL')).toContain('影像质量')
     expect(abstainReasonLabel('SOME_NEW_CODE')).toBe('SOME_NEW_CODE')
     expect(abstainReasonLabel(null)).toContain('暂无法提供结果')
+  })
+})
+
+describe('概率读数标签', () => {
+  it('未标定的 softmax 必须标成「未标定」，不能叫置信度', () => {
+    expect(probabilityReading({}).label).toBe(UNVERIFIED_PROBABILITY_LABEL)
+    expect(probabilityReading({ calibrationStatus: 'NOT_CALIBRATED' }).calibrated).toBe(false)
+  })
+
+  it('有校准值或状态才叫「校准后概率」', () => {
+    expect(probabilityReading({ calibratedProbability: 0.7 }).label).toBe('校准后概率')
+    expect(probabilityReading({ calibrationStatus: 'calibrated' }).calibrated).toBe(true)
+  })
+
+  it('不作患者结论时连「校准后」都不说', () => {
+    expect(probabilityReading({ patientConclusionAllowed: false, calibratedProbability: 0.7 }).label).toBe(
+      '模型输出概率（不作患者结论）',
+    )
+  })
+})
+
+describe('结局标签与配色', () => {
+  it('结局配色只有一处口径', () => {
+    expect(outcomeTone('classified')).toBe('normal')
+    expect(outcomeTone('rejected')).toBe('critical')
+    expect(outcomeTone('review')).toBe('attention')
+    expect(outcomeTone('blocked')).toBe('attention')
+  })
+
+  it('四种结局各自有话说', () => {
+    expect(outcomeLabel('classified')).not.toBe(outcomeLabel('review'))
   })
 })
 
