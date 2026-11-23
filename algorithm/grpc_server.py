@@ -8,6 +8,8 @@ import logging
 import json
 from pathlib import Path
 
+import numpy as np
+
 import diagnosis_pb2
 import diagnosis_pb2_grpc
 from eye_disease_model import EyeDiseaseModel, disease_categories
@@ -24,6 +26,34 @@ from eye_diagnosis.registry import ModelRegistry
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def _softmax(logits):
+    """数值稳定的 softmax。
+
+    「原始输出」与「校准后输出」必须各自可算：温度缩放是校准动作，
+    不能拿缩放后的分布去冒充原始 softmax（proto 里
+    ``probability`` / ``classification_probability`` 的语义是原始分布）。
+    """
+    shifted = np.asarray(logits, dtype=np.float64)
+    shifted = shifted - shifted.max()
+    exp = np.exp(shifted)
+    return exp / exp.sum()
+
+
+def _probabilities(logits, calibration_status: str, temperature: float):
+    """→ (原始分布, 报给调用方的分布)。
+
+    温度缩放是**校准动作**：缩放后的分布不是原始 softmax。proto 里
+    ``probability`` / ``classification_probability`` / ``reliability_score``
+    的语义都是「原始 softmax」，``calibrated_probability`` 才是校准后的值；
+    未校准时两者相同，但计算上仍分开取，避免以后一开校准就把原始口径改掉。
+    """
+    raw = _softmax(logits)
+    if calibration_status != "CALIBRATED":
+        return raw, raw
+    scaled = apply_temperature(np.asarray(logits, dtype=np.float32)[None, :], temperature)[0]
+    return raw, _softmax(scaled)
 
 
 def _proto_quality_state(state) -> int:
@@ -126,16 +156,15 @@ class DiagnosisServicer(diagnosis_pb2_grpc.DiagnosisServiceServicer):
             try:
                 quality = evaluate_quality(image_data)
                 logits = self.model.predict_logits(temp_path)
-                scored_logits = logits
-                if self.calibration_status == "CALIBRATED":
-                    scored_logits = apply_temperature(logits[None, :], self.temperature)[0]
-                exp_logits = scored_logits - scored_logits.max()
-                probabilities = __import__("numpy").exp(exp_logits)
-                probabilities = probabilities / probabilities.sum()
+                # 原始分布与校准后分布各自算：温度缩放只影响后者。
+                raw_probabilities, probabilities = _probabilities(
+                    logits, self.calibration_status, self.temperature
+                )
                 ranked_indices = probabilities.argsort()[::-1]
                 predicted_class = int(ranked_indices[0])
                 predicted_label = disease_categories[predicted_class]
                 top1 = float(probabilities[ranked_indices[0]])
+                raw_top1 = float(raw_probabilities[ranked_indices[0]])
                 top2 = float(probabilities[ranked_indices[1]]) if len(ranked_indices) > 1 else 0.0
                 # No evaluated, version-bound OOD reference artifact is available. Do
                 # not use the former all-zero placeholder detector as a rejection gate.
@@ -165,8 +194,11 @@ class DiagnosisServicer(diagnosis_pb2_grpc.DiagnosisServiceServicer):
                 patient_conclusion_allowed = (not quality.reasons) and (not abstain.rejected)
                 return diagnosis_pb2.DiagnosisResponse(
                     predicted_label=predicted_label,
-                    probability=top1 * 100,
-                    classification_probability=top1,
+                    # probability / classification_probability / reliability_score
+                    # 都是「原始 softmax」（proto 的字段注释如此）；校准后的值只走
+                    # calibrated_probability，两个口径不能互相冒充。
+                    probability=raw_top1 * 100,
+                    classification_probability=raw_top1,
                     calibrated_probability=top1 * 100 if self.calibration_status == "CALIBRATED" else 0.0,
                     calibration_status=self.calibration_status,
                     calibration_version=self.calibration_version,
@@ -174,7 +206,7 @@ class DiagnosisServicer(diagnosis_pb2_grpc.DiagnosisServiceServicer):
                     image_quality_version=QUALITY_VERSION,
                     image_quality_calibration_state=QUALITY_CALIBRATION_STATE,
                     patient_conclusion_allowed=patient_conclusion_allowed,
-                    reliability_score=round(top1 * 100),
+                    reliability_score=round(raw_top1 * 100),
                     description=description,
                     top_predictions=[
                         diagnosis_pb2.DiseasePrediction(

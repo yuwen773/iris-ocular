@@ -1,5 +1,6 @@
 package com.csust.eyediagnosis.agent.rag;
 
+import com.csust.eyediagnosis.common.LogAnonymizer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chroma.vectorstore.ChromaApi;
 import org.springframework.ai.document.Document;
@@ -90,7 +91,9 @@ public class LexicalCorpusService {
             log.warn("词法语料达到上限 {} 分块，剩余分块未纳入本轮词法召回（语料规模超出上限时召回不完整）",
                     maxChunks);
         }
-        log.debug("词法语料已直取: userId={}, chunks={}", userId, corpus.size());
+        // 运行日志不得出现原始 userId（见 LogAnonymizer 的类注释）。
+        log.debug("词法语料已直取: userIdHash={}, chunks={}",
+                LogAnonymizer.userId(userId), corpus.size());
         return corpus;
     }
 

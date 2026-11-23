@@ -158,7 +158,7 @@ public class MCPManager {
             } catch (InterruptedException e) {
                 future.cancel(true);
                 Thread.currentThread().interrupt();
-                throw new java.util.concurrent.CancellationException("MCP tool call cancelled");
+                throw new CancellationException("MCP tool call cancelled");
             } catch (ExecutionException e) {
                 Throwable cause = e.getCause() != null ? e.getCause() : e;
                 if (cause instanceof RuntimeException re) {

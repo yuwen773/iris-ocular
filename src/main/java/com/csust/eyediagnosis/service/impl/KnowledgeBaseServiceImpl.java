@@ -20,6 +20,7 @@ import com.csust.eyediagnosis.model.entity.User;
 import com.csust.eyediagnosis.model.vo.knowledge.KnowledgeChunkVO;
 import com.csust.eyediagnosis.model.vo.knowledge.KnowledgeDetailVO;
 import com.csust.eyediagnosis.utils.DateRanges;
+import jakarta.annotation.PreDestroy;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
@@ -81,7 +82,7 @@ public class KnowledgeBaseServiceImpl extends ServiceImpl<KnowledgeDocumentMappe
             new ThreadPoolExecutor.CallerRunsPolicy());
 
     /** 关停时收回线程池：非守护线程不回收会让进程退不干净。 */
-    @jakarta.annotation.PreDestroy
+    @PreDestroy
     void shutdownUploadExecutor() {
         uploadExecutor.shutdownNow();
     }

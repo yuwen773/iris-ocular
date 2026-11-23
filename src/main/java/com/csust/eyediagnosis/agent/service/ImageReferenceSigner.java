@@ -41,6 +41,7 @@ public class ImageReferenceSigner {
     @Value("${eye-diagnosis.agent.image-reference.secret:}")
     private String secret;
 
+    // 初值与 SpEL 默认值一致：单测直接 new ImageReferenceSigner()，不经过 Spring 注入。
     @Value("${eye-diagnosis.agent.image-reference.ttl-seconds:300}")
     private int ttlSeconds = 300;
 

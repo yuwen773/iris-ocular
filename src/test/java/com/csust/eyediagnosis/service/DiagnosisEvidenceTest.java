@@ -120,6 +120,28 @@ class DiagnosisEvidenceTest {
         assertNull(vo.getConfidence(), "未标定时不向界面透出置信度");
     }
 
+    /**
+     * 读回路径与写入路径同一口径：库里存自评概率供分析，接口未标定就不叫置信度。
+     *
+     * <p>界面（RecordsPage / ProfilePage / 管理端）读的就是 {@code objToVo} 的结果；
+     * 这里不挡，同一张图在记录页被写「置信度」、在 RecordSheet 被写「模型输出概率」。
+     */
+    @Test
+    void readBackHidesSelfAssessmentUnlessCalibrated() {
+        Diagnosis uncalibrated = new Diagnosis();
+        uncalibrated.setCalibrationStatus("NOT_CALIBRATED");
+        uncalibrated.setConfidence(82.0);
+        uncalibrated.setCalibratedProbability(null);
+        assertNull(DiagnosisResultVO.objToVo(uncalibrated).getConfidence());
+
+        Diagnosis calibrated = new Diagnosis();
+        calibrated.setCalibrationStatus("CALIBRATED");
+        calibrated.setConfidence(82.0);
+        calibrated.setCalibratedProbability(91.0);
+        assertEquals(91.0, DiagnosisResultVO.objToVo(calibrated).getConfidence(),
+                "已校准：读回的是校准后概率，不是原始 softmax");
+    }
+
     @Test
     void uncalibratedProbabilityIsNotExposedAsConfidence() {
         // 未标定时不给出「置信度」：那等于让界面把原始 softmax 读成临床可靠性。

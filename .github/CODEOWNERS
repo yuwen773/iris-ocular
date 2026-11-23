@@ -3,7 +3,9 @@
 # 这些路径的改动会直接改变「生产库长什么样」「谁能拿到什么」「判读结果凭什么
 # 成立」，因此由仓库维护者本人复核；其他文件不设默认所有者，避免评审义务被摊薄。
 #
-# 生效方式见 .github/workflows 的分支保护设置：require_code_owner_reviews = true。
+# 生效方式是仓库分支保护（GitHub 仓库设置，不在本文件、也不在 workflow 里）：
+#   gh api repos/<owner>/<repo>/branches/master/protection
+# 需 require_code_owner_reviews = true 且 pull_request = true；本文件只声明「谁拥有什么」。
 
 # 数据库迁移（只增不改：已应用脚本不得修改，只能追加更高版本）
 /src/main/resources/db/migration/ @yuwen773

@@ -78,6 +78,27 @@ class DocumentSearchToolHybridTest {
         verify(vectorStore, never()).similaritySearch(any(SearchRequest.class));
     }
 
+    /**
+     * 混合场景：一部分词法命中已在向量候选里、另一部分只有词法。
+     * 前者按契约直接放行，不能因为「有一批需要核对」而连带被删掉。
+     */
+    @Test
+    void vectorPresentHitSurvivesWhenAnotherHitNeedsConfirmation() {
+        VectorStore vectorStore = mock(VectorStore.class);
+        DocumentSearchTool tool = toolWith(vectorStore, null);
+
+        Document inVector = chunk("vec-1", 5L, 7L);
+        Document lexicalOnly = chunk("lex-2", 5L, 7L);
+        // 核对查询只回 lex-2：vec-1 不在核对结果里，它本该因为「已在向量候选」而免检
+        when(vectorStore.similaritySearch(any(SearchRequest.class)))
+                .thenReturn(List.of(lexicalOnly));
+
+        List<Document> kept = tool.dropUnconfirmedLexicalHits(
+                "青光眼", List.of(inVector, lexicalOnly), List.of(inVector), 7L);
+
+        assertEquals(List.of("vec-1", "lex-2"), kept.stream().map(Document::getId).toList());
+    }
+
     @Test
     void lexicalHitConfirmedByVectorStoreIsKept() {
         VectorStore vectorStore = mock(VectorStore.class);

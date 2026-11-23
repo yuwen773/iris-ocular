@@ -75,8 +75,8 @@ public class DiagnosisGrpcClient {
         return value == null || value.isBlank();
     }
 
-    public com.csust.eyediagnosis.grpc.DiagnosisProto.DiagnosisResponse diagnose(byte[] imageData, String imageFormat) {
-        com.csust.eyediagnosis.grpc.DiagnosisProto.DiagnosisRequest request = com.csust.eyediagnosis.grpc.DiagnosisProto.DiagnosisRequest.newBuilder()
+    public DiagnosisProto.DiagnosisResponse diagnose(byte[] imageData, String imageFormat) {
+        DiagnosisProto.DiagnosisRequest request = DiagnosisProto.DiagnosisRequest.newBuilder()
                 .setImageData(com.google.protobuf.ByteString.copyFrom(imageData))
                 .setImageFormat(imageFormat)
                 .build();

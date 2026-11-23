@@ -13,6 +13,7 @@ import com.csust.eyediagnosis.mapper.KnowledgeDocumentMapper;
 import com.csust.eyediagnosis.model.dto.agent.ResourceRef;
 import com.csust.eyediagnosis.model.entity.KnowledgeDocument;
 import jakarta.annotation.PostConstruct;
+import com.csust.eyediagnosis.common.LogAnonymizer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.tool.annotation.Tool;
@@ -59,6 +60,8 @@ public class DocumentSearchTool {
      * 取满时服务会记 WARN。静默截断会让「证据变少」看起来像「本来就没有」。
      * 默认值要高于「上万分块」这一档，否则万级知识库一进来就被截断。
      */
+    // 下面的字段初值与 SpEL 默认值一致是有意的：单测直接 new DocumentSearchTool()，
+    // 不经过 Spring 注入；没有初值就会拿到 0（等于「一个分块都取不到」）。
     @Value("${eye-diagnosis.rag.hybrid-search.max-corpus-chunks:20000}")
     private int maxCorpusChunks = 20000;
 
@@ -488,7 +491,8 @@ public class DocumentSearchTool {
                 documents = lexicalCorpusService.loadOwnerCorpus(userId, maxCorpusChunks);
             }
             storeCorpus(userId, new UserDocumentCache(documents, System.currentTimeMillis()));
-            log.debug("Document cache refreshed for user {}, size: {}", userId, documents.size());
+            log.debug("Document cache refreshed for user {}, size: {}",
+                    LogAnonymizer.userId(userId), documents.size());
             return documents;
         }
     }
@@ -580,7 +584,10 @@ public class DocumentSearchTool {
             }
         }
 
-        Set<String> confirmed = new HashSet<>();
+        // 已在向量候选里的命中天然带分数，按契约直接放行；只核对「仅词法命中」的那批。
+        // 不把 vectorIds 预置进来，混合场景（一部分命中同时在向量结果里）会把它们
+        // 当成「未核对」删掉，等于白丢一份双通道证据。
+        Set<String> confirmed = new HashSet<>(vectorIds);
         for (Map.Entry<Long, List<Document>> entry : byDocument.entrySet()) {
             List<Document> group = entry.getValue();
             confirmed.addAll(confirmByVectorStore(query, group, ownerOf(group), currentUserId));
