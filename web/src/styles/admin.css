@@ -112,8 +112,10 @@ html:not(.dark) .admin-side__mark--dark {
 }
 
 .admin-side__brand-sub {
-  font-size: 9.5px;
-  letter-spacing: 0.18em;
+  /* 11px 是标签档的下限（DESIGN.md）：9.5px 会掉出这一档，
+     字距同步从 .18em 收到 .14em，免得 11px 下把侧栏撑开。 */
+  font-size: 11px;
+  letter-spacing: 0.14em;
   color: var(--admin-text-faint);
 }
 
@@ -817,6 +819,9 @@ html.dark .admin-theme__btn[aria-pressed="true"] {
 
 .admin-dt__scroll {
   overflow-x: auto;
+  /* 容器查询的锚点：操作列要不要钉在右缘，取决于「表格可用宽度」而不是
+     视口宽度（侧栏占 252px，两者差一大截）。查询写在 admin-redesign.css。 */
+  container-type: inline-size;
 }
 
 .admin-dt__table {
@@ -3931,19 +3936,19 @@ html.dark .feature-card__cta {
 
 /* 语义变体：正常 / 注意 / 危险 / 中性。颜色只走语义令牌，紫色不冒充医学风险。 */
 .admin-chip[data-tone="normal"] {
-  color: var(--risk-normal);
+  color: var(--risk-normal-ink);
   border-color: color-mix(in srgb, var(--risk-normal) 30%, transparent);
   background: color-mix(in srgb, var(--risk-normal) 8%, transparent);
 }
 
 .admin-chip[data-tone="attention"] {
-  color: var(--risk-attention);
+  color: var(--risk-attention-ink);
   border-color: color-mix(in srgb, var(--risk-attention) 30%, transparent);
   background: color-mix(in srgb, var(--risk-attention) 8%, transparent);
 }
 
 .admin-chip[data-tone="critical"] {
-  color: var(--risk-critical);
+  color: var(--risk-critical-ink);
   border-color: color-mix(in srgb, var(--risk-critical) 30%, transparent);
   background: color-mix(in srgb, var(--risk-critical) 8%, transparent);
 }

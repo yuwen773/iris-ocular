@@ -469,8 +469,9 @@
 /* 雪花 id 退到第三层：等宽但更淡，长串不再抢用户名的视线。 */
 
 .admin-users__id {
+  /* 不要在这里再叠 opacity：--admin-text-faint 已经是第三级文字，
+     再乘 0.75 会掉到 3.4:1（AA 需 4.5）。层级靠字号与颜色，不靠二次减淡。 */
   color: var(--admin-text-faint);
-  opacity: 0.75;
 }
 
 /* 管理员账号受保护：标签自带 title 说明，不额外加图标噪音。 */

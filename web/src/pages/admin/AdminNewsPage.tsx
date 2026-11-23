@@ -5,8 +5,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import {
   CheckCircle2,
-  ChevronDown,
-  ChevronUp,
   EyeOff,
   FileClock,
   Newspaper,
@@ -19,6 +17,7 @@ import { useMediaQuery } from "@/lib/useMediaQuery"
 
 import { AdminEmpty } from "@/components/admin/AdminEmpty"
 import { AdminPageHead } from "@/components/admin/AdminPageHead"
+import { FilterActions } from "@/components/admin/FilterActions"
 import { RowMenu } from "@/components/admin/RowMenu"
 import { DataTable, type Column } from "@/components/admin/DataTable"
 import { useListWorkspace } from "@/hooks/useListWorkspace"
@@ -41,6 +40,7 @@ import {
   NEWS_STATUS_OPTIONS,
 } from "@/lib/adminDomain"
 import { newsExcerpt } from "@/lib/news"
+import { formatTimestamp } from "@/lib/domain"
 import { describeError, type ErrorDetail } from "@/lib/api"
 import { queryKeys } from "@/lib/queryKeys"
 import { fault } from "@/lib/faults"
@@ -409,8 +409,8 @@ export function AdminNewsPage(): ReactElement {
         const excerpt = newsExcerpt(row.content, row.summary, SUMMARY_LIMIT)
         return (
           <div className="admin-cms__titlecell">
-            {/* 封面内联在标题格，只有真的有封面才出现：单开一列的话，
-                没有封面的资讯会排出一整列灰占位，比没有这一列更吵。 */}
+            {/* 封面内联在标题格：单开一列的话，没有封面的资讯会排出一整列灰占位。
+                没有封面时留同尺寸空槽，保证标题左边缘逐行对齐。 */}
             {row.coverImage ? (
               <img
                 className="admin-cms__titlethumb"
@@ -420,7 +420,12 @@ export function AdminNewsPage(): ReactElement {
                 height={40}
                 loading="lazy"
               />
-            ) : null}
+            ) : (
+              <span
+                className="admin-cms__titlethumb admin-cms__titlethumb--empty"
+                aria-hidden="true"
+              />
+            )}
             <span className="admin-cms__titlecell__main">{row.title || "未命名资讯"}</span>
             <span className="admin-cms__titlecell__sub" title={excerpt || undefined}>
               {truncateSummary(excerpt)}
@@ -455,7 +460,10 @@ export function AdminNewsPage(): ReactElement {
       render: (row) => (
         <div className="admin-cms__metacell">
           <span className="admin-cms__metacell__name">{row.author || "未署名"}</span>
-          <span className="admin-cms__metacell__time num">{row.publishTime || "—"}</span>
+          {/* 与诊断台账、仪表盘同一条读数格式；原始 ISO 留在 title 里供核对。 */}
+          <span className="admin-cms__metacell__time num" title={row.publishTime || undefined}>
+            {formatTimestamp(row.publishTime)}
+          </span>
         </div>
       ),
     },
@@ -516,6 +524,13 @@ export function AdminNewsPage(): ReactElement {
     (query.startDate ? 1 : 0) +
     (query.endDate ? 1 : 0)
 
+  // 草稿里有几项还没按「查询」提交：状态 chip 即时生效，标题与日期不即时。
+  const pendingFilterCount = [
+    titleDraft.trim() !== query.title,
+    startDraft !== query.startDate,
+    endDraft !== query.endDate,
+  ].filter(Boolean).length
+
   // 390px 档：筛选面板默认收进一条紧凑工具栏，字段区折叠；
   // 已应用筛选数常驻可见，折叠态也不会骗用户「没有条件在生效」。
   const compact = useMediaQuery("(max-width: 640px)")
@@ -553,29 +568,14 @@ export function AdminNewsPage(): ReactElement {
             {activeFilters > 0 ? (
               <span className="admin-filter__count num">已应用 {activeFilters} 项</span>
             ) : null}
-            <div className="admin-filter__actions">
-              {compact ? (
-                <button
-                  type="button"
-                  className="admin-btn admin-btn--ghost admin-btn--sm"
-                  aria-expanded={filtersOpen}
-                  onClick={() => setFiltersOpen((open) => !open)}
-                >
-                  {filtersOpen ? (
-                    <ChevronUp size={14} strokeWidth={2} aria-hidden="true" />
-                  ) : (
-                    <ChevronDown size={14} strokeWidth={2} aria-hidden="true" />
-                  )}
-                  {filtersOpen ? "收起筛选" : "展开筛选"}
-                </button>
-              ) : null}
-              <button className="admin-btn admin-btn--primary" type="submit">
-                查询
-              </button>
-              <button className="admin-btn admin-btn--ghost" type="button" onClick={onReset}>
-                重置
-              </button>
-            </div>
+            <FilterActions
+              compact={compact}
+              filtersOpen={filtersOpen}
+              activeFilters={activeFilters}
+              pendingCount={pendingFilterCount}
+              onToggle={() => setFiltersOpen((open) => !open)}
+              onReset={onReset}
+            />
           </div>
           {/* 发布状态是枚举：段控件一次点得中，不用先点开下拉才知道有哪些值。
               这一段常驻可见——最常用的筛选不该藏在「展开筛选」后面。 */}

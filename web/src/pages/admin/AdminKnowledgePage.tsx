@@ -13,8 +13,6 @@ import {
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useSearchParams } from "react-router-dom"
 import {
-  ChevronDown,
-  ChevronUp,
   Eye,
   FileText,
   Pencil,
@@ -26,6 +24,7 @@ import { useMediaQuery } from "@/lib/useMediaQuery"
 
 import { AdminEmpty } from "@/components/admin/AdminEmpty"
 import { AdminPageHead } from "@/components/admin/AdminPageHead"
+import { FilterActions } from "@/components/admin/FilterActions"
 import { RowMenu } from "@/components/admin/RowMenu"
 import { DataTable, type Column } from "@/components/admin/DataTable"
 import { useListWorkspace } from "@/hooks/useListWorkspace"
@@ -549,6 +548,14 @@ export function AdminKnowledgePage(): ReactElement {
   const listError = listData === undefined ? (listFault?.text ?? null) : null
   const activeFilters = Object.values(query).filter(Boolean).length
 
+  // 草稿里有几项还没按「查询」提交：状态与类型 chip 即时生效，文本/日期不即时。
+  const pendingFilterCount = [
+    fileNameDraft.trim() !== query.fileName,
+    titleDraft.trim() !== query.title,
+    startDraft !== query.startDate,
+    endDraft !== query.endDate,
+  ].filter(Boolean).length
+
   // 390px 档：筛选面板默认收进一条紧凑工具栏，字段区折叠；
   // 已应用筛选数常驻可见，折叠态也不会骗用户「没有条件在生效」。
   const compact = useMediaQuery("(max-width: 640px)")
@@ -564,7 +571,7 @@ export function AdminKnowledgePage(): ReactElement {
         description="上传、解析并向量化医疗文档，管理 RAG 切片与处理状态。"
         meta={
           <span className="admin-filter__note num">
-            {listData ? `共 ${total} 份文档` : "文档数读取中"}
+            {listData ? `共 ${total} 条` : "文档数读取中"}
           </span>
         }
       />
@@ -576,29 +583,14 @@ export function AdminKnowledgePage(): ReactElement {
             {activeFilters > 0 ? (
               <span className="admin-filter__count num">已应用 {activeFilters} 项</span>
             ) : null}
-            <div className="admin-filter__actions">
-              {compact ? (
-                <button
-                  type="button"
-                  className="admin-btn admin-btn--ghost admin-btn--sm"
-                  aria-expanded={filtersOpen}
-                  onClick={() => setFiltersOpen((open) => !open)}
-                >
-                  {filtersOpen ? (
-                    <ChevronUp size={14} strokeWidth={2} aria-hidden="true" />
-                  ) : (
-                    <ChevronDown size={14} strokeWidth={2} aria-hidden="true" />
-                  )}
-                  {filtersOpen ? "收起筛选" : "展开筛选"}
-                </button>
-              ) : null}
-              <button className="admin-btn admin-btn--primary" type="submit">
-                查询
-              </button>
-              <button className="admin-btn admin-btn--ghost" type="button" onClick={onReset}>
-                重置
-              </button>
-            </div>
+            <FilterActions
+              compact={compact}
+              filtersOpen={filtersOpen}
+              activeFilters={activeFilters}
+              pendingCount={pendingFilterCount}
+              onToggle={() => setFiltersOpen((open) => !open)}
+              onReset={onReset}
+            />
           </div>
           {/* 处理状态与文件类型都是枚举：段控件一次点得中，
               不用先点开下拉才知道有哪些值。这一段常驻可见——

@@ -286,6 +286,15 @@
   border-radius: var(--radius-pill);
 }
 
+/* 草稿与已应用筛选不一致时的提示：enum chip 即时生效，文本字段要按查询，
+   两套模型并存时把「还没提交」明说出来，避免把旧结果读成新结果。
+   用信号橙而不是管理紫：这是当前态，不是管理身份。 */
+.admin-filter__pending {
+  font-size: 11px;
+  color: var(--signal-text);
+  white-space: nowrap;
+}
+
 .admin-users__input,
 .admin-news__input,
 .admin-diagnosis__input,
@@ -1435,35 +1444,98 @@ html.dark .admin-newsedit .w-md-editor {
   min-width: 960px;
 }
 
-/* 台账横向滚动时把「操作」列钉在右侧：窄屏最重要的动作不必先滑到底。 */
-@media (max-width: 900px) {
-  .admin-users__table .admin-dt__head:last-child,
-  .admin-users__table .admin-dt__cell:last-child,
-  .admin-news__table .admin-dt__head:last-child,
-  .admin-news__table .admin-dt__cell:last-child,
+/* ── 操作列常驻：表格一旦横向溢出，动作列钉在右缘 ─────────────
+   判据是「滚动容器比表格保底宽度窄」，不是视口：侧栏固定 252px，
+   1100px 视口下内容区只剩 768px——视口看着宽，诊断台账却已溢出 224px，
+   操作列被整列推出屏外。容器宽度就是表格实际可用的宽度，不差侧栏与页边距。
+   阈值 = 各表 min-width − 1（见上方保底宽度），溢出与钉住严格同步；
+   表格放得下时不钉，免得常驻一层右缘投影变成假提示。
+   ≤900px 四本台账都换卡片形态，那边的规则会把 sticky 撤销。 */
+
+/* 钉住列与滚动内容之间的分界投影：四本台账共用，只写一次。
+   颜色从文字令牌派生而不是写死黑投影——暗色主题下它要跟着翻成浅色，
+   写死的黑在深底上等于没有。 */
+.admin-dt__scroll {
+  --admin-dt-pin-shadow: -14px 0 18px -18px
+    color-mix(in srgb, var(--admin-text) 42%, transparent);
+}
+
+@container (max-width: 991px) {
   .admin-diagnosis__table .admin-dt__head:last-child,
-  .admin-diagnosis__table .admin-dt__cell:last-child,
+  .admin-diagnosis__table .admin-dt__cell:last-child {
+    position: sticky;
+    right: 0;
+    z-index: 2;
+    background: var(--admin-surface);
+    box-shadow: var(--admin-dt-pin-shadow);
+  }
+
+  .admin-diagnosis__table .admin-dt__head:last-child {
+    z-index: 3;
+    background: color-mix(in srgb, var(--admin-surface-deep) 52%, var(--admin-surface));
+  }
+
+  .admin-diagnosis__table .admin-dt__row:hover .admin-dt__cell:last-child {
+    background: color-mix(in srgb, var(--admin-surface-deep) 45%, var(--admin-surface));
+  }
+}
+
+@container (max-width: 959px) {
   .admin-knowledge__table .admin-dt__head:last-child,
   .admin-knowledge__table .admin-dt__cell:last-child {
     position: sticky;
     right: 0;
     z-index: 2;
     background: var(--admin-surface);
-    box-shadow: -14px 0 18px -18px rgba(23, 19, 34, 0.5);
+    box-shadow: var(--admin-dt-pin-shadow);
   }
 
-  .admin-users__table .admin-dt__head:last-child,
-  .admin-news__table .admin-dt__head:last-child,
-  .admin-diagnosis__table .admin-dt__head:last-child,
   .admin-knowledge__table .admin-dt__head:last-child {
     z-index: 3;
     background: color-mix(in srgb, var(--admin-surface-deep) 52%, var(--admin-surface));
   }
 
-  .admin-users__table .admin-dt__row:hover .admin-dt__cell:last-child,
-  .admin-news__table .admin-dt__row:hover .admin-dt__cell:last-child,
-  .admin-diagnosis__table .admin-dt__row:hover .admin-dt__cell:last-child,
   .admin-knowledge__table .admin-dt__row:hover .admin-dt__cell:last-child {
+    background: color-mix(in srgb, var(--admin-surface-deep) 45%, var(--admin-surface));
+  }
+}
+
+@container (max-width: 731px) {
+  .admin-users__table .admin-dt__head:last-child,
+  .admin-users__table .admin-dt__cell:last-child {
+    position: sticky;
+    right: 0;
+    z-index: 2;
+    background: var(--admin-surface);
+    box-shadow: var(--admin-dt-pin-shadow);
+  }
+
+  .admin-users__table .admin-dt__head:last-child {
+    z-index: 3;
+    background: color-mix(in srgb, var(--admin-surface-deep) 52%, var(--admin-surface));
+  }
+
+  .admin-users__table .admin-dt__row:hover .admin-dt__cell:last-child {
+    background: color-mix(in srgb, var(--admin-surface-deep) 45%, var(--admin-surface));
+  }
+}
+
+@container (max-width: 699px) {
+  .admin-news__table .admin-dt__head:last-child,
+  .admin-news__table .admin-dt__cell:last-child {
+    position: sticky;
+    right: 0;
+    z-index: 2;
+    background: var(--admin-surface);
+    box-shadow: var(--admin-dt-pin-shadow);
+  }
+
+  .admin-news__table .admin-dt__head:last-child {
+    z-index: 3;
+    background: color-mix(in srgb, var(--admin-surface-deep) 52%, var(--admin-surface));
+  }
+
+  .admin-news__table .admin-dt__row:hover .admin-dt__cell:last-child {
     background: color-mix(in srgb, var(--admin-surface-deep) 45%, var(--admin-surface));
   }
 }
@@ -1856,12 +1928,22 @@ html.dark .admin-newsedit .w-md-editor {
   align-items: center;
   gap: 8px;
   margin-left: auto;
+  /* 出现「未应用」提示时这一行会多一段文字：允许换行，按钮不会被提示
+     挤出面板右缘（390px 下实测会把「重置」推出去）。 */
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 @media (max-width: 640px) {
   .admin-filter__actions {
     width: 100%;
     margin-left: 0;
+  }
+
+  /* 窄屏：提示独占一行，按钮行留在下面，按钮等分剩余宽度。 */
+  .admin-filter__pending {
+    flex-basis: 100%;
+    text-align: right;
   }
 
   .admin-filter__actions .admin-btn {
