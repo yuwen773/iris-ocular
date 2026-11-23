@@ -16,7 +16,7 @@ Base package: `com.csust.eyediagnosis`
 
 - 领域命名、模块边界、易混术语 → `GLOSSARY.md`（架构评审与新增概念前读）。
 - 找设计 / 计划 / 验收 / 迁移文档 → `docs/README.md`（按主题分组的索引）。
-- 写前端样式 / 评审前端 diff → 仓库根 `DESIGN.md`（**Iris 2.0 · Adaptive Visual System**，
+- 写前端样式 / 评审前端 diff → 仓库根 `DESIGN.md`（**Iris 2.2 · Adaptive Visual System**，
   官方 DESIGN.md 格式：YAML 令牌 + 八段规范）+ `web/src/styles/tokens.css`（**已实现的令牌事实**）。
   两者不一致时以 `tokens.css` 为准；规则变更史见 `docs/design/iris-2-rule-change-matrix.md`，
   实现偏差登记 Issue，规范里不再维护状态表。
@@ -67,7 +67,7 @@ Java 21 与本机 MySQL 实例的环境事实见主检出目录的 `CLAUDE.local
 | Controller | Path | Purpose |
 |------------|------|---------|
 | UserController | `/api/user/*` | Auth, CRUD |
-| AdminStatsController | `/api/stats/*` | 管理端总览读数（Dashboard 与数据分析共用口径） |
+| AdminStatsController | `/api/stats/*` | 管理端：`overview` 供仪表盘（当前态/环比），`analytics` 供数据分析（复核、拒识归因、模型与质量、数据质量自检；复核维度为 HISTORICAL_ONLY） |
 | DiagnosisController | `/api/diagnosis/*` | Upload image, gRPC diagnosis, page query, cancel an in-flight run |
 | DiagnosisTaskController / PatientAuthorizationController / PatientExplanationController / PatientFollowUpController | `/api/diagnosis-tasks/*` | 患者影像任务、保存授权、分层解释与随访 |
 | AgentController | `/api/agent/*` | SSE chat stream, session/history |
@@ -110,7 +110,7 @@ MySQL | Redis (session + cache) | ChromaDB (vector RAG) | DashScope (LLM + embed
 温度靠文案与留白表达，不靠暖色调。
 
 ### Aesthetic Direction
-**Iris 2.0 · Adaptive Visual System**。设计真源是仓库根 `DESIGN.md`（目标规范），
+**Iris 2.2 · Adaptive Visual System**。设计真源是仓库根 `DESIGN.md`（目标规范），
 令牌实现是 `web/src/styles/tokens.css`（已实现的事实）。
 `web/`（React）是产品前端，本文件的规则都指它；`frontend/`（Vue）**已弃用（deprecated）**，
 仍跑旧的青绿 `--iris-*`，**不再作为设计参考，新代码不要写进 `frontend/`**。

@@ -32,7 +32,7 @@
 | `markdown.css` | `.markdown-body` 共用排版 |
 | `admin.css` | 管理端外壳 + **共享原语**（`.admin-viz__*` / `.admin-dt__*` / `.admin-metric-*` / `.feature-card` / `.panel` / `.admin-batch`） |
 | `admin-redesign.css` | C2 历史层（外壳 / 页头 / 指标轨）——只读，不再加新规则 |
-| `admin-polish-analysis.css` | `/admin/data-analysis` |
+| `admin-analytics.css` | `/admin/data-analysis`（B2 数据分析工作台：分区标签 / 可用性摘要 / 数据状态徽标 / 口径抽屉） |
 | `admin-polish-ledger.css` | `/admin/diagnosis`、`/admin/users` |
 | `admin-polish-cms.css` | `/admin/news`、`/admin/knowledge`、`/admin/news/edit` |
 | `admin-document.css` | 知识库文档工作区（原文 / RAG 切片双栏） |

@@ -74,6 +74,12 @@
 
 **环境要求**：Java 21+ · Node.js 20+ · Python 3.10+ · MySQL 8.0+ · Redis 7+ · Docker（ChromaDB）
 
+> **MySQL 必须是 8.0+**：数据分析接口（`/api/stats/admin/analytics`）使用 CTE 与窗口函数。
+> 如果本机同时装有 3306（常见为 5.7）与 3307（8.0），请把开发配置里的
+> `spring.datasource.url` 指向 **3307**。连到 5.7 时后端会在启动阶段失败并提示修改数据源，
+> 不会等到统计请求才报 `50000`；紧急情况下可用
+> `eye-diagnosis.database.require-mysql8=false` 显式关闭门禁（统计接口仍不可用）。
+
 ```bash
 # 1. 基础设施
 docker compose up -d                                   # ChromaDB :8000
@@ -236,7 +242,7 @@ eye-diagnosis/
 - **多 Agent 协作默认关闭**：基础设施已包含在 v1.1.0，但需同时打开后端 `eye-diagnosis.collaboration.*` 与构建期 `VITE_COLLABORATION_ENABLED` 才可用。
 - **COS 是过渡存储**：对象级私有化、短时签名视图与历史 ACL 回填不在 v1.1.0 内，后续迁移到自建 S3 兼容存储。
 - **外部集成证据有限**：真实外部服务的端到端证据尚未形成可独立核验的归档。
-- **UI 冻结**：首页 / 品牌层、管理端、知识库、新闻工作台自 2026-11-15 起冻结，一般视觉优化登记 Issue。
+- **UI 版本**：**Iris 2.2**（2026-11-21 起）。2.1 的 UI 冻结已结束，一般视觉迭代按 `DESIGN.md` 现行规则执行；2.1 冻结 tag 只作历史基线。
 
 ## License
 

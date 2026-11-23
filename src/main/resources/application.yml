@@ -94,6 +94,11 @@ agent:
     enabled: false
     digest-key: ${AGENT_TOOL_AUDIT_DIGEST_KEY:iris-tool-audit-dev-only-key}
 eye-diagnosis:
+  # 数据分析（/api/stats/admin/analytics）使用 CTE + 窗口函数，最低 MySQL 8.0。
+  # 低于 8.0 时启动即失败，避免接口到运行时才返回 50000。
+  # 本机 3306 通常是 5.7、3307 是 8.0：dev 数据源必须指向 8.0 实例。
+  database:
+    require-mysql8: true
   collaboration:
     enabled: false
     admission-enabled: false

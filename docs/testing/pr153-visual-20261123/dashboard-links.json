@@ -1,0 +1,13 @@
+{
+  "hrefs": [
+    "/admin/knowledge?status=2",
+    "/admin/news?status=3",
+    "/admin/diagnosis?review=aiRejected",
+    "/admin/data-analysis?days=30&section=review",
+    "/admin/diagnosis",
+    "/admin/data-analysis?days=30&section=model"
+  ],
+  "hasBacklog": false,
+  "hasGoReview": false,
+  "hasHistory": true
+}

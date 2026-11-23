@@ -16,7 +16,6 @@ const DIR = new URL("./", import.meta.url)
 const BASELINE: Record<string, number> = {
   "admin-document.css": 0,
   "admin-news-preview.css": 0,
-  "admin-polish-analysis.css": 0,
   "admin-polish-cms.css": 0,
   "admin-polish-ledger.css": 0,
   "disclaimer.css": 0,

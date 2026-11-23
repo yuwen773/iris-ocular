@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { MemoryRouter } from "react-router-dom"
 
@@ -22,7 +22,7 @@ afterEach(() => {
   vi.mocked(listDiagnoses).mockClear()
 })
 
-function statsOf(days: number, inRange: number): AdminStats {
+function statsOf(days: number, inRange: number, overrides: Partial<AdminStats> = {}): AdminStats {
   return {
     days,
     rangeStart: `2026-11-${String(days).padStart(2, "0")}`,
@@ -54,6 +54,7 @@ function statsOf(days: number, inRange: number): AdminStats {
     diagnosisDistribution: [],
     reviewDistribution: [],
     diagnosisTrendByResult: [],
+    ...overrides,
   }
 }
 
@@ -98,6 +99,62 @@ describe("AdminDashboardPage 判读结论口径", () => {
     expect(chips).toContain("未出结论")
     expect(chips).toContain("无判读结果")
     expect(chips).not.toContain("AI 拒识")
+  })
+})
+
+describe("AdminDashboardPage B3 运营语义", () => {
+  it("复核改为历史只读入口，不再出现积压或「去复核」", async () => {
+    vi.mocked(getAdminStats).mockResolvedValue(statsOf(30, 3))
+
+    renderPage()
+
+    await screen.findByText("复核历史记录")
+    expect(screen.getByText("历史数据")).toBeTruthy()
+    expect(screen.getByText(/正式临床复核写入已安全关闭/)).toBeTruthy()
+    expect(screen.queryByText(/积压/)).toBeNull()
+    expect(screen.queryByText("去复核")).toBeNull()
+    expect(screen.queryByText("复核状态分布")).toBeNull()
+
+    const link = screen.getByRole("link", {
+      name: /查看历史复核统计、状态分布与复核时延/,
+    })
+    expect(link.getAttribute("href")).toBe("/admin/data-analysis?days=30&section=review")
+  })
+
+  it("AI 拒识只能查看记录，不写「去处理」", async () => {
+    vi.mocked(getAdminStats).mockResolvedValue(statsOf(30, 3, { diagnosisAiRejected: 2 }))
+
+    renderPage()
+
+    // 必须落在 AI 拒识这一行上：「去处理」是知识库行的正常操作，全页断言会把它当成拒识行违规。
+    const row = (await screen.findByText("AI 拒识记录")).closest(".action-row")
+    expect(row).toBeTruthy()
+    const link = within(row as HTMLElement).getByRole("link", { name: "查看记录" })
+    expect(link.getAttribute("href")).toBe("/admin/diagnosis?review=aiRejected")
+    expect(within(row as HTMLElement).queryByRole("link", { name: "去处理" })).toBeNull()
+    expect(within(row as HTMLElement).queryByText("立即处理")).toBeNull()
+  })
+
+  it("字段缺失显示「—」，不把未知补成 0", async () => {
+    vi.mocked(getAdminStats).mockResolvedValue(
+      statsOf(30, 3, { knowledgeFailed: undefined, newsByStatus: undefined }),
+    )
+
+    renderPage()
+
+    await screen.findByLabelText("核心运营概况")
+    expect(screen.getByText("待办口径未接入")).toBeTruthy()
+    expect(screen.queryByText("当前没有待处理事项")).toBeNull()
+  })
+
+  it("不再展示混合量纲的平均置信度，只给数据分析入口", async () => {
+    vi.mocked(getAdminStats).mockResolvedValue(statsOf(30, 3))
+
+    renderPage()
+
+    await screen.findByText("复核历史记录")
+    expect(screen.queryByText(/平均置信度/)).toBeNull()
+    expect(screen.getByRole("link", { name: "数据分析 · 模型与图像质量" })).toBeTruthy()
   })
 })
 

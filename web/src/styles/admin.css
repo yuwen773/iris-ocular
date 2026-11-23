@@ -2483,8 +2483,8 @@ html.dark .admin-viz__toggle-btn[aria-pressed="true"] {
 
 /* 小倍数栅格：格数随容器宽度自适应（auto-fit + minmax），
    六个病种在宽屏自然并成一条带，在窄屏折成两列或一列。
-   具体的列数、内边距与断点由 admin-polish-analysis.css 拥有——
-   它是分析页的专有样式，不该靠「谁先加载」来赢过共享样式表。 */
+   这几条属于 2.0 时代的旧分析页；B2 起分析页改走自己的
+   `admin-analytics.css`，列数与断点不再由共享样式表猜测。 */
 .admin-analysis__grid {
   display: grid;
   gap: 14px;
@@ -3262,6 +3262,37 @@ html.dark .admin-dt__check:indeterminate {
   font-size: 12px;
   letter-spacing: 0.04em;
   color: var(--admin-text-faint);
+}
+
+/* 复核历史卡：只解释能力边界并给出只读入口，不摆待处理数字。 */
+.admin-dashboard__history .panel__head {
+  align-items: center;
+}
+
+.admin-dashboard__history-body {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
+.admin-dashboard__history-body p {
+  margin: 0;
+  max-width: 46ch;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--admin-text-muted);
+}
+
+.admin-dashboard__history-body .admin-dashboard__history-meta {
+  font-size: 12px;
+  color: var(--admin-text-faint);
+}
+
+/* 待处理事项的拆项：窄屏在两项之间换行，不在「审核」这种词中间断开。 */
+.admin-dashboard__todo-foot {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
 }
 
 /* 仪表盘统计载入占位：mono 破折号节奏的读数行，与空态同源。 */

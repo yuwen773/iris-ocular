@@ -72,6 +72,7 @@ class SurefireSkipGateTest(unittest.TestCase):
         self.write(P + "poc.CoordinationMySqlTest", cases=14, skipped=14)
         self.write(P + "upload.state.UploadTaskMapperMySqlIntegrationTest", cases=3, skipped=3)
         self.write(P + "service.DiagnosisRunMySqlIntegrationTest", cases=8, skipped=8)
+        self.write(P + "integration.AdminAnalyticsMySqlIntegrationTest", cases=1, skipped=1)
         self.write(P + "diagnosistask.CosDiagnosisTaskStorageTest", cases=1)
 
     def test_backend_unit_contract_passes_on_real_skip_shape(self):
@@ -181,9 +182,15 @@ class SurefireSkipGateTest(unittest.TestCase):
         self.write(P + "agent.service.ToolAuditMySqlIntegrationTest", cases=1)
         self.write(P + "agent.service.ToolTerminalPersistenceMySqlIntegrationTest", cases=1)
         self.write(P + "service.DiagnosisRunMySqlIntegrationTest", cases=8)
+        self.write(P + "integration.AdminAnalyticsMySqlIntegrationTest", cases=1)
         self.assertEqual(0, self.verdict(CONTRACTS["flyway"]))
 
         self.write(P + "migration.FlywayMySqlIntegrationTest", cases=5, skipped=1)
+        self.assertEqual(1, self.verdict(CONTRACTS["flyway"]))
+
+        # 新增契约必须在被跳过时真的拦下来，而不是只作为一份“已登记”清单。
+        self.write(P + "migration.FlywayMySqlIntegrationTest", cases=5)
+        self.write(P + "integration.AdminAnalyticsMySqlIntegrationTest", cases=1, skipped=1)
         self.assertEqual(1, self.verdict(CONTRACTS["flyway"]))
 
     def test_summary_zero_but_skipped_child_still_fails(self):
