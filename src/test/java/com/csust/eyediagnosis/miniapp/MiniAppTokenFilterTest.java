@@ -81,4 +81,19 @@ class MiniAppTokenFilterTest {
         verify(chain).doFilter(any(), any());
         verify(tokenService, never()).resolve(any());
     }
+
+    @Test
+    void staleTokenDoesNotBlockTheLoginEntry() throws Exception {
+        when(tokenService.resolve("stale")).thenReturn(null);
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api" + MiniAppConstant.LOGIN_PATH);
+        request.setContextPath("/api");
+        request.addHeader(MiniAppConstant.AUTHORIZATION_HEADER, "Bearer stale");
+
+        filter.doFilter(request, response, chain);
+
+        // 过期令牌不能把换令牌的入口堵死：按无令牌处理，交给后面的 Cookie 分支与登录豁免。
+        assertNull(request.getAttribute(MiniAppConstant.REQUEST_ATTR_TOKEN_AUTH));
+        verify(chain).doFilter(any(), any());
+        assertEquals(200, response.getStatus());
+    }
 }

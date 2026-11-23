@@ -59,12 +59,36 @@ public class MiniAppAuthService {
      */
     public LoginResult login(String code) {
         WeChatCode2SessionClient.WeChatSession session = weChatClient.exchange(code);
-        User user = Objects.requireNonNull(transactions.execute(status -> resolveUser(session)));
+        User user = resolveOrRaceBack(session);
         if (AuthConstant.BAN_ROLE.equals(user.getUserRole())) {
             throw new BusinessException(ErrorCode.FORBIDDEN_ERROR, "账号已被封禁");
         }
         MiniAppTokenService.IssuedToken issued = tokenService.issue(user.getId());
         return new LoginResult(issued.token(), issued.expiresInSeconds(), user);
+    }
+
+    /**
+     * 并发首登：两个请求同时走到「建号 + 写绑定」，唯一键只放过一个。
+     *
+     * <p>落败方必须让事务**整体回滚**——否则它刚插入的 t_user 行会作为孤儿账号
+     * 留在库里（异常在回调内被吞掉时，事务不会被标记为 rollback-only）。
+     * 所以这里不捕获绑定插入的异常，而是让它逸出事务后回读赢家的账号。
+     */
+    private User resolveOrRaceBack(WeChatCode2SessionClient.WeChatSession session) {
+        try {
+            return Objects.requireNonNull(transactions.execute(status -> resolveUser(session)));
+        } catch (DuplicateKeyException race) {
+            User winner = transactions.execute(status -> {
+                UserWechat binding = findBinding(session.openid());
+                User bound = binding == null ? null : userMapper.selectById(binding.getUserId());
+                if (bound == null) {
+                    throw race;
+                }
+                return bound;
+            });
+            log.info("小程序并发首登命中已有绑定, userId={}", Objects.requireNonNull(winner).getId());
+            return winner;
+        }
     }
 
     private User resolveUser(WeChatCode2SessionClient.WeChatSession session) {
@@ -85,19 +109,9 @@ public class MiniAppAuthService {
         newBinding.setAppid(properties.getAppid());
         newBinding.setOpenid(session.openid());
         newBinding.setUnionid(session.unionid());
-        try {
-            bindingMapper.insert(newBinding);
-            return created;
-        } catch (DuplicateKeyException e) {
-            // 并发首登：另一个请求先写了绑定，本次新建的账号作废，回读赢家的账号。
-            UserWechat winnerBinding = findBinding(session.openid());
-            User winner = winnerBinding == null ? null : userMapper.selectById(winnerBinding.getUserId());
-            if (winner == null) {
-                throw e;
-            }
-            log.info("小程序并发首登命中已有绑定, userId={}", winner.getId());
-            return winner;
-        }
+        // 并发首登时这里的唯一键冲突会逸出：事务回滚（含刚建的账号），由调用方回读赢家。
+        bindingMapper.insert(newBinding);
+        return created;
     }
 
     private UserWechat findBinding(String openid) {
@@ -118,17 +132,19 @@ public class MiniAppAuthService {
         String baseAccount = "wx_" + openid;
         for (int attempt = 0; attempt < 3; attempt++) {
             String account = attempt == 0 ? baseAccount : baseAccount + "_" + RandomUtil.randomString(6);
-            if (userMapper.selectCount(new QueryWrapper<User>().eq("userAccount", account)) > 0) {
-                continue;
-            }
             User user = new User();
             user.setUserAccount(account);
             // 微信账号不走密码登录：写一段随机、不可知的 BCrypt 摘要占住 NOT NULL 列。
             user.setUserPassword(passwordService.encode(RandomUtil.randomString(32)));
             user.setUserName("微信用户");
             user.setUserRole(UserRole.USER.getValue());
-            if (userMapper.insert(user) == 1) {
-                return user;
+            try {
+                if (userMapper.insert(user) == 1) {
+                    return user;
+                }
+            } catch (DuplicateKeyException collision) {
+                // userAccount 是唯一键：预检看不到并发事务尚未提交的行，只能靠插入本身仲裁。
+                log.debug("微信账号 userAccount 冲突, 换后缀重试, attempt={}", attempt);
             }
         }
         throw new BusinessException(ErrorCode.SYSTEM_ERROR, "创建微信账号失败");

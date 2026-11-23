@@ -145,6 +145,25 @@ class MiniAppAuthServiceTest {
     }
 
     @Test
+    void concurrentFirstLoginFallsBackToTheWinnerAfterRollback() {
+        when(weChatClient.exchange("code")).thenReturn(
+                new WeChatCode2SessionClient.WeChatSession("open-5", null));
+        UserWechat winnerBinding = new UserWechat();
+        winnerBinding.setUserId(99L);
+        // 第一次查不到绑定 → 建号 → 写绑定撞唯一键；回滚后第二次查到赢家的绑定。
+        when(bindingMapper.selectOne(any(Wrapper.class))).thenReturn(null, winnerBinding);
+        when(userMapper.selectById(99L)).thenReturn(user(99L, "user"));
+        when(bindingMapper.insert(any(UserWechat.class)))
+                .thenThrow(new org.springframework.dao.DuplicateKeyException("uk_appid_openid"));
+
+        MiniAppAuthService.LoginResult result = authService.login("code");
+
+        assertEquals(99L, result.user().getId());
+        // 落败请求只写过一次绑定；它新建的账号随事务回滚，不留在库里。
+        verify(bindingMapper).insert(any(UserWechat.class));
+    }
+
+    @Test
     void loginResultRequiresTokenAndUser() {
         User user = user(1L, "user");
         assertNotNull(new MiniAppAuthService.LoginResult("tok", 1L, user).token());

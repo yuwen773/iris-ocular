@@ -26,6 +26,14 @@ public final class MiniAppConstant {
      */
     public static final String REQUEST_ATTR_TOKEN_AUTH = "MP_TOKEN_AUTHENTICATED";
 
+    /**
+     * 换令牌的入口（相对 context-path）。
+     *
+     * <p>它是 {@code SameOriginFilter} 按路径放行的**唯一**一项，也是唯一一处
+     * 「带着无效 Bearer 头也照常处理」的路径：过期令牌不能把重新登录堵死。
+     */
+    public static final String LOGIN_PATH = "/mp/auth/login";
+
     private MiniAppConstant() {
     }
 }

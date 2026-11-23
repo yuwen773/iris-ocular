@@ -54,7 +54,11 @@ public class MiniAppAuthController {
     }
 
     /**
-     * 退出登录：吊销当前令牌。令牌无效时也返回成功，客户端无论如何都应该清本地状态。
+     * 退出登录：吊销当前令牌。
+     *
+     * <p>走到这里说明令牌已通过 {@code MiniAppTokenFilter} 校验（无效令牌在过滤器层
+     * 就被 40100 拦下，无令牌的 POST 过不了同源校验）。客户端仍应在收到任何结果后
+     * 清掉本地令牌——服务端吊销失败与本地清理是两件事。
      */
     @PostMapping("/logout")
     @Operation(summary = "小程序退出登录")

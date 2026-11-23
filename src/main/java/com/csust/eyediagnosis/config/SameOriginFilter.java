@@ -38,7 +38,7 @@ public class SameOriginFilter extends OncePerRequestFilter {
      * <p>目前只有小程序登录：它本身就是「换令牌」的入口，此刻还没有令牌可携带；它也不写
      * Cookie、只把令牌放在响应体里，跨站请求读不到响应，构不成登录 CSRF 的收益。
      */
-    private static final Set<String> EXEMPT_PATHS = Set.of("/mp/auth/login");
+    private static final Set<String> EXEMPT_PATHS = Set.of(MiniAppConstant.LOGIN_PATH);
 
     @Value("${security.same-origin.additional-hosts:}")
     private List<String> additionalHosts;
