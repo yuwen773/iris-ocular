@@ -1,5 +1,6 @@
 package com.csust.eyediagnosis.service;
 
+import com.csust.eyediagnosis.common.BatchResultVO;
 import com.csust.eyediagnosis.constant.NewsStatus;
 import com.csust.eyediagnosis.exception.BusinessException;
 import com.csust.eyediagnosis.exception.ErrorCode;
@@ -11,8 +12,10 @@ import com.csust.eyediagnosis.model.entity.User;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.dao.QueryTimeoutException;
 
 import java.util.Date;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -22,6 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -261,6 +265,31 @@ class NewsLifecycleServiceTest {
                 () -> lifecycle.softDelete(1L, admin));
         assertEquals(ErrorCode.NOT_FOUND_ERROR.getCode(), ex.getCode());
         verify(newsMapper, never()).deleteById(any(Long.class));
+    }
+
+    @Test
+    void batchSoftDeleteReportsPerItemBusinessFailures() {
+        when(newsMapper.selectOne(any())).thenReturn(existing(NewsStatus.PUBLISHED), (News) null);
+        when(newsMapper.deleteById(1L)).thenReturn(1);
+
+        BatchResultVO result = lifecycle.softDeleteBatch(List.of(1L, 2L), admin);
+
+        assertEquals(2, result.getRequested());
+        assertEquals(1, result.getSucceeded());
+        assertEquals(List.of("2"), result.getFailedIds());
+        assertTrue(result.getMessage().contains("2"));
+    }
+
+    @Test
+    void batchSoftDeleteDoesNotSwallowPersistenceFailures() {
+        // 审计写失败是数据库故障，不是「这条不满足条件」。把它收成回执会让事务
+        // 提交掉前半批的删除（删了没留痕），正是批量事务要防的分裂提交。
+        when(newsMapper.selectOne(any())).thenReturn(existing(NewsStatus.PUBLISHED));
+        when(newsMapper.deleteById(1L)).thenReturn(1);
+        doThrow(new QueryTimeoutException("audit insert failed")).when(newsAuditMapper).insert(any(NewsAudit.class));
+
+        assertThrows(QueryTimeoutException.class,
+                () -> lifecycle.softDeleteBatch(List.of(1L), admin));
     }
 
     private NewsAudit captureAudit() {

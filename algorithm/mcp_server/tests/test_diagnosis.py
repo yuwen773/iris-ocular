@@ -22,7 +22,7 @@ def test_build_result_basic():
     assert result["predicted_label"] == "glaucoma"
     assert result["predicted_label_cn"] == "青光眼"
     assert result["probability"] == 87.5
-    assert result["reliability_score"] == 95  # gap > 0.5
+    assert result["top2_margin"] == pytest.approx(0.875 - 0.052)
     assert "青光眼" in result["description"]
     assert len(result["top_predictions"]) == 3
     assert result["top_predictions"][0]["label"] == "glaucoma"
@@ -45,7 +45,7 @@ def test_build_result_low_confidence():
         },
     }
     result = build_diagnosis_result(model_result)
-    assert result["reliability_score"] == 50  # gap < 0.1
+    assert result["top2_margin"] == pytest.approx(0.15 - 0.14)
 
 
 def test_build_result_probability_scaling():
@@ -65,42 +65,13 @@ def test_build_result_probability_scaling():
     }
     result = build_diagnosis_result(model_result)
     assert result["probability"] == 50.0
-    assert result["reliability_score"] == 85  # gap 0.5-0.2=0.3, > 0.3
+    assert result["top2_margin"] == pytest.approx(0.5 - 0.2)
 
 
-def test_reliability_gap_05():
-    """gap exactly 0.5 should return 95"""
-    from mcp_server.diagnosis import calculate_reliability
-    probs = {"a": 0.75, "b": 0.25, "c": 0.0}
-    assert calculate_reliability(probs) == 95
+def test_top2_margin_is_a_measurement_not_a_score():
+    """差距原样返回：不再映射成 95/85/75 这种「可靠性」分数。"""
+    from mcp_server.diagnosis import top2_margin
 
-
-def test_reliability_gap_03():
-    """gap exactly 0.3 should return 85"""
-    from mcp_server.diagnosis import calculate_reliability
-    probs = {"a": 0.65, "b": 0.35, "c": 0.0}
-    assert calculate_reliability(probs) == 85
-
-
-def test_reliability_gap_02():
-    """gap exactly 0.2 should return 75"""
-    from mcp_server.diagnosis import calculate_reliability
-    probs = {"a": 0.8, "b": 0.6, "c": 0.0}
-    assert calculate_reliability(probs) == 75
-
-
-def test_reliability_gap_01():
-    """gap exactly 0.1 should return 65"""
-    from mcp_server.diagnosis import calculate_reliability
-    probs = {"a": 0.55, "b": 0.45, "c": 0.0}
-    assert calculate_reliability(probs) == 65
-
-
-@pytest.mark.parametrize(
-    ("top", "second", "expected"),
-    [(0.6, 0.4, 75), (0.7, 0.2, 95), (0.599, 0.401, 65)],
-)
-def test_reliability_decimal_boundaries(top, second, expected):
-    from mcp_server.diagnosis import calculate_reliability
-
-    assert calculate_reliability({"a": top, "b": second}) == expected
+    assert top2_margin({"a": 0.75, "b": 0.25, "c": 0.0}) == pytest.approx(0.5)
+    assert top2_margin({"a": 0.55, "b": 0.45}) == pytest.approx(0.1)
+    assert top2_margin({"a": 1.0}) is None

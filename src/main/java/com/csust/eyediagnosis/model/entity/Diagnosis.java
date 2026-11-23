@@ -128,6 +128,18 @@ public class Diagnosis {
     private String oodStatus;
     /** OOD 评分；未评估时不代表分布内 */
     private Double oodScore;
+    /** 原始 softmax top-1（0-1）；不是校准概率，更不是医学可靠性 */
+    private Double classificationProbability;
+    /** 校准产物版本：这条结论是在哪份校准下算出来的 */
+    private String calibrationVersion;
+    /** 图像质量门结论：PASSED / FAILED / NOT_EVALUATED */
+    private String imageQualityState;
+    /** 质量门判据版本：阈值变了必须换版本 */
+    private String imageQualityVersion;
+    /** 质量门阈值本身是否在真实数据上标定过 */
+    private String imageQualityCalibrationState;
+    /** 该次结论是否允许作为面向患者的结论呈现 */
+    private Boolean patientConclusionAllowed;
     /** 人工复审状态: PENDING_AI / AI_ONLY / AWAITING_REVIEW / REVIEWED / OVERRIDDEN */
     private String humanReviewStatus;
     /** 人工复审人 id */

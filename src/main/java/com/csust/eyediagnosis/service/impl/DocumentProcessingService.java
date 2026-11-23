@@ -4,6 +4,7 @@ import com.csust.eyediagnosis.agent.rag.DocumentParser;
 import com.csust.eyediagnosis.agent.rag.EmbeddingBatchWriter;
 import com.csust.eyediagnosis.agent.rag.SourceTypePolicy;
 import com.csust.eyediagnosis.agent.rag.TextChunkerService;
+import com.csust.eyediagnosis.manager.CosManager;
 import com.csust.eyediagnosis.mapper.KnowledgeDocumentMapper;
 import com.csust.eyediagnosis.model.entity.KnowledgeDocument;
 import jakarta.annotation.Resource;
@@ -42,6 +43,10 @@ public class DocumentProcessingService {
     @Resource
     private KnowledgeDocumentMapper knowledgeDocumentMapper;
 
+    /** 候选作废时清理对象存储；测试未注入时退化为只记日志。 */
+    @Autowired(required = false)
+    private CosManager cosManager;
+
     public VectorStore getVectorStore() {
         return vectorStore;
     }
@@ -70,11 +75,57 @@ public class DocumentProcessingService {
 
     @Async("documentProcessingExecutor")
     public void processDocument(Long docId, File file, String fileType, String title, String version) {
-        log.info("[ETL] 开始处理文档: docId={}, file={}, fileType={}, title={}", docId, file.getAbsolutePath(), fileType, title);
+        runEtl(docId, file, fileType, title, version, false);
+    }
+
+    /**
+     * 处理候选索引版本。旧版本在 {@link #promoteCandidate} 成功之前保持 READY 且可检索；
+     * 候选失败只清理候选自己的分块，不影响活动版本。
+     *
+     * <p>{@code metadata} 是新文件的元数据：它在发布成功时才写进文档行。候选失败或
+     * 被更新的候选取代时，文档行仍描述正在被检索的那份旧文件，同时这次上传的对象
+     * 会被删掉，不留下「行里写着新文件、索引里是旧内容」的错位。
+     */
+    @Async("documentProcessingExecutor")
+    public void processDocumentCandidate(Long docId, File file, String fileType, String title, String version,
+                                         CandidateMetadata metadata) {
+        if (knowledgeDocumentMapper.beginCandidate(docId, version) != 1) {
+            discardCandidateObject(metadata);
+            if (file != null) file.delete();
+            return;
+        }
+        runEtl(docId, file, fileType, title, version, true, metadata);
+    }
+
+    /**
+     * 候选版本发布时随发布指针一起落库的文件元数据。
+     *
+     * @param fileUrl         候选版本自己的对象键（发布后成为文档的 fileUrl）
+     * @param previousFileUrl 发布前文档指向的旧对象键；切换成功后它没有任何引用，
+     *                        属于应该清掉的旧版本对象
+     */
+    public record CandidateMetadata(String fileName, String fileUrl, Long fileSize, String fileType,
+                                    String title, String previousFileUrl) { }
+
+    private void runEtl(Long docId, File file, String fileType, String title, String version, boolean candidate) {
+        runEtl(docId, file, fileType, title, version, candidate, null);
+    }
+
+    private void runEtl(Long docId, File file, String fileType, String title, String version, boolean candidate,
+                        CandidateMetadata candidateMetadata) {
+        log.info("[ETL] 开始处理文档: docId={}, file={}, fileType={}, title={}, candidate={}",
+                docId, file.getAbsolutePath(), fileType, title, candidate);
         long startTime = System.currentTimeMillis();
         try {
             KnowledgeDocument knowledgeDocument = knowledgeDocumentMapper.selectById(docId);
-            if (knowledgeDocument == null || !version.equals(knowledgeDocument.getIndexVersion())) return;
+            String expectedVersion = candidate
+                    ? (knowledgeDocument == null ? null : knowledgeDocument.getPendingIndexVersion())
+                    : (knowledgeDocument == null ? null : knowledgeDocument.getIndexVersion());
+            if (knowledgeDocument == null || !version.equals(expectedVersion)) {
+                // 行已删或被更新的候选取代：本次上传的对象没有任何引用，跟着作废。
+                if (candidate) discardCandidateObject(candidateMetadata);
+                return;
+            }
             // ========== 1. Extract ==========
             String fileUrl = file.getAbsolutePath();
             log.info("[ETL-Extract] 开始解析文档: fileUrl={}", fileUrl);
@@ -138,14 +189,40 @@ public class DocumentProcessingService {
                 throw new IllegalStateException("VectorStore 未配置");
             }
 
-            // 更新状态
-            knowledgeDocumentMapper.finishIndex(docId, version, 1, chunks.size());
-            log.info("[ETL] 文档处理完成: docId={}, chunkCount={}, 总耗时={}ms", docId, chunks.size(), System.currentTimeMillis() - startTime);
+            if (candidate) {
+                // 原子切换发布指针；只有仍持有候选登记的任务才能切换。
+                int promoted = knowledgeDocumentMapper.promoteCandidate(docId, version, chunks.size(),
+                        candidateMetadata == null ? null : candidateMetadata.fileName(),
+                        candidateMetadata == null ? null : candidateMetadata.fileUrl(),
+                        candidateMetadata == null ? null : candidateMetadata.fileSize(),
+                        candidateMetadata == null ? null : candidateMetadata.fileType(),
+                        candidateMetadata == null ? null : candidateMetadata.title());
+                if (promoted == 1) {
+                    purgeStaleVersions(docId, version);
+                    // 切换成功后旧对象既没有行引用、也没有向量引用，留着就是孤儿。
+                    // 放在发布成功之后清：候选失败绝不碰旧对象。
+                    deleteSupersededObject(candidateMetadata);
+                } else {
+                    // 已被更新的候选取代：本次候选作废，活动版本保持不变，对象也不再被引用。
+                    purgeVectors(docId, version);
+                    discardCandidateObject(candidateMetadata);
+                }
+            } else {
+                knowledgeDocumentMapper.finishIndex(docId, version, 1, chunks.size());
+            }
+            log.info("[ETL] 文档处理完成: docId={}, chunkCount={}, candidate={}, 总耗时={}ms",
+                    docId, chunks.size(), candidate, System.currentTimeMillis() - startTime);
         } catch (Exception e) {
-            log.error("[ETL] 文档处理失败: docId={}, 耗时={}ms, error={}", docId, System.currentTimeMillis() - startTime, e.getMessage(), e);
+            log.error("[ETL] 文档处理失败: docId={}, candidate={}, 耗时={}ms, error={}",
+                    docId, candidate, System.currentTimeMillis() - startTime, e.getMessage(), e);
             // 只清理本次失败代；迟到任务不能删除或覆盖已经发布的新版本。
             purgeVectors(docId, version);
-            knowledgeDocumentMapper.finishIndex(docId, version, 2, null);
+            if (candidate) {
+                knowledgeDocumentMapper.clearCandidate(docId, version);
+                discardCandidateObject(candidateMetadata);
+            } else {
+                knowledgeDocumentMapper.finishIndex(docId, version, 2, null);
+            }
         } finally {
             if (file != null && file.exists()) {
                 if (!file.delete()) {
@@ -155,6 +232,53 @@ public class DocumentProcessingService {
                 }
             }
         }
+    }
+
+    /**
+     * 候选作废时删掉这次上传的对象。
+     *
+     * <p>发布前文档行的 fileUrl 仍指向旧文件，新对象没有任何行引用；不删就是对象
+     * 存储里的孤儿。清理失败只记日志——索引侧已经一致，不值得为一次清理失败回滚。
+     */
+    private void discardCandidateObject(CandidateMetadata metadata) {
+        if (metadata == null) {
+            return;
+        }
+        deleteObjectQuietly(metadata.fileUrl(), "候选对象");
+    }
+
+    /**
+     * 发布切换后清掉被取代的旧对象。
+     *
+     * <p>旧对象在切换成功的那一刻起就没有任何行或向量引用它了；不清就是对象存储里的
+     * 长期孤儿（每次编辑文档多一份）。清理失败只记日志：索引侧已经一致，不值得为一次
+     * 清理失败回滚一次已经生效的发布。
+     */
+    private void deleteSupersededObject(CandidateMetadata metadata) {
+        if (metadata == null) {
+            return;
+        }
+        deleteObjectQuietly(metadata.previousFileUrl(), "旧版本对象");
+    }
+
+    private void deleteObjectQuietly(String fileUrl, String what) {
+        if (fileUrl == null) {
+            return;
+        }
+        if (cosManager == null) {
+            log.warn("[ETL] 未配置 CosManager，{}未清理: key={}", what, fileUrl);
+            return;
+        }
+        try {
+            cosManager.deleteObject(fileUrl);
+        } catch (Exception e) {
+            log.warn("[ETL] {}清理失败，可能残留孤儿对象: key={}", what, fileUrl, e);
+        }
+    }
+
+    /** 清掉某个文档某一代的向量分块（调度器回收超时候选版本时用）。 */
+    public void purgeIndexVersion(Long docId, String version) {
+        purgeVectors(docId, version);
     }
 
     /**
@@ -179,6 +303,22 @@ public class DocumentProcessingService {
             } catch (Exception e) {
                 log.warn("[ETL] 残留向量清理失败（第 {} 次）: docId={}", attempt, docId, e.getMessage());
             }
+        }
+    }
+
+    /** 候选版本发布后清理旧代分块；失败只留垃圾，不影响检索正确性。 */
+    private void purgeStaleVersions(Long docId, String activeVersion) {
+        if (vectorStore == null || docId == null || activeVersion == null) return;
+        try {
+            vectorStore.delete(new Filter.Expression(
+                    Filter.ExpressionType.AND,
+                    new Filter.Expression(Filter.ExpressionType.EQ,
+                            new Filter.Key("documentId"), new Filter.Value(docId)),
+                    new Filter.Expression(Filter.ExpressionType.NE,
+                            new Filter.Key("indexVersion"), new Filter.Value(activeVersion))));
+            log.info("[ETL] 已清理旧索引版本: docId={}, activeVersion={}", docId, activeVersion);
+        } catch (Exception e) {
+            log.warn("[ETL] 旧索引版本清理失败: docId={}, error={}", docId, e.getMessage());
         }
     }
 

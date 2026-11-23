@@ -3,6 +3,7 @@ package com.csust.eyediagnosis.service;
 import com.csust.eyediagnosis.grpc.DiagnosisProto;
 import com.csust.eyediagnosis.model.entity.Diagnosis;
 import com.csust.eyediagnosis.model.entity.InferenceCache;
+import com.csust.eyediagnosis.model.vo.diagnosis.DiagnosisManageVO;
 import com.csust.eyediagnosis.model.vo.diagnosis.DiagnosisResultVO;
 import org.junit.jupiter.api.Test;
 
@@ -11,7 +12,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * 诊断证据 module 的契约：一份快照写三个目标，取值口径一致。
+ * 判读证据的语义拆分：分类概率 / 校准状态 / 图像质量 / 能否面向患者呈现，
+ * 各读各的字段，不从别的字段推，也不互相冒充。
  */
 class DiagnosisEvidenceTest {
 
@@ -20,6 +22,33 @@ class DiagnosisEvidenceTest {
     private static final String PREPROCESS = "v1";
     private static final String POLICY = "medical-safety-v3";
 
+    private static DiagnosisProto.DiagnosisResponse response() {
+        return DiagnosisProto.DiagnosisResponse.newBuilder()
+                .setPredictedLabel("normal")
+                .setProbability(82.0)
+                .setClassificationProbability(0.82)
+                .setCalibrationStatus("NOT_CALIBRATED")
+                .setCalibrationVersion("calibration-v0")
+                .setImageQualityState(DiagnosisProto.ImageQualityState.QUALITY_PASSED)
+                .setImageQualityVersion("quality-blur-v0-uncalibrated")
+                .setImageQualityCalibrationState("UNCALIBRATED")
+                .setPatientConclusionAllowed(true)
+                .setOodStatus(DiagnosisProto.OodStatus.NOT_EVALUATED)
+                .setQualityScore(25)
+                .setRequiresReview(true)
+                .setModelVersion(MODEL)
+                .setWeightSha256(WEIGHT)
+                .setPreprocessVersion(PREPROCESS)
+                .setInferencePolicyVersion(POLICY)
+                .build();
+    }
+
+    /**
+     * 一份快照写三个目标，取值口径必须一致。
+     *
+     * <p>这是 {@code DiagnosisEvidence} 存在的理由：三个目标各写一遍，
+     * 列宽与归一化口径就会互相漂移（权重哈希大小写、复核状态、质量分）。
+     */
     @Test
     void oneSnapshotAppliesTheSameEvidenceToEveryTarget() {
         DiagnosisEvidence evidence = DiagnosisEvidence.from(response(), MODEL, WEIGHT, PREPROCESS, POLICY);
@@ -34,7 +63,6 @@ class DiagnosisEvidenceTest {
         assertEquals(WEIGHT.toLowerCase(), diagnosis.getWeightSha256());
         assertEquals(WEIGHT.toLowerCase(), vo.getWeightSha256());
         assertEquals(WEIGHT.toLowerCase(), cache.getWeightSha256());
-
         assertEquals(MODEL, diagnosis.getModelVersion());
         assertEquals(MODEL, vo.getModelVersion());
         assertEquals(MODEL, cache.getModelVersion());
@@ -48,62 +76,179 @@ class DiagnosisEvidenceTest {
     }
 
     @Test
-    void uncalibratedProbabilityIsHiddenFromUsersButPreservedForTheCache() {
-        DiagnosisProto.DiagnosisResponse uncalibrated = DiagnosisProto.DiagnosisResponse.newBuilder()
-                .setCalibrationStatus("NOT_CALIBRATED")
-                .setCalibratedProbability(0.9)
-                .setOodStatus(DiagnosisProto.OodStatus.NOT_EVALUATED)
-                .setRequiresReview(false)
-                .build();
-        DiagnosisEvidence evidence = DiagnosisEvidence.fromResponse(uncalibrated);
-
+    void independentEvidenceFieldsReachTheResultView() {
         DiagnosisResultVO vo = new DiagnosisResultVO();
-        Diagnosis diagnosis = new Diagnosis();
-        InferenceCache cache = evidence.newCache("hash");
-        evidence.applyTo(vo);
-        evidence.applyTo(diagnosis);
+        DiagnosisEvidence.fromResponse(response()).applyTo(vo);
 
-        assertNull(vo.getCalibratedProbability());
-        assertNull(diagnosis.getCalibratedProbability());
-        // 缓存保留原始值，保证 toProto 精确往返
-        assertEquals(0.9, cache.getCalibratedProbability());
+        assertEquals(0.82, vo.getClassificationProbability());
+        assertEquals("calibration-v0", vo.getCalibrationVersion());
+        // 对外只说产品语言，不透出 proto 的 QUALITY_ 前缀
+        assertEquals("PASSED", vo.getImageQualityState());
+        assertEquals("quality-blur-v0-uncalibrated", vo.getImageQualityVersion());
+        assertEquals("UNCALIBRATED", vo.getImageQualityCalibrationState());
+        assertTrue(vo.getPatientConclusionAllowed());
     }
 
     @Test
-    void cacheRoundTripPreservesEveryMedicalSafetyField() {
-        DiagnosisProto.DiagnosisResponse original = response();
-        InferenceCache cache = DiagnosisEvidence.from(
-                original, MODEL, WEIGHT, PREPROCESS, POLICY).newCache("hash");
-        DiagnosisProto.DiagnosisResponse restored =
-                com.csust.eyediagnosis.service.impl.DiagnosisServiceImpl.toProto(cache);
+    void independentEvidenceFieldsReachTheStoredRecord() {
+        Diagnosis diagnosis = new Diagnosis();
+        DiagnosisEvidence.fromResponse(response()).applyTo(diagnosis);
 
-        // 权重哈希按设计归一为小写；其余医疗安全字段逐一还原。
-        assertEquals(WEIGHT.toLowerCase(), restored.getWeightSha256());
-        assertEquals(original.toBuilder().setWeightSha256(WEIGHT.toLowerCase()).build(), restored);
+        assertEquals(0.82, diagnosis.getClassificationProbability());
+        assertEquals("calibration-v0", diagnosis.getCalibrationVersion());
+        assertEquals("PASSED", diagnosis.getImageQualityState());
+        assertEquals("quality-blur-v0-uncalibrated", diagnosis.getImageQualityVersion());
+        assertEquals("UNCALIBRATED", diagnosis.getImageQualityCalibrationState());
+        assertTrue(diagnosis.getPatientConclusionAllowed());
     }
 
-    private static DiagnosisProto.DiagnosisResponse response() {
-        return DiagnosisProto.DiagnosisResponse.newBuilder()
+    /**
+     * 落库的 confidence 与分析工作台的口径一致：写的是「模型自评概率百分数」。
+     *
+     * <p>分析页 B-03/B-04 只读这一列；不写就是面板永远空着。同时它**不是**校准置信度：
+     * 未校准时 VO 的 confidence 仍为 null，界面据此标注「模型输出概率（未标定）」。
+     * 两个口径分开，不能为了填满面板把 VO 也填上。
+     */
+    @Test
+    void storedRecordKeepsTheModelSelfAssessmentWhileTheViewStaysHonest() {
+        Diagnosis diagnosis = new Diagnosis();
+        DiagnosisResultVO vo = new DiagnosisResultVO();
+        DiagnosisEvidence evidence = DiagnosisEvidence.fromResponse(response());
+        evidence.applyTo(vo);
+        evidence.applyTo(diagnosis);
+
+        assertEquals(82.0, diagnosis.getConfidence(), "落库口径：模型自评概率百分数（top1 × 100）");
+        assertNull(vo.getConfidence(), "未标定时不向界面透出置信度");
+    }
+
+    /**
+     * 列表 VO 走的是另一条读回路径（{@code /diagnosis/list/page/*}），门控也必须同款：
+     * 记录列表 / 个人中心 / 管理端最近判读都读它，漏掉这处等于把自评概率继续叫置信度。
+     */
+    @Test
+    void listViewAlsoHidesTheSelfAssessmentUnlessCalibrated() {
+        Diagnosis uncalibrated = new Diagnosis();
+        uncalibrated.setCalibrationStatus("NOT_CALIBRATED");
+        uncalibrated.setConfidence(82.0);
+        uncalibrated.setClassificationProbability(0.82);
+        DiagnosisManageVO listRow = DiagnosisManageVO.objToVo(uncalibrated);
+        assertNull(listRow.getConfidence(), "未标定：列表里不得出现「置信度」");
+        assertEquals(0.82, listRow.getClassificationProbability(), "但不隐藏「模型输出概率」");
+        assertEquals("NOT_CALIBRATED", listRow.getCalibrationStatus());
+
+        // V34 之前写入的行只有 probability（0–100 的 softmax 百分数）：
+        // 列表读数要能退到它，否则老记录在列表里一片「—」。
+        Diagnosis legacyRow = new Diagnosis();
+        legacyRow.setCalibrationStatus("NOT_CALIBRATED");
+        legacyRow.setConfidence(82.0);
+        legacyRow.setProbability(82.0);
+        DiagnosisManageVO legacyView = DiagnosisManageVO.objToVo(legacyRow);
+        assertNull(legacyView.getConfidence());
+        assertEquals(82.0, legacyView.getProbability(), "老记录的概率列要带到列表 VO");
+
+        Diagnosis calibrated = new Diagnosis();
+        calibrated.setCalibrationStatus("CALIBRATED");
+        calibrated.setConfidence(82.0);
+        calibrated.setCalibratedProbability(91.0);
+        assertEquals(91.0, DiagnosisManageVO.objToVo(calibrated).getConfidence());
+    }
+
+    /**
+     * 详情读回路径与写入路径同一口径：库里存自评概率供分析，接口未标定就不叫置信度。
+     */
+    @Test
+    void readBackHidesSelfAssessmentUnlessCalibrated() {
+        Diagnosis uncalibrated = new Diagnosis();
+        uncalibrated.setCalibrationStatus("NOT_CALIBRATED");
+        uncalibrated.setConfidence(82.0);
+        uncalibrated.setCalibratedProbability(null);
+        assertNull(DiagnosisResultVO.objToVo(uncalibrated).getConfidence());
+
+        Diagnosis calibrated = new Diagnosis();
+        calibrated.setCalibrationStatus("CALIBRATED");
+        calibrated.setConfidence(82.0);
+        calibrated.setCalibratedProbability(91.0);
+        assertEquals(91.0, DiagnosisResultVO.objToVo(calibrated).getConfidence(),
+                "已校准：读回的是校准后概率，不是原始 softmax");
+    }
+
+    /**
+     * 落库的 {@code probability} 走的是 VO → 实体复制（{@code DiagnosisResultVO.voToObj}），
+     * 证据回写不得把它抹掉。
+     *
+     * <p>V34 之前写入的行只有这一列；列表读数的兜底依赖它，所以写入链要钉住——
+     * 只在 {@code applyTo(Diagnosis)} 里找 {@code setProbability} 会得出「从没写过」的
+     * 错误结论，真正的写入口在 VO 复制那一步。
+     */
+    @Test
+    void legacyProbabilityColumnSurvivesTheEvidenceWriteBack() {
+        DiagnosisProto.DiagnosisResponse response = response();
+        DiagnosisResultVO vo = new DiagnosisResultVO();
+        vo.setProbability(response.getProbability());
+
+        Diagnosis diagnosis = DiagnosisResultVO.voToObj(vo);
+        DiagnosisEvidence.fromResponse(response).applyTo(diagnosis);
+
+        assertEquals(82.0, diagnosis.getProbability(), "VO→实体带上概率，随后证据回写不得清掉");
+        assertEquals(82.0, diagnosis.getConfidence(), "同一份自评概率也进 confidence 列（分析工作台口径）");
+    }
+
+    @Test
+    void uncalibratedProbabilityIsNotExposedAsConfidence() {
+        // 未标定时不给出「置信度」：那等于让界面把原始 softmax 读成临床可靠性。
+        DiagnosisResultVO vo = new DiagnosisResultVO();
+        DiagnosisEvidence.fromResponse(response()).applyTo(vo);
+        assertNull(vo.getCalibratedProbability(), "未标定时不得透出校准概率");
+    }
+
+    @Test
+    void cacheCarriesTheSameEvidenceSoCacheHitsDoNotLoseIt() {
+        InferenceCache cache = new InferenceCache();
+        DiagnosisEvidence.fromResponse(response()).applyTo(cache);
+
+        assertEquals(0.82, cache.getClassificationProbability());
+        assertEquals("calibration-v0", cache.getCalibrationVersion());
+        assertEquals("PASSED", cache.getImageQualityState());
+        assertEquals("quality-blur-v0-uncalibrated", cache.getImageQualityVersion());
+        assertEquals("UNCALIBRATED", cache.getImageQualityCalibrationState());
+        assertTrue(cache.getPatientConclusionAllowed());
+    }
+
+    /**
+     * 算法没给的证据必须留空：空串会变成「版本号是空字符串」这种半真半假的值，
+     * 0.0 会被读成「模型输出 0%」，false 会被读成「明确不允许面向患者」。
+     */
+    @Test
+    void missingEvidenceFieldsStayEmptyInsteadOfBeingGuessed() {
+        DiagnosisProto.DiagnosisResponse bare = DiagnosisProto.DiagnosisResponse.newBuilder()
                 .setPredictedLabel("normal")
-                .setProbability(91.5)
-                .setCalibratedProbability(90.1)
-                .setCalibrationStatus("CALIBRATED")
-                .setReliabilityScore(90)
-                .setDescription("desc")
-                .addTopPredictions(DiagnosisProto.DiseasePrediction.newBuilder()
-                        .setLabel("normal").setProbability(91.5))
-                .setRejected(true)
-                .setAbstainReason("QUALITY_FAIL")
-                .setQualityScore(25)
-                .setQualityReasons("blur")
-                .setIsOod(true)
-                .setOodScore(12.3)
-                .setOodStatus(DiagnosisProto.OodStatus.OUT_OF_DISTRIBUTION)
-                .setModelVersion(MODEL)
-                .setWeightSha256(WEIGHT)
-                .setPreprocessVersion(PREPROCESS)
-                .setInferencePolicyVersion(POLICY)
-                .setRequiresReview(true)
                 .build();
+
+        DiagnosisResultVO vo = new DiagnosisResultVO();
+        InferenceCache cache = new InferenceCache();
+        DiagnosisEvidence evidence = DiagnosisEvidence.fromResponse(bare);
+        evidence.applyTo(vo);
+        evidence.applyTo(cache);
+
+        assertNull(vo.getClassificationProbability());
+        assertNull(vo.getCalibrationVersion());
+        assertNull(vo.getImageQualityState());
+        assertNull(vo.getImageQualityVersion());
+        assertNull(vo.getImageQualityCalibrationState());
+        assertNull(vo.getPatientConclusionAllowed());
+        assertNull(cache.getClassificationProbability());
+        assertNull(cache.getPatientConclusionAllowed());
+    }
+
+    @Test
+    void qualityStateUsesTheProductVocabularyNotTheProtoEnumName() {
+        assertEquals("PASSED", DiagnosisEvidence.imageQualityStateOf(
+                DiagnosisProto.ImageQualityState.QUALITY_PASSED));
+        assertEquals("FAILED", DiagnosisEvidence.imageQualityStateOf(
+                DiagnosisProto.ImageQualityState.QUALITY_FAILED));
+        assertEquals("NOT_EVALUATED", DiagnosisEvidence.imageQualityStateOf(
+                DiagnosisProto.ImageQualityState.QUALITY_NOT_EVALUATED));
+        assertNull(DiagnosisEvidence.imageQualityStateOf(
+                DiagnosisProto.ImageQualityState.QUALITY_UNSPECIFIED));
     }
 }

@@ -62,6 +62,8 @@ class PatientExplanationApiTest {
             if (jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=?", Integer.class, table) == 0)
                 new ResourceDatabasePopulator(new ClassPathResource("db/migration/" + migration)).execute(ds);
         }
+        // V33 只加一列，不建表：按列存在性补齐，不能靠上面的建表守卫。
+        com.csust.eyediagnosis.integration.DiagnosisTaskSchemaFixture.apply(ds, jdbc);
         jdbc.execute("CREATE TABLE IF NOT EXISTS t_user (id BIGINT PRIMARY KEY,userRole VARCHAR(32),isDelete INT DEFAULT 0)");
         for (String table : List.of("t_doctor_review", "t_patient_draft_message", "t_patient_draft_version", "t_patient_evidence_version", "t_patient_draft_run", "t_diagnosis_task", "t_controlled_reference_chunk", "t_controlled_reference", "t_user")) jdbc.update("DELETE FROM " + table);
         jdbc.update("INSERT INTO t_user (id,userRole) VALUES (1,'admin'),(2,'doctor'),(3,'evidence_reviewer'),(42,'user'),(99,'user')");
@@ -87,7 +89,7 @@ class PatientExplanationApiTest {
             if (actor.get() == null) throw new com.csust.eyediagnosis.exception.BusinessException(com.csust.eyediagnosis.exception.ErrorCode.NOT_LOGIN_ERROR);
             return actor.get();
         });
-        mvc = MockMvcBuilders.standaloneSetup(new DoctorReviewController(new DoctorReviewService(jdbc, evidence), users),
+        mvc = MockMvcBuilders.standaloneSetup(new DoctorReviewController(new DoctorReviewService(jdbc, evidence), users, mock(com.csust.eyediagnosis.diagnosistask.DiagnosisTaskService.class)),
                         new DiagnosisTaskController(new DiagnosisTaskService(jdbc, mock(DiagnosisTaskStorage.class)), users),
                         new com.csust.eyediagnosis.controller.PatientExplanationController(new PatientExplanationService(jdbc, new DoctorReviewService(jdbc, evidence)), users))
                 .setMessageConverters(new org.springframework.http.converter.json.MappingJackson2HttpMessageConverter(

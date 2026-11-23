@@ -24,13 +24,21 @@
         <result property="rejected" column="rejected" />
         <result property="abstainReason" column="abstainReason" />
         <result property="requiresReview" column="requiresReview" />
+        <result property="classificationProbability" column="classificationProbability" />
+        <result property="calibrationVersion" column="calibrationVersion" />
+        <result property="imageQualityState" column="imageQualityState" />
+        <result property="imageQualityVersion" column="imageQualityVersion" />
+        <result property="imageQualityCalibrationState" column="imageQualityCalibrationState" />
+        <result property="patientConclusionAllowed" column="patientConclusionAllowed" />
         <result property="createTime" column="createTime" />
     </resultMap>
 
     <select id="findByHash" resultMap="BaseResultMap">
         SELECT id, imageHash, modelVersion, weightSha256, preprocessVersion, inferencePolicyVersion, predictedLabel, probability,
                calibratedProbability, calibrationStatus, description, reliabilityScore, topPredictions, qualityScore,
-               qualityReasons, isOod, oodScore, oodStatus, rejected, abstainReason, requiresReview, createTime
+               qualityReasons, isOod, oodScore, oodStatus, rejected, abstainReason, requiresReview,
+               classificationProbability, calibrationVersion, imageQualityState, imageQualityVersion,
+               imageQualityCalibrationState, patientConclusionAllowed, createTime
         FROM t_inference_cache
         WHERE imageHash = #{imageHash}
           AND modelVersion = #{modelVersion}
@@ -45,11 +53,15 @@
         INSERT INTO t_inference_cache
             (imageHash, modelVersion, weightSha256, preprocessVersion, inferencePolicyVersion, predictedLabel, probability,
              calibratedProbability, calibrationStatus, description, reliabilityScore, topPredictions, qualityScore,
-             qualityReasons, isOod, oodScore, oodStatus, rejected, abstainReason, requiresReview, createTime)
+             qualityReasons, isOod, oodScore, oodStatus, rejected, abstainReason, requiresReview,
+             classificationProbability, calibrationVersion, imageQualityState, imageQualityVersion,
+             imageQualityCalibrationState, patientConclusionAllowed, createTime)
         VALUES
             (#{imageHash}, #{modelVersion}, #{weightSha256}, #{preprocessVersion}, #{inferencePolicyVersion}, #{predictedLabel}, #{probability},
              #{calibratedProbability}, #{calibrationStatus}, #{description}, #{reliabilityScore}, #{topPredictions}, #{qualityScore},
-             #{qualityReasons}, #{isOod}, #{oodScore}, #{oodStatus}, #{rejected}, #{abstainReason}, #{requiresReview}, #{createTime})
+             #{qualityReasons}, #{isOod}, #{oodScore}, #{oodStatus}, #{rejected}, #{abstainReason}, #{requiresReview},
+             #{classificationProbability}, #{calibrationVersion}, #{imageQualityState}, #{imageQualityVersion},
+             #{imageQualityCalibrationState}, #{patientConclusionAllowed}, #{createTime})
         ON DUPLICATE KEY UPDATE id = id
     </insert>
 

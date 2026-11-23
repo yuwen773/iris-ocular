@@ -30,11 +30,12 @@ V13 新增 `t_doctor_review`，不修改已应用迁移。分配时保存任务�
 | `GET /doctor-reviews` | 医生 | 本人获授权任务摘要 |
 | `GET /doctor-reviews/{reviewId}` | 获授权医生 | 冻结材料、版本、决定与审计信息 |
 | `POST /doctor-reviews/{reviewId}/decision` | 获授权医生 | `{expectedTaskVersion, expectedDraftVersion, expectedEvidenceVersion, expectedMaterialDigest, decision, note}`；`decision` 为 `APPROVED` 或 `REJECTED` |
+| `GET /doctor-reviews/{reviewId}/image` | 获授权医生 | 回放冻结影像；按任务登记的对象 key/版本/摘要逐项校验后返回字节。归档缺失（`IMAGE_NOT_ARCHIVED`）或校验不通过 / 对象存储失败（`IMAGE_UNAVAILABLE`）返回 503，`msg` 为原因码（不是 403：授权已经通过，缺的是影像本身） |
 
 前端提交后锁定已有决定；来源或版本冲突、网络中断时关闭材料并要求重新打开，避免重用旧表单。切换身份会清理材料并丢弃迟到响应。页面使用纯文本渲染草稿和资料，展示来源版本和协作历史异议。
 
 ## 测试边界
 
-用户已确认：从医生复核 HTTP API、医生页面公开交互及患者状态 API 验证，使用隔离 MySQL、合成材料和受控身份。本地和 CI 的专项套件 `DoctorReviewApiTest` 共 36 项，必须实际执行且零跳过；`scripts/check_surefire_skips.py ... issue20` 检查报告存在、完整例数与跳过情况。未配置 `ISSUE20_TEST_URL` 时专项套件明确跳过，不算验收通过。
+用户已确认：从医生复核 HTTP API、医生页面公开交互及患者状态 API 验证，使用隔离 MySQL、合成材料和受控身份。本地和 CI 的专项套件 `DoctorReviewApiTest` 共 38 项，必须实际执行且零跳过；`scripts/check_surefire_skips.py ... issue20` 检查报告存在、完整例数与跳过情况。未配置 `ISSUE20_TEST_URL` 时专项套件明确跳过，不算验收通过。
 
 本功能的工程测试不代表真实医生资格验证、真实资料领域审核、模型临床有效性或生产验收。运行证据见 [本次验收记录](testing/2026-11-09-issue20-doctor-review-acceptance.md)。

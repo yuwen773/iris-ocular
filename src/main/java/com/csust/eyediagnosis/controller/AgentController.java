@@ -2,9 +2,11 @@ package com.csust.eyediagnosis.controller;
 
 import com.csust.eyediagnosis.agent.DiagnosisAgent;
 import com.csust.eyediagnosis.agent.config.AgentConstants;
+import com.csust.eyediagnosis.agent.service.AccountStreamGuard;
 import com.csust.eyediagnosis.agent.service.AgentImageUploadService;
 import com.csust.eyediagnosis.agent.service.ChatHistoryService;
 import com.csust.eyediagnosis.common.BaseResponse;
+import com.csust.eyediagnosis.common.LogAnonymizer;
 import com.csust.eyediagnosis.common.ResultUtils;
 import com.csust.eyediagnosis.exception.BusinessException;
 import com.csust.eyediagnosis.exception.ErrorCode;
@@ -24,9 +26,6 @@ import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -53,6 +52,9 @@ public class AgentController {
 
     @Resource
     private AgentImageUploadService agentImageUploadService;
+
+    @Resource
+    private AccountStreamGuard accountStreamGuard;
 
     @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<ServerSentEvent<String>> chatStream(@RequestBody AgentChatRequest request,
@@ -83,13 +85,14 @@ public class AgentController {
         // 采用 ui 侧的匿名化口径（userIdHash），并在其后追加 #111 的 imageCount。
         String requestId = UUID.randomUUID().toString();
         log.info("Agent 流式对话请求, requestId={}, threadId={}, userIdHash={}, messageLength={}, imageCount={}",
-                requestId, threadId, anonymize(userId),
+                requestId, threadId, LogAnonymizer.userId(userId),
                 request.getMessage() == null ? 0 : request.getMessage().length(),
                 request.getImageUrls() == null ? 0 : request.getImageUrls().size());
 
-        return toSse(diagnosisAgent.stream(request.getMessage(), request.getImageUrls(), threadId, userId,
-                request.getEnabledMcpServers(), request.getDisableMcpDefault(),
-                new DiagnosisAgent.TurnStamp(userMessageId, UUID.randomUUID().toString())), requestId);
+        return toSse(accountStreamGuard.guard(userId,
+                diagnosisAgent.stream(request.getMessage(), request.getImageUrls(), threadId, userId,
+                        request.getEnabledMcpServers(), request.getDisableMcpDefault(),
+                        new DiagnosisAgent.TurnStamp(userMessageId, UUID.randomUUID().toString()))), requestId);
     }
 
     /**
@@ -113,9 +116,13 @@ public class AgentController {
                 .onErrorResume(error -> {
                     log.warn("Agent 流式对话失败, requestId={}, errorType={}", requestId, error.getClass().getSimpleName());
                     log.debug("Agent 流式对话失败详情, requestId={}", requestId, error);
+                    // 流式期间账号被封禁（或会话已失效）走的是未登录码：文案要说清
+                    // 「重新登录」，不能一句「系统繁忙」把「你已经被停用」藏起来。
+                    boolean sessionGone = error instanceof BusinessException business
+                            && business.getCode() == ErrorCode.NOT_LOGIN_ERROR.getCode();
                     return Flux.just(ServerSentEvent.<String>builder()
                             .event("error")
-                            .data("系统繁忙，请稍后重试")
+                            .data(sessionGone ? "登录状态已失效，请重新登录" : "系统繁忙，请稍后重试")
                             .build());
                 });
     }
@@ -162,14 +169,15 @@ public class AgentController {
 
         String requestId = UUID.randomUUID().toString();
         log.info("Agent 重新生成请求, requestId={}, threadId={}, userIdHash={}, messageLength={}, imageCount={}",
-                requestId, request.threadId(), anonymize(userId),
+                requestId, request.threadId(), LogAnonymizer.userId(userId),
                 turn.text() == null ? 0 : turn.text().length(), turn.images().size());
 
-        return toSse(diagnosisAgent.stream(turn.text(),
+        return toSse(accountStreamGuard.guard(userId,
+                diagnosisAgent.stream(turn.text(),
                         turn.images().isEmpty() ? null : turn.images(),
                         request.threadId(), userId,
                         request.enabledMcpServers(), request.disableMcpDefault(),
-                        new DiagnosisAgent.TurnStamp(turn.messageId(), UUID.randomUUID().toString())),
+                        new DiagnosisAgent.TurnStamp(turn.messageId(), UUID.randomUUID().toString()))),
                 requestId);
     }
 
@@ -331,17 +339,6 @@ public class AgentController {
         if (imageUrls == null || imageUrls.isEmpty()) return;
         for (String url : imageUrls) {
             agentImageUploadService.resolveOwnedImageId(url, userId);
-        }
-    }
-
-    private static String anonymize(Long userId) {
-        if (userId == null) return "anonymous";
-        try {
-            byte[] digest = MessageDigest.getInstance("SHA-256")
-                    .digest(String.valueOf(userId).getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(digest).substring(0, 12);
-        } catch (Exception e) {
-            return "unavailable";
         }
     }
 

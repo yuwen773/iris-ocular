@@ -28,6 +28,7 @@ export const reasons: Record<string, string> = {
   INVALID_CITATION: "引用未通过核验，本次未提交医生复核。",
   SOURCE_INVALIDATED: "资料来源已失效，本次未提交医生复核。",
   INVALID_OUTPUT: "输出未通过安全检查，本次未提交医生复核。",
+  INTERNAL_ERROR: "协作过程遇到内部错误，本次未形成可发布结果。",
   PROVIDER_AUTH: "模型服务暂不可用，请联系管理员。",
   PROVIDER_RATE_LIMIT: "模型服务繁忙，请稍后再试。",
   PROVIDER_UNAVAILABLE: "模型服务暂时无法响应，请稍后再试。",

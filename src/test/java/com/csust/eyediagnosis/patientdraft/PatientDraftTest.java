@@ -81,6 +81,8 @@ class PatientDraftTest {
                 new ResourceDatabasePopulator(new ClassPathResource("db/migration/" + migration)).execute(ds);
             }
         }
+        // V33 只加一列，不建表：按列存在性补齐，不能靠上面的建表守卫。
+        com.csust.eyediagnosis.integration.DiagnosisTaskSchemaFixture.apply(ds, jdbc);
         // V16 alters an existing table, so it is keyed on its own column rather than on table existence.
         if (jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() "
                 + "AND table_name='t_patient_draft_message' AND column_name='startedAt'", Integer.class) == 0) {
@@ -681,7 +683,8 @@ class PatientDraftTest {
             var response = mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/diagnosis-tasks/" + taskId))
                     .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.data.status").value("WAITING_REVIEW"))
                     .andReturn().getResponse().getContentAsString();
-            assertEquals(Set.of("taskId", "status"), json.convertValue(json.readTree(response).path("data"), Map.class).keySet());
+            assertEquals(Set.of("taskId", "status", "restrictReason"),
+                    json.convertValue(json.readTree(response).path("data"), Map.class).keySet());
             assertFalse(response.contains("glaucoma"));
             user.setId(43L);
             mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/diagnosis-tasks/" + taskId))

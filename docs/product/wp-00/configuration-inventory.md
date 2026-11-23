@@ -53,7 +53,7 @@
 | `spring.datasource.*` | `application-server.example.yml:4-8`、`application-ci.yml:2-6` | Spring | MySQL 连接 | DEPLOY_ONLY | startup | 高 | 保留（永不动态） |
 | `spring.session.store-type` / `spring.data.redis.*` | `application-server.example.yml:13-26` | Spring Session / Redis | 会话存储 | DEPLOY_ONLY | startup | 高 | 保留（永不动态） |
 | `spring.jackson.*` | `application-server.example.yml:9-12` | Jackson | 日期格式 | STATIC_POLICY | startup | 中 | 保留 |
-| `springdoc.*` / `knife4j.*` | `application.yml:39-54` | 文档组件 | Swagger/Knife4j | DEPLOY_ONLY | startup | 低 | 保留 |
+| `springdoc.*` / `knife4j.*`（`KNIFE4J_ENABLE`，默认 `false`） | `application.yml` `knife4j` | 文档组件 | Swagger/Knife4j；部署 profile 下 `StartupSafetyGuard` 禁止开启 | DEPLOY_ONLY | startup | 低 | 保留 |
 | `logging.level.*` | `application.yml:55-58` | Logback | 日志级别 | DEPLOY_ONLY | startup | 低 | 保留 |
 
 ### 2.2 安全边界（STATIC_POLICY，永不可由数据库覆盖）
@@ -98,7 +98,7 @@
 | `eye-diagnosis.rag.chunk-size` / `chunk-overlap` | `application.yml:102-103` | `agent/rag/TextChunkerService.java:16,19` | 切分粒度 | DYNAMIC | startup | 中（只影响新入库） | 后续重构 |
 | `eye-diagnosis.rag.search.top-k` / `final-top-k` / `similarity-threshold` | `application.yml:110-112` | `agent/tools/DocumentSearchTool.java:26,29,32` | 检索参数 | DYNAMIC | startup | 中 | 后续重构 |
 | `eye-diagnosis.rag.rerank.enabled` | `application.yml:114` | `DocumentSearchTool.java:35` | Rerank 开关 | STATIC_POLICY | startup | 中 | 保留 |
-| `eye-diagnosis.rag.hybrid-search.enabled` | `application.yml:117` | `DocumentSearchTool.java:38` | 混合检索开关 | STATIC_POLICY | startup | **高**（代码默认 `false` 与 yml `true` 相反，见 M10） | 保留 |
+| `eye-diagnosis.rag.hybrid-search.enabled` | `application.yml` | `DocumentSearchTool.java` | 混合检索开关 | STATIC_POLICY | startup | 低（代码与 yml 均为 `true`，M10 已消解） | 保留 |
 | `eye-diagnosis.rag.hybrid-search.rrf-k` | `application.yml:118` | `DocumentSearchTool.java:41,269` | RRF 常数 | DYNAMIC | startup | 低 | 后续重构 |
 | `eye-diagnosis.rag.corpus.seed-enabled` / `resource-pattern` | `application.yml:106-108` | `agent/rag/BuiltinCorpusSeeder.java:40,44,52` | 启动播种（产生嵌入费用） | STATIC_POLICY / DEPLOY_ONLY | startup | 高 | 保留 |
 | `eye-diagnosis.rag.evaluation.enabled` | `application.yml:119-120` | **无消费者**（测试由 `RUN_RAG_EVALUATION_TESTS` 环境变量控制） | — | — | — | 低 | 后续重构 |
@@ -112,8 +112,9 @@
 | `agent.max-iterations` / `agent.model-call-limit` | **无 yml** | **无消费者**（只绑定在 `agent/config/AgentConstants.java:12-13`；`DiagnosisAgent.java:85` 注入后未使用） | — | — | — | 低（死配置） | 后续重构（删除） |
 | `agent.queue.parallelism`（默认 8） | **无 yml** | `agent/queue/AgentQueueConfig.java:12` | 会话队列并行度 | DEPLOY_ONLY | startup | 中 | 保留 |
 | `document.executor.core-size` / `max-size` / `queue-capacity` | **无 yml** | `config/AsyncConfig.java:28-34` | 文档 ETL 线程池 | DEPLOY_ONLY | startup | 中 | 保留 |
-| `eye-diagnosis.upload.compensation.enabled` | `application.yml:84-86` | `upload/state/UploadCompensationScheduler.java:18` | 破坏性对账开关 | STATIC_POLICY | startup | **高**（会真实删 COS 对象） | 保留 |
-| `eye-diagnosis.upload.compensation.interval-ms` / `initial-delay-ms` / `min-age-minutes` | `application.yml:87-90` | `UploadCompensationScheduler.java:24-25`、`UploadCompensationService.java:48,120` | 对账节奏与宽限期 | DYNAMIC | startup / scheduled | 中 | 后续重构 |
+| `eye-diagnosis.upload.compensation.enabled`（默认 `true`） | `application.yml` `eye-diagnosis.upload.compensation` | `upload/state/UploadCompensationScheduler.java` | 破坏性对账开关；默认开启（孤儿对象唯一周期性兜底），显式 `false` 时启动打警告 | STATIC_POLICY | startup | **高**（会真实删 COS 对象） | 保留 |
+| `eye-diagnosis.upload.compensation.interval-ms` / `initial-delay-ms` / `min-age-minutes` | `application.yml` `eye-diagnosis.upload.compensation` | `UploadCompensationScheduler.java`、`UploadCompensationService.java` | 对账节奏与宽限期 | DYNAMIC | startup / scheduled | 中 | 后续重构 |
+| `eye-diagnosis.upload.orphan-audit.enabled` / `interval-ms` / `initial-delay-ms` / `min-age-minutes`（默认 `true` / 一天 / 30 分钟 / 1440 分钟） | `application.yml` `eye-diagnosis.upload.orphan-audit` | `upload/audit/PublicImageOrphanAuditScheduler.java`、`PublicImageOrphanAuditor.java` | `public/` 前缀（判读原图、头像）的**只读**孤儿审计：列出无数据库记录引用的对象并告警，不删除 | STATIC_POLICY | startup / scheduled | 低（不写、不删任何对象） | 保留 |
 
 ### 2.6 测试与本地验证（per-test-run，不入产品配置）
 
@@ -202,7 +203,7 @@
 | M7 | Chroma 三键在 `application.yml` 缺失 | 只有 server 示例有 | 补默认值 |
 | M8 | COS / gRPC 键在 `application.yml` 缺失 | 只有 server 示例与 CI 有 | 明确「必须由 profile 提供」 |
 | M9 | 上传上限冲突 | 框架 10MB（`application.yml:14`） vs 代码 2MB（`FileManager.java:102`、`AgentImageUploadService.java:44`） | 统一口径 |
-| M10 | 混合检索默认值相反 | 代码 `false`（`DocumentSearchTool.java:38`） vs yml `true`（`application.yml:117`） | 以 yml 为唯一真源 |
+| M10 | 混合检索默认值相反（**已消解 2026-11-23**） | 代码与 yml 均为 `true`：词法通道改为按 owner 元数据直取全量分块，且词法命中必须过相似度阈值 | — |
 | M11 | `policy-version` 默认值不同 | 代码空 vs yml `${INFERENCE_POLICY_VERSION:medical-safety-v3-quality-observe}` | 统一 |
 | M12 | tracked yml 含凭据占位字面量 | `application.yml:99`（值不复制） | 改为 `${DASHSCOPE_API_KEY}` |
 | M13 | MCP 超时绕过配置 | `MCPManager.java:73-74,86-87,104` 硬编码 30/60s | 接线到配置 |

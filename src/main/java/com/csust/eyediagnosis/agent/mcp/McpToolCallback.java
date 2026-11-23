@@ -3,6 +3,7 @@ package com.csust.eyediagnosis.agent.mcp;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.csust.eyediagnosis.agent.ToolStepContract;
 import com.csust.eyediagnosis.agent.manager.MCPManager;
+import com.csust.eyediagnosis.agent.service.AgentImageReferenceResolver;
 import com.csust.eyediagnosis.agent.exception.McpOverloadException;
 import com.csust.eyediagnosis.agent.exception.McpTimeoutException;
 import com.csust.eyediagnosis.model.dto.mcp.*;
@@ -12,6 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.definition.ToolDefinition;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 @Slf4j
@@ -21,10 +23,21 @@ public class McpToolCallback implements ToolCallback {
     private final McpServer mcpServer;
     private final McpTool mcpTool;
 
-    public McpToolCallback(MCPManager mcpManager, McpServer entity, McpTool tool) {
+    /**
+     * 图片引用翻译器；为 null 时不做翻译（工具拿到的仍是模型给的原始参数）。
+     */
+    private final AgentImageReferenceResolver imageReferenceResolver;
+
+    /** 当前会话用户；图片引用必须按它的归属签发。 */
+    private final Long userId;
+
+    public McpToolCallback(MCPManager mcpManager, McpServer entity, McpTool tool,
+                           AgentImageReferenceResolver imageReferenceResolver, Long userId) {
         this.mcpManager = mcpManager;
         this.mcpServer = entity;
         this.mcpTool = tool;
+        this.imageReferenceResolver = imageReferenceResolver;
+        this.userId = userId;
     }
 
     @Override
@@ -46,6 +59,7 @@ public class McpToolCallback implements ToolCallback {
     @Override
     public String call(String functionInput) {
         Map<String, Object> params = parseInput(functionInput);
+        params = translateImageReferences(params);
 
         McpServerCallToolRequest request = new McpServerCallToolRequest();
         request.setMcpServerCode(mcpServer.getMcpServerCode());
@@ -78,6 +92,35 @@ public class McpToolCallback implements ToolCallback {
                             "MCP 工具返回错误：" + formatResponse(response)));
         }
         return formatResponse(response);
+    }
+
+    /**
+     * 把参数里的服务端取图路径换成后端签发的短期引用。
+     *
+     * <p>算法侧的图片工具只接受签发过的引用；模型手里只有服务端路径，翻译
+     * 放在这一跳完成，模型与算法侧都不需要知道对象存储地址。
+     *
+     * <p>信任边界要说清：这是 <b>任何</b> MCP 工具都会走的一跳，不只是内置影像工具。
+     * 命中取图路径的参数会被换成几分钟有效的预签名地址，等于把「这张图本次可读」
+     * 授予该工具所指向的 MCP 服务。这条服务是用户自己启用的、并且在这一轮被选中的，
+     * 与把图片 ID 交给它同属一个授权范围——但它不是「只有内置工具能看图」的隔离，
+     * 第三方 MCP 服务确实能拿到可下载地址。归属校验仍在签发时逐张做：只有本人且
+     * 未删除的图片才签发。
+     */
+    private Map<String, Object> translateImageReferences(Map<String, Object> params) {
+        if (imageReferenceResolver == null || params == null || params.isEmpty()) {
+            return params;
+        }
+        Map<String, Object> translated = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : params.entrySet()) {
+            Object value = entry.getValue();
+            if (value instanceof String text) {
+                translated.put(entry.getKey(), imageReferenceResolver.toReference(text, userId));
+            } else {
+                translated.put(entry.getKey(), value);
+            }
+        }
+        return translated;
     }
 
     private Map<String, Object> parseInput(String functionInput) {

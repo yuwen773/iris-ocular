@@ -11,6 +11,7 @@ import {
   classCode,
   confidenceBand,
   confidencePercent,
+  probabilityReading,
   draftReviewLabel,
   formatTimestamp,
   humanReviewState,
@@ -72,6 +73,8 @@ export function RecordSheet({ result, recordId, actions, specimen = false, image
   const rows = rankClasses(result)
   const confidence = normalizeConfidence(result.confidence ?? result.probability)
   const band = confidenceBand(result.confidence ?? result.probability)
+  // 未标定的 softmax 不是置信度：读法、标签与分档都跟着校准状态走。
+  const reading = probabilityReading(result)
   // 来源投影只在本人详情接口下发；老记录/读取失败时为 undefined，整段不显示，
   // 绝不能退化成「没有授权、没有归档」。
   const source = result.source
@@ -145,11 +148,14 @@ export function RecordSheet({ result, recordId, actions, specimen = false, image
 
               <div className="sheet__facts">
                 <div className="readout">
-                  <span className="readout__label">置信度</span>
+                  <span className="readout__label">{reading.label}</span>
                   <span className="readout__value readout__value--mono">
                     {confidencePercent(confidence)}{" "}
-                    <RiskTag risk={band.risk}>{band.label}</RiskTag>
+                    {reading.calibrated ? <RiskTag risk={band.risk}>{band.label}</RiskTag> : null}
                   </span>
+                  {reading.note ? (
+                    <span className="readout__note">{reading.note}</span>
+                  ) : null}
                 </div>
                 <div className="readout">
                   <span className="readout__label">严重程度</span>
@@ -175,7 +181,12 @@ export function RecordSheet({ result, recordId, actions, specimen = false, image
               </div>
             </div>
 
-            <ConfidenceDial value={confidence} size={104} label="置信度" unit="CONF" />
+            <ConfidenceDial
+              value={confidence}
+              size={104}
+              label={reading.calibrated ? "置信度" : "模型输出"}
+              unit={reading.calibrated ? "CONF" : "MODEL"}
+            />
           </div>
 
           {result.humanResult ? (

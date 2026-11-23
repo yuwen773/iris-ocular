@@ -113,7 +113,14 @@ public class NewsLifecycleService {
      * <p>批量动作天然是「部分成功」形态：10 条里 8 条删得掉、2 条因为状态非法
      * 没删掉。只回一个 boolean 会让管理员不知道哪几条没成、也无法据此重试，
      * 因此回执里带上失败的 id 与原因。
+     *
+     * <p>整个批量在一个事务内：循环里 self-invocation 调不到 {@link #softDelete} 的
+     * {@code @Transactional} 代理，不显式开事务的话「删行」与「写审计」就是两条独立提交，
+     * 中途失败会留下删了没留痕（或留痕没删成）的记录。逐条业务校验失败（{@link BusinessException}）
+     * 仍按部分成功回执；其余异常——数据库、映射、审计写入——一律上抛，整批回滚。
+     * 把非业务异常也塞进回执，等于让事务提交半截工作，正是这里要消灭的分裂提交。
      */
+    @Transactional
     public BatchResultVO softDeleteBatch(List<Long> newsIds, User actor) {
         List<Long> targets = normalizeIds(newsIds);
         List<String> failedIds = new ArrayList<>();
@@ -123,9 +130,10 @@ public class NewsLifecycleService {
             try {
                 softDelete(id, actor);
                 succeeded++;
-            } catch (Exception e) {
+            } catch (BusinessException e) {
+                // 只有「这条不满足业务条件」才退化成回执，其余一律上抛。
                 failedIds.add(String.valueOf(id));
-                reasons.add(id + "：" + reasonOf(e));
+                reasons.add(id + "：" + e.getMessage());
             }
         }
         String message = reasons.isEmpty()
@@ -141,6 +149,7 @@ public class NewsLifecycleService {
      * @param status  目标状态
      * @param note    审核意见 / 下架原因（可空）
      */
+    @Transactional
     public BatchResultVO changeStatusBatch(List<Long> newsIds, Integer status, String note, User actor) {
         ThrowUtils.throwIf(!NewsStatus.isValid(status), ErrorCode.PARAMS_ERROR,
                 "非法目标状态: " + NewsStatus.label(status));
@@ -160,9 +169,9 @@ public class NewsLifecycleService {
                     continue;
                 }
                 succeeded++;
-            } catch (Exception e) {
+            } catch (BusinessException e) {
                 failedIds.add(String.valueOf(id));
-                reasons.add(id + "：" + reasonOf(e));
+                reasons.add(id + "：" + e.getMessage());
             }
         }
         String message = reasons.isEmpty()
@@ -183,14 +192,6 @@ public class NewsLifecycleService {
             }
         }
         return new ArrayList<>(unique);
-    }
-
-    /** 把异常翻译成一句人话（业务异常带自己的文案，其余按未知失败处理）。 */
-    private static String reasonOf(Exception e) {
-        if (e instanceof BusinessException business) {
-            return business.getMessage();
-        }
-        return "操作失败";
     }
 
     /** 合法迁移表：DRAFT→PUBLISHED 是前端「发布」按钮的兼容通道，须保留。 */

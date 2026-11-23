@@ -119,7 +119,7 @@ public class CollaborationBrowserServer {
             context.registerBean(DiagnosisTaskController.class, () -> new DiagnosisTaskController(tasks, users));
             var reviews = new com.csust.eyediagnosis.doctorreview.DoctorReviewService(jdbc, new com.csust.eyediagnosis.controlledreference.ControlledEvidenceRetriever(jdbc));
             context.registerBean(com.csust.eyediagnosis.controller.DoctorReviewController.class,
-                    () -> new com.csust.eyediagnosis.controller.DoctorReviewController(reviews, users));
+                    () -> new com.csust.eyediagnosis.controller.DoctorReviewController(reviews, users, tasks));
             context.registerBean(com.csust.eyediagnosis.controller.PatientExplanationController.class,
                     () -> new com.csust.eyediagnosis.controller.PatientExplanationController(new com.csust.eyediagnosis.patientexplanation.PatientExplanationService(jdbc, reviews), users));
             context.registerBean(com.csust.eyediagnosis.controller.PatientAuthorizationController.class,

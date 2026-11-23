@@ -69,3 +69,18 @@ try { uploadPicture(...) } catch (Exception e) { log.error("COS upload failed", 
 `UploadPictureDetail` / `ErrorCode` / `FileConstant`，前端 `web/src/lib/faults.ts`
 （去掉 `50002` 分支即可）。已上传对象不受影响；补偿删除只作用于
 「本次请求刚上传、且落库失败」的对象。
+
+## 6. 补充：Agent 对话图片（`agent-chat/` 前缀，2026-11-23）
+
+对话附件走的是另一条链路（`AgentImageUploadService.uploadImage` → `ImageArchive.storeBlob`
+→ `t_upload_task`），上面 §1–§5 的不变量不覆盖它。它自己的失败语义是：
+
+1. **对象写入成功、任务行没写成** → 立即删除本次刚写的对象，但**先确认没有任何有效任务行引用它**
+   （`selectByObjectKey` 命中且状态属于 UPLOADING/PERSISTED/COMPLETED 就保留）。
+   之所以先查再删：连接在提交之后才断开这类「结果未知」的失败，任务行其实已经存在，
+   直接删会把一次成功的上传删成空引用。
+2. **跨进程崩溃**（对象已写、进程没机会补偿）→ 交给 `UploadCompensationScheduler` 周期性对账：
+   只清理 `agent-chat/` 下没有有效任务行、且超过 30 分钟宽限期的对象。
+3. **该对账默认开启**（`eye-diagnosis.upload.compensation.enabled` 缺省 true）。它是这类残留的
+   唯一周期性兜底，关掉等于让孤儿对象无限累积；显式设为 `false` 时
+   `UploadCompensationService` 会在启动日志里警告。

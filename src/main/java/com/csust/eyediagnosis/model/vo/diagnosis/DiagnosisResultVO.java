@@ -1,6 +1,7 @@
 package com.csust.eyediagnosis.model.vo.diagnosis;
 
 import com.csust.eyediagnosis.model.entity.Diagnosis;
+import com.csust.eyediagnosis.service.DiagnosisEvidence;
 import lombok.Data;
 import org.springframework.beans.BeanUtils;
 
@@ -100,6 +101,23 @@ public class DiagnosisResultVO  implements Serializable {
     private String oodStatus;
     /** OOD 分数 */
     private Double oodScore;
+    /**
+     * 原始 softmax top-1（0-1）。
+     *
+     * <p>它<b>不是</b>校准概率，也<b>不是</b>医学可靠性：没有校准时只能当作
+     * 「模型输出强度」来读，界面必须照此标注。
+     */
+    private Double classificationProbability;
+    /** 校准产物版本 */
+    private String calibrationVersion;
+    /** 图像质量门结论：PASSED / FAILED / NOT_EVALUATED */
+    private String imageQualityState;
+    /** 质量门判据版本 */
+    private String imageQualityVersion;
+    /** 质量门阈值是否在真实数据上标定过 */
+    private String imageQualityCalibrationState;
+    /** 是否允许作为面向患者的结论呈现 */
+    private Boolean patientConclusionAllowed;
 
     /**
      * 来源与复核投影（只读，仅详情接口下发）。
@@ -131,6 +149,11 @@ public class DiagnosisResultVO  implements Serializable {
         }
         DiagnosisResultVO diagnosisResultVO = new DiagnosisResultVO();
         BeanUtils.copyProperties(diagnosis, diagnosisResultVO);
+        // 与写入路径同一口径（见 DiagnosisServiceImpl.buildDiagnosisResult）：
+        // 库里 confidence 存的是「模型自评概率百分数」，分析工作台要用；但对外只有
+        // 真正校准过才叫置信度，否则界面会把未标定的 softmax 读成临床可靠性。
+        diagnosisResultVO.setConfidence(DiagnosisEvidence.exposedConfidence(
+                diagnosis.getCalibrationStatus(), diagnosis.getCalibratedProbability()));
         diagnosisResultVO.setRequiresReview("AWAITING_REVIEW".equals(diagnosis.getHumanReviewStatus()));
         if (Boolean.TRUE.equals(diagnosis.getAiRejected())) {
             diagnosisResultVO.clearAiConclusion();

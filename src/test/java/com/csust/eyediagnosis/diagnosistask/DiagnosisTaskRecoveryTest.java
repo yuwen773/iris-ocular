@@ -94,7 +94,15 @@ class DiagnosisTaskRecoveryTest {
                 }
                 release.countDown();
                 assertTrue(waiting.await(10, TimeUnit.SECONDS));
-                Thread.sleep(1600);
+                // 租约必须在 runner 提交时已经过期。这里直接把 leaseUntil 改到过去，
+                // 而不是「设成 now+1s 然后 sleep 1.6s」：NOW() 是语句开始时取值的，
+                // runner 的 UPDATE 究竟在阻塞前还是阻塞后取值取决于驱动与 InnoDB 的
+                // 执行顺序，1.6s 的边距在机器有负载时会翻成「租约还没过期」，
+                // 让这条医疗安全断言变成随机红绿灯。改到过去，两种取值顺序都对。
+                try (var expire = lock.prepareStatement(
+                        "UPDATE t_diagnosis_task SET leaseUntil=TIMESTAMPADD(SECOND,-5,CURRENT_TIMESTAMP(6)) WHERE taskId=?")) {
+                    expire.setString(1, task.taskId()); expire.executeUpdate();
+                }
                 lock.commit();
             }
             execution.get(15, TimeUnit.SECONDS);
@@ -231,10 +239,7 @@ class DiagnosisTaskRecoveryTest {
         Assumptions.assumeTrue(url != null && url.matches("jdbc:mysql://127\\.0\\.0\\.1:[0-9]+/issue17_test"));
         var dataSource = new DriverManagerDataSource(url, "issue17", "issue17");
         var jdbc = new JdbcTemplate(dataSource);
-        if (jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 't_diagnosis_task'", Integer.class) == 0) {
-            new org.springframework.jdbc.datasource.init.ResourceDatabasePopulator(
-                    new org.springframework.core.io.ClassPathResource("db/migration/V18__diagnosis_task.sql")).execute(dataSource);
-        }
+        com.csust.eyediagnosis.integration.DiagnosisTaskSchemaFixture.apply(dataSource, jdbc);
     }
     @Test
     void failuresAndUncertainCallsRespectTheBudget() throws Exception {

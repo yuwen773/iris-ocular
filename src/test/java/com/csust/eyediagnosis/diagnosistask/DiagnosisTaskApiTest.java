@@ -9,8 +9,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Assumptions;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
-import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -29,9 +27,7 @@ class DiagnosisTaskApiTest {
         if (!url.matches("jdbc:mysql://127\\.0\\.0\\.1:[0-9]+/issue17_test")) throw new IllegalArgumentException("Expected isolated test database");
         var dataSource = new DriverManagerDataSource(url, "issue17", "issue17");
         var jdbc = new JdbcTemplate(dataSource);
-        if (jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 't_diagnosis_task'", Integer.class) == 0) {
-            new ResourceDatabasePopulator(new ClassPathResource("db/migration/V18__diagnosis_task.sql")).execute(dataSource);
-        }
+        com.csust.eyediagnosis.integration.DiagnosisTaskSchemaFixture.apply(dataSource, jdbc);
     }
     @Test
     void simultaneousIdenticalRequestsReturnOneTask() throws Exception {
@@ -112,9 +108,7 @@ class DiagnosisTaskApiTest {
         Assumptions.assumeTrue(url != null && url.matches("jdbc:mysql://127\\.0\\.0\\.1:[0-9]+/issue17_test"));
         var dataSource = new DriverManagerDataSource(url, "issue17", "issue17");
         var jdbc = new JdbcTemplate(dataSource);
-        if (jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 't_diagnosis_task'", Integer.class) == 0) {
-            new ResourceDatabasePopulator(new ClassPathResource("db/migration/V18__diagnosis_task.sql")).execute(dataSource);
-        }
+        com.csust.eyediagnosis.integration.DiagnosisTaskSchemaFixture.apply(dataSource, jdbc);
         var storage = mock(DiagnosisTaskStorage.class);
         when(storage.upload(any(), any(), any())).thenReturn(null);
         var user = new User(); user.setId(95L);
@@ -127,10 +121,15 @@ class DiagnosisTaskApiTest {
         mvc.perform(multipart("/diagnosis-tasks").file("file", new byte[]{1, 2}).param("idempotencyKey", invalidKey))
                 .andExpect(jsonPath("$.code").value(40000));
         mvc.perform(multipart("/diagnosis-tasks").file("file", png(0)).param("idempotencyKey", versionKey))
-                .andExpect(jsonPath("$.data.status").value("RESTRICTED"));
+                .andExpect(jsonPath("$.data.status").value("RESTRICTED"))
+                .andExpect(jsonPath("$.data.restrictReason").value("STORAGE_VERSION_MISSING"));
+        // 请求重放走的是「从库里读回」这条路：原因只在内存里带着的话，用户刷新状态就只剩「受限」。
         mvc.perform(multipart("/diagnosis-tasks").file("file", png(0)).param("idempotencyKey", versionKey))
-                .andExpect(jsonPath("$.data.status").value("RESTRICTED"));
+                .andExpect(jsonPath("$.data.status").value("RESTRICTED"))
+                .andExpect(jsonPath("$.data.restrictReason").value("STORAGE_VERSION_MISSING"));
         org.mockito.Mockito.verify(storage, org.mockito.Mockito.times(1)).upload(any(), any(), any());
+        org.junit.jupiter.api.Assertions.assertEquals("STORAGE_VERSION_MISSING", jdbc.queryForObject(
+                "SELECT restrictReason FROM t_diagnosis_task WHERE userId=95 AND idempotencyKey=?", String.class, versionKey));
         org.junit.jupiter.api.Assertions.assertEquals(0, jdbc.queryForObject(
                 "SELECT COUNT(*) FROM t_diagnosis_task WHERE userId=95 AND idempotencyKey=?", Integer.class, invalidKey));
         org.junit.jupiter.api.Assertions.assertEquals(1, jdbc.queryForObject(
@@ -143,9 +142,7 @@ class DiagnosisTaskApiTest {
         Assumptions.assumeTrue(url != null && url.matches("jdbc:mysql://127\\.0\\.0\\.1:[0-9]+/issue17_test"));
         var dataSource = new DriverManagerDataSource(url, "issue17", "issue17");
         var jdbc = new JdbcTemplate(dataSource);
-        if (jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 't_diagnosis_task'", Integer.class) == 0) {
-            new ResourceDatabasePopulator(new ClassPathResource("db/migration/V18__diagnosis_task.sql")).execute(dataSource);
-        }
+        com.csust.eyediagnosis.integration.DiagnosisTaskSchemaFixture.apply(dataSource, jdbc);
         var storage = mock(DiagnosisTaskStorage.class);
         when(storage.upload(any(), any(), any())).thenReturn("v1");
         var service = new DiagnosisTaskService(jdbc, storage);
@@ -186,9 +183,7 @@ class DiagnosisTaskApiTest {
         }
         var dataSource = new DriverManagerDataSource(url, "issue17", "issue17");
         var jdbc = new JdbcTemplate(dataSource);
-        if (jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 't_diagnosis_task'", Integer.class) == 0) {
-            new ResourceDatabasePopulator(new ClassPathResource("db/migration/V18__diagnosis_task.sql")).execute(dataSource);
-        }
+        com.csust.eyediagnosis.integration.DiagnosisTaskSchemaFixture.apply(dataSource, jdbc);
         String taskId = java.util.UUID.randomUUID().toString();
         jdbc.update("INSERT INTO t_diagnosis_task (taskId,userId,idempotencyKey,requestDigest,imageDigest,objectKey,objectVersion,imageFormat,status,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?,?,?,NOW(6),NOW(6))",
                 taskId, 2, taskId, "a".repeat(64), "b".repeat(64), "key", "version", "png", "FUTURE_STATE");

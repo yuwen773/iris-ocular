@@ -52,7 +52,7 @@ def main():
     backend = []
     expected = {
         'collaboration.CollaborationRunTest': 31, 'collaboration.GraphExecutionTest': 32,
-        'doctorreview.DoctorReviewApiTest': 36, 'patientauthorization.PatientAuthorizationApiTest': 37,
+        'doctorreview.DoctorReviewApiTest': 38, 'patientauthorization.PatientAuthorizationApiTest': 37,
         'patientdraft.PatientDraftTest': 41, 'patientexplanation.PatientExplanationApiTest': 37,
         'poc.CoordinationPocTest': 4, 'poc.realtime.RealtimeGraphSpikeTest': 12,
     }

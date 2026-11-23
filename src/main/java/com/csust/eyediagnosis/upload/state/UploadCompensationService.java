@@ -1,8 +1,10 @@
 package com.csust.eyediagnosis.upload.state;
 
+import com.csust.eyediagnosis.common.LogAnonymizer;
 import com.csust.eyediagnosis.manager.CosManager;
 import com.csust.eyediagnosis.mapper.UploadTaskMapper;
 import com.csust.eyediagnosis.model.entity.UploadTask;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -47,6 +49,18 @@ public class UploadCompensationService {
      */
     @Value("${eye-diagnosis.upload.compensation.min-age-minutes:30}")
     private long minAgeMinutes = 30;
+
+    @Value("${eye-diagnosis.upload.compensation.enabled:true}")
+    private boolean compensationEnabled = true;
+
+    /** 补偿任务被显式关闭时启动即告警：孤儿对象从此只能人工排查。 */
+    @PostConstruct
+    void warnWhenSchedulerDisabled() {
+        if (!compensationEnabled) {
+            log.warn("上传补偿对账已关闭（eye-diagnosis.upload.compensation.enabled=false）："
+                    + "COS 上没有任务行的孤儿对象不会被自动清理");
+        }
+    }
 
     /**
      * 对账单个用户：删除该用户前缀下没有有效任务登记的孤儿对象。
@@ -135,7 +149,8 @@ public class UploadCompensationService {
             }
         }
         if (removed > 0) {
-            log.info("用户 {} 的补偿对账清理了 {} 个孤儿对象", userId, removed);
+            log.info("用户 userIdHash={} 的补偿对账清理了 {} 个孤儿对象",
+                    LogAnonymizer.userId(userId), removed);
         }
         return removed;
     }

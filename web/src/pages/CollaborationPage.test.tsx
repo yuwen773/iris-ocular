@@ -29,7 +29,8 @@ vi.mock("@/components/shell/ProductHeader", () => ({
   ProductHeader: () => <header>产品顶栏</header>,
 }))
 vi.mock("@/lib/api", () => ({ createAgentSession: vi.fn() }))
-vi.mock("@/lib/diagnosisTaskApi", () => ({
+vi.mock("@/lib/diagnosisTaskApi", async (original) => ({
+  ...(await original<typeof import("@/lib/diagnosisTaskApi")>()),
   diagnosisTaskApi: { create: vi.fn(), get: vi.fn(), list: vi.fn() },
 }))
 vi.mock("@/lib/reviewApi", async (original) => ({

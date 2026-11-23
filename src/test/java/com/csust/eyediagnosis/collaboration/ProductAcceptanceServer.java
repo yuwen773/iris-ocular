@@ -135,12 +135,13 @@ public class ProductAcceptanceServer {
             ReflectionTestUtils.setField(userController, "stringRedisTemplate", org.mockito.Mockito.mock(org.springframework.data.redis.core.StringRedisTemplate.class));
             context.registerBean(UserController.class, () -> userController);
             var agent = new AgentController(); ReflectionTestUtils.setField(agent, "userService", users); ReflectionTestUtils.setField(agent, "chatHistoryService", history);
+            ReflectionTestUtils.setField(agent, "accountStreamGuard",
+                    new com.csust.eyediagnosis.agent.service.AccountStreamGuard(users));
             ReflectionTestUtils.setField(agent, "agentConstants", new AgentConstants()); ReflectionTestUtils.setField(agent, "diagnosisAgent", org.mockito.Mockito.mock(com.csust.eyediagnosis.agent.DiagnosisAgent.class));
             context.registerBean(AgentController.class, () -> agent);
             context.registerBean(CollaborationRunController.class, () -> new CollaborationRunController(runs, streams, repository(context), new CollaborationImages(jdbc, runs, storage)));
             context.registerBean(DiagnosisTaskController.class, () -> new DiagnosisTaskController(tasks, users));
-            var reviewController = new DoctorReviewController(reviews, users);
-            ReflectionTestUtils.setField(reviewController, "images", new CollaborationImages(jdbc, runs, storage));
+            var reviewController = new DoctorReviewController(reviews, users, tasks);
             context.registerBean(DoctorReviewController.class, () -> reviewController);
             context.registerBean(PatientExplanationController.class, () -> new PatientExplanationController(new com.csust.eyediagnosis.patientexplanation.PatientExplanationService(jdbc, reviews), users));
             context.registerBean(PatientAuthorizationController.class, () -> new PatientAuthorizationController(new com.csust.eyediagnosis.patientauthorization.PatientAuthorizationService(jdbc, reviews), users));

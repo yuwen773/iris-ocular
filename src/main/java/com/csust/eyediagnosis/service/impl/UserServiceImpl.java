@@ -20,6 +20,7 @@ import com.csust.eyediagnosis.model.dto.diagnosis.DiagnosisReexamineDTO;
 import com.csust.eyediagnosis.model.dto.file.UploadPictureDetail;
 import com.csust.eyediagnosis.model.dto.user.UserEditDTO;
 import com.csust.eyediagnosis.model.dto.user.UserQueryDTO;
+import com.csust.eyediagnosis.model.dto.user.UserUpdateDTO;
 import com.csust.eyediagnosis.model.entity.Diagnosis;
 import com.csust.eyediagnosis.model.entity.User;
 import com.csust.eyediagnosis.model.vo.user.LoginUserVO;
@@ -155,7 +156,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
             passwordUpgrade.setUserPassword(passwordService.encode(userPassword));
             this.updateById(passwordUpgrade);
         }
-        // 记录用户的登录状态
+        // 记录用户的登录状态：先轮换会话标识，避免登录前后沿用同一 SessionId。
+        request.getSession(true);
+        request.changeSessionId();
         request.getSession().setAttribute(USER_LOGIN_STATE,user);
         return this.getLoginUserVO(user);
     }
@@ -167,9 +170,12 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
      */
     @Override
     public User getLoginUser(HttpServletRequest request) {
-        // 先判断是否登录
-        //1. 从Session 中获取存入的User对象
-        Object userObj = request.getSession().getAttribute(USER_LOGIN_STATE);
+        // 先判断是否登录：匿名请求不创建新会话
+        jakarta.servlet.http.HttpSession session = request.getSession(false);
+        if (session == null) {
+            throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR);
+        }
+        Object userObj = session.getAttribute(USER_LOGIN_STATE);
         //强转
         User currentUser = (User) userObj;
         if(currentUser==null || currentUser.getId()==null){
@@ -181,11 +187,30 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         if (currentUser == null) {
             throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR);
         }
-        if (AuthConstant.BAN_ROLE.equals(currentUser.getUserRole())) {
-            request.getSession().removeAttribute(USER_LOGIN_STATE);
+        if (isBanned(currentUser)) {
+            session.invalidate();
             throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR, "账号已被封禁");
         }
         return currentUser;
+    }
+
+    @Override
+    public boolean isAccountActive(Long userId) {
+        if (userId == null) {
+            return false;
+        }
+        User user = this.getById(userId);
+        return user != null && !isBanned(user);
+    }
+
+    /**
+     * 封禁判据的唯一实现。
+     *
+     * <p>登录入口与长连接回查必须用同一条判据：两处各写一遍
+     * {@code BAN_ROLE.equals(...)}，将来多一个停用档位就会只改一处。
+     */
+    private static boolean isBanned(User user) {
+        return user != null && AuthConstant.BAN_ROLE.equals(user.getUserRole());
     }
 
     /**
@@ -205,12 +230,13 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
 
     @Override
     public Boolean userLogout(HttpServletRequest request) {
-        //先判断是否登录
-        Object user = request.getSession().getAttribute(USER_LOGIN_STATE);
-        if(user==null){
+        //先判断是否登录：匿名请求不创建新会话
+        jakarta.servlet.http.HttpSession session = request.getSession(false);
+        if (session == null || session.getAttribute(USER_LOGIN_STATE) == null) {
             throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR,NO_LOGIN);
         }
-        request.getSession().removeAttribute(USER_LOGIN_STATE);
+        // 退出登录销毁整个会话容器，而不是只移除登录属性
+        session.invalidate();
         return Boolean.TRUE;
     }
     /**
@@ -324,7 +350,18 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         user.setId(loginUser.getId());
         user.setUserAvatar(avatarUrl);
         //更新
-        int result = this.baseMapper.updateById(user);
+        int result;
+        try {
+            result = this.baseMapper.updateById(user);
+        } catch (RuntimeException e) {
+            // 头像对象已写进 COS，这一行却没更新成：先回读确认数据库没引用它再删，
+            // 否则它就是 public/ 下一个没人认领的孤儿（只读审计能列出来，但没人会去删）。
+            discardUnreferencedAvatar(loginUser.getId(), avatarUrl, uploadPictureDetail.getObjectKey());
+            throw e;
+        }
+        if (result < 1) {
+            discardUnreferencedAvatar(loginUser.getId(), avatarUrl, uploadPictureDetail.getObjectKey());
+        }
         //从数据库中获取用户信息
         User updateUser = this.getById(loginUser.getId());
         //插入/更新
@@ -332,6 +369,29 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         UserVO userVO = new UserVO();
         BeanUtils.copyProperties(updateUser,userVO);
         return userVO;
+    }
+
+    /**
+     * 头像更新失败时，清掉「刚上传、但用户行没有引用」的那一份对象。
+     *
+     * <p>判据是回读数据库，不是「刚才失败了」：{@code updateById} 成功、随后查询抛错时，
+     * 用户行已经指向这份头像，删它就是把正在用的头像删了。
+     */
+    private void discardUnreferencedAvatar(Long userId, String avatarUrl, String objectKey) {
+        if (userId == null || objectKey == null) {
+            return;
+        }
+        try {
+            User current = this.getById(userId);
+            if (current != null && avatarUrl != null && avatarUrl.equals(current.getUserAvatar())) {
+                return;
+            }
+            // deleteUploadedPictureQuietly 内部吞掉异常：清理失败不能替换成原始失败
+            fileManager.deleteUploadedPictureQuietly(objectKey);
+            log.info("头像更新未生效，已清理本次上传的对象: objectKey={}", objectKey);
+        } catch (Exception e) {
+            log.warn("头像更新失败后清理对象失败: objectKey={}", objectKey, e);
+        }
     }
     /**
      * 用户申请复诊
@@ -443,6 +503,34 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
                 ? "已更新 " + succeeded + " 个用户的角色"
                 : String.join("；", reasons);
         return new BatchResultVO(targets.size(), succeeded, failedIds, message);
+    }
+
+    @Override
+    public boolean deleteUser(Long id) {
+        ThrowUtils.throwIf(id == null || id <= 0, ErrorCode.PARAMS_ERROR);
+        User target = this.getById(id);
+        ThrowUtils.throwIf(target == null, ErrorCode.NOT_FOUND_ERROR);
+        ThrowUtils.throwIf(AuthConstant.ADMIN_ROLE.equals(target.getUserRole()),
+                ErrorCode.FORBIDDEN_ERROR, "管理员账号不可删除");
+        return this.removeById(id);
+    }
+
+    @Override
+    public boolean updateUser(UserUpdateDTO input) {
+        ThrowUtils.throwIf(input == null || input.getId() == null, ErrorCode.PARAMS_ERROR);
+        User target = this.getById(input.getId());
+        ThrowUtils.throwIf(target == null, ErrorCode.NOT_FOUND_ERROR);
+        String role = input.getUserRole();
+        if (role != null) {
+            ThrowUtils.throwIf(!ASSIGNABLE_ROLES.contains(role), ErrorCode.PARAMS_ERROR,
+                    "角色只能是 user / ban / admin");
+            ThrowUtils.throwIf(AuthConstant.ADMIN_ROLE.equals(target.getUserRole())
+                            && !AuthConstant.ADMIN_ROLE.equals(role),
+                    ErrorCode.FORBIDDEN_ERROR, "管理员账号不可单条降级");
+        }
+        User patch = new User();
+        BeanUtils.copyProperties(input, patch);
+        return this.updateById(patch);
     }
 
     /** id 列表去重 + 去空。 */

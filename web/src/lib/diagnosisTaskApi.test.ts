@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from "vitest"
 import { AUTH_EXPIRED_EVENT } from "./http"
-import { diagnosisTaskApi } from "./diagnosisTaskApi"
+import { diagnosisTaskApi, restrictReasonLabel } from "./diagnosisTaskApi"
 
 afterEach(() => vi.unstubAllGlobals())
 it("沿用文件和受理键提交影像，使用cookie和取消信号", async () => {
@@ -57,7 +57,37 @@ it("未知影像任务状态降级为 UNKNOWN——既不当成推理中，也�
   vi.stubGlobal("fetch", fetch)
   await expect(
     diagnosisTaskApi.get("task-b", new AbortController().signal)
-  ).resolves.toEqual({ taskId: "task-b", status: "UNKNOWN" })
+  ).resolves.toEqual({ taskId: "task-b", status: "UNKNOWN", restrictReason: null })
+})
+it("受限原因原样透出，界面据此说明为什么受限", async () => {
+  const fetch = vi.fn().mockResolvedValue(
+    Response.json({
+      code: 0,
+      data: {
+        taskId: "task-c",
+        status: "RESTRICTED",
+        restrictReason: "OOD_NOT_EVALUATED",
+      },
+    })
+  )
+  vi.stubGlobal("fetch", fetch)
+  await expect(
+    diagnosisTaskApi.get("task-c", new AbortController().signal)
+  ).resolves.toEqual({
+    taskId: "task-c",
+    status: "RESTRICTED",
+    restrictReason: "OOD_NOT_EVALUATED",
+  })
+})
+it("受限原因翻译成一句人话；未登记的原因码原样说明，不猜", () => {
+  expect(restrictReasonLabel("OOD_NOT_EVALUATED")).toBe(
+    "分布外检测尚未评估，暂不形成患者结论"
+  )
+  expect(restrictReasonLabel("ABSTAIN_QUALITY_FAIL")).toBe("图像质量不合格")
+  expect(restrictReasonLabel("SOMETHING_NEW")).toBe(
+    "准入条件未满足（SOMETHING_NEW）"
+  )
+  expect(restrictReasonLabel(null)).toBe("")
 })
 it("错误响应体不是 JSON 时按 HTTP 状态失败，不冒充成功也不当作解析异常", async () => {
   const fetch = vi

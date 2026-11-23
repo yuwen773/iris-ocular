@@ -1,0 +1,14 @@
+{
+  "version": "quality-blur-v0-uncalibrated",
+  "state": "UNCALIBRATED",
+  "datasetKind": "synthetic-fixtures",
+  "datasetName": "algorithm/eye_diagnosis_p1/tests/fixtures/images",
+  "sampleCount": 20,
+  "threshold": 100.0,
+  "statistics": {
+    "clear": null,
+    "defocused": null
+  },
+  "tool": "algorithm/tools/calibrate_quality.py",
+  "note": "本产物由合成夹具生成，尚未在真实眼底数据上标定：阈值 100.0 只是量纲修正后的保守起点，不是经过验证的医学阈值。上线前必须用真实数据集（清晰/离焦分层）重标，产出 state=CALIBRATED 的新产物；重标前质量门只能以 observe 模式运行（QUALITY_GATE_MODE），且结论必须标明「未标定」。重标后请同步提升 INFERENCE_POLICY_VERSION，否则推理缓存会继续复用旧产物下的结果。"
+}

@@ -146,22 +146,26 @@ public class MCPManager {
         if (!gate.tryAcquire()) {
             throw new McpOverloadException("MCP server busy: " + entity.getMcpServerCode());
         }
-        Future<McpServerCallToolResponse> future = mcpExecutor.submit(() -> doCallTool(request, entity));
         try {
-            return future.get(toolCallTimeoutSeconds, TimeUnit.SECONDS);
-        } catch (TimeoutException e) {
-            future.cancel(true);
-            throw new McpTimeoutException("tool timeout: " + request.getToolName());
-        } catch (InterruptedException e) {
-            future.cancel(true);
-            Thread.currentThread().interrupt();
-            throw new java.util.concurrent.CancellationException("MCP tool call cancelled");
-        } catch (ExecutionException e) {
-            Throwable cause = e.getCause() != null ? e.getCause() : e;
-            if (cause instanceof RuntimeException re) {
-                throw re;
+            // submit 必须在 try 内：线程池饱和时 AbortPolicy 会同步抛
+            // RejectedExecutionException，否则 permit 永远不归还。
+            Future<McpServerCallToolResponse> future = mcpExecutor.submit(() -> doCallTool(request, entity));
+            try {
+                return future.get(toolCallTimeoutSeconds, TimeUnit.SECONDS);
+            } catch (TimeoutException e) {
+                future.cancel(true);
+                throw new McpTimeoutException("tool timeout: " + request.getToolName());
+            } catch (InterruptedException e) {
+                future.cancel(true);
+                Thread.currentThread().interrupt();
+                throw new CancellationException("MCP tool call cancelled");
+            } catch (ExecutionException e) {
+                Throwable cause = e.getCause() != null ? e.getCause() : e;
+                if (cause instanceof RuntimeException re) {
+                    throw re;
+                }
+                throw new IllegalStateException("MCP tool call failed", cause);
             }
-            throw new IllegalStateException("MCP tool call failed", cause);
         } finally {
             gate.release();
         }
@@ -235,12 +239,14 @@ public class MCPManager {
 
                     if (serverConfig.containsKey("url")) {
                         config.setUrl((String) serverConfig.get("url"));
-                        log.info("成功解析 SSE URL: {}", config.getUrl());
+                        // URL query 可能带 token：只记 host。
+                        log.info("成功解析 SSE URL, host={}", hostOf(config.getUrl()));
                     }
                 }
             }
         } catch (Exception e) {
-            log.warn("解析 deployConfig 失败: {}", configJson, e);
+            // deployConfig 可能含 authorization/envValue，失败时也不打印原文。
+            log.warn("解析 deployConfig 失败: {}", e.getClass().getSimpleName());
         }
 
         return config;

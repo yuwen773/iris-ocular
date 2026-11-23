@@ -9,6 +9,8 @@ import {
   confidencePercent,
   isUrgentAdvice,
   normalizeConfidence,
+  probabilityReading,
+  summaryProbabilityReading,
   rankClasses,
   severityLabel,
   severityRisk,
@@ -299,5 +301,89 @@ describe("formatAuthorizedAt", () => {
     expect(formatAuthorizedAt(null)).toBeNull()
     expect(formatAuthorizedAt("")).toBeNull()
     expect(formatAuthorizedAt(undefined)).toBeNull()
+  })
+})
+
+describe("summaryProbabilityReading", () => {
+  it("已标定时用的是校准后概率，不碰模型自评值", () => {
+    expect(
+      summaryProbabilityReading({
+        confidence: 91,
+        classificationProbability: 0.82,
+        calibrationStatus: "CALIBRATED",
+      }),
+    ).toEqual({ label: "校准后概率", value: 91 })
+  })
+
+  it("未标定时改标签并退到模型自评概率，不把它叫置信度", () => {
+    const reading = summaryProbabilityReading({
+      confidence: null,
+      classificationProbability: 0.82,
+      calibrationStatus: "NOT_CALIBRATED",
+    })
+    expect(reading.label).toBe("模型输出概率（未标定）")
+    expect(reading.label).not.toContain("置信度")
+    expect(reading.value).toBe(0.82)
+  })
+
+  it("两个值都没有时不给读数，而不是画成 0", () => {
+    expect(summaryProbabilityReading({ confidence: null }).value).toBeNull()
+  })
+
+  it("V34 之前的老记录没有分类概率列，退到 probability 并仍标未标定", () => {
+    // 老行只有 probability（0–100 的 softmax 百分数）：读数立得住，但不能叫置信度
+    const reading = summaryProbabilityReading({
+      confidence: null,
+      probability: 82,
+      calibrationStatus: "NOT_CALIBRATED",
+    })
+    expect(reading).toEqual({ label: "模型输出概率（未标定）", value: 82 })
+  })
+
+  it("标签与记录纸同一处规则：校准过但不作患者结论时，列表也不叫「校准后概率」", () => {
+    const reading = summaryProbabilityReading({
+      confidence: 91,
+      calibrationStatus: "CALIBRATED",
+      patientConclusionAllowed: false,
+    })
+    expect(reading.label).toBe("模型输出概率（不作患者结论）")
+    expect(reading.value).toBe(91)
+  })
+})
+
+describe("probabilityReading", () => {
+  it("已标定时按校准后概率呈现", () => {
+    expect(probabilityReading({ calibrationStatus: "CALIBRATED" })).toEqual({
+      label: "校准后概率",
+      calibrated: true,
+      note: null,
+    })
+  })
+
+  it("未标定时不叫置信度，并说明它不能当可靠性读", () => {
+    const reading = probabilityReading({ calibrationStatus: "NOT_CALIBRATED" })
+    expect(reading.calibrated).toBe(false)
+    expect(reading.label).toContain("未标定")
+    expect(reading.note).toContain("不能当作诊断可靠性")
+  })
+
+  it("没有任何校准信息时按未标定处理，不猜", () => {
+    expect(probabilityReading({}).calibrated).toBe(false)
+  })
+
+  it("算法说不能作患者结论时，即使校准过也不按结论读", () => {
+    const reading = probabilityReading({
+      calibrationStatus: "CALIBRATED",
+      patientConclusionAllowed: false,
+    })
+    expect(reading.calibrated).toBe(false)
+    expect(reading.label).toContain("不作患者结论")
+    expect(reading.note).toContain("只作参考")
+  })
+
+  it("明确允许作患者结论时沿用校准口径", () => {
+    expect(
+      probabilityReading({ calibrationStatus: "CALIBRATED", patientConclusionAllowed: true }),
+    ).toEqual({ label: "校准后概率", calibrated: true, note: null })
   })
 })

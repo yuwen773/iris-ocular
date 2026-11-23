@@ -149,7 +149,7 @@ Python 侧**没有** Chat / Embedding / Rerank 调用；这些全部在 Java。M
 12. **Chroma tenant/database 的 yml 是死键**，运维会误以为改过。
 13. **MCP 可触达外部模型工具**：白名单只约束 Origin，不能约束远端行为。
 14. **`qwen3.5-plus` 未校验**：只存在于模板，抄错不会启动失败，只会在调用时报错。
-15. **混合检索默认值相反**（代码 `false` vs yml `true`）。
+15. **混合检索默认值相反**（代码 `false` vs yml `true`）。**已消解 2026-11-23**：两者均为 `true`。
 16. **知识库 ETL 可在无向量时标记成功**：`vectorStore == null` 时只 warn，仍 `updateStatus(1, chunkCount)`（`DocumentProcessingService.java:113-118`）。
 
 ---

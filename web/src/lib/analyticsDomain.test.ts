@@ -204,8 +204,8 @@ describe("口径抽屉的运行时计数", () => {
   it("只从响应取值，null 保持破折号", () => {
     const rows = metricLiveRows("B-03", analytics())
     expect(rows).toEqual([
-      { label: "有效置信度样本", value: "0" },
-      { label: "平均置信度（0–100）", value: "—" },
+      { label: "有效自评置信度样本", value: "0" },
+      { label: "平均自评置信度（0–100）", value: "—" },
       { label: "量纲歧义 (0,1]", value: "2" },
       { label: "越界（≤0 或 >100）", value: "1" },
       { label: "缺失", value: "3" },

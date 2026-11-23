@@ -77,3 +77,35 @@ Validation matrix for this branch:
    `CREATE TABLE IF NOT EXISTS` is a no-op when the audit table exists.
 3. Rollout: deploy the V17 migration before the new Java code writes to the
    new columns; `featured`/`status` indexes are additive.
+
+## V32 / V33 / V34 (2026-11-23)
+
+Three migrations from the 2026-11-23 repo-wide review remediation. No edits to
+V1--V31; each statement is additive and nullable, so existing rows need no
+backfill. Per-target upgrade paths stay in
+`docs/architecture/migration-matrix.md`; this section only records why the
+numbers were taken.
+
+- **V32** `t_knowledge_document.pendingIndexVersion` / `pendingUpdatedTime`:
+  a document edit writes a candidate version first and switches
+  `indexVersion` only after the candidate is READY, so a failed edit no longer
+  destroys the searchable previous version (D-01).
+- **V33** `t_diagnosis_task.restrictReason`: a task that lands in `RESTRICTED`
+  now says which admission check failed instead of the UI only being able to
+  say "restricted" (M-01).
+- **V34** six nullable evidence columns on both `t_diagnosis` and
+  `t_inference_cache`: `classificationProbability`, `calibrationVersion`,
+  `imageQualityState`, `imageQualityVersion`,
+  `imageQualityCalibrationState`, `patientConclusionAllowed` — split from the
+  single overloaded `probability` / `reliability_score` pair so an uncalibrated
+  softmax can no longer be read as medical reliability (M-02).
+
+Two consequences to know before writing the next migration:
+
+1. V32--V34 are owned by `fix/p1-audit-remediation-2026-11-23`. Work in flight
+   on other branches (Control Center WP-01C already drafts a V33) must
+   re-number to V35 or higher; two branches cannot claim the same version.
+2. `DiagnosisEvidence` deliberately leaves all six V34 columns NULL when the
+   Python service does not send the fields. Old rows are not backfilled: the
+   historical values are not recoverable, and inventing them would be
+   fabricating evidence.

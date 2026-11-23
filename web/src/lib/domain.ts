@@ -415,6 +415,107 @@ export function confidenceBand(confidence?: number | null): ConfidenceBand {
 }
 
 /**
+ * 准入 / 拒识原因码 → 一句人话。
+ *
+ * <p>服务端这几个码同时出现在两处：患者影像任务的 `restrictReason`（`ABSTAIN_` 前缀）
+ * 与管理端分析的原因分布。两处各写一份措辞，同一条记录会被叫成「影像质量不合格」
+ * 与「图像质量不合格」两种说法——这里是唯一一份，两处都从这里取。
+ *
+ * <p>措辞按医学口径挑：`LOW_CONFIDENCE` 说的是模型自评概率低于阈值，不是诊断
+ * 可靠性偏低，所以写「自评」；没有列出的码由调用方原样说明，不猜。
+ */
+export const QUALITY_GATE_REASON_LABELS: Record<string, string> = {
+  QUALITY_FAIL: "图像质量不合格",
+  OOD: "分布外影像（OOD）",
+  LOW_CONFIDENCE: "模型自评置信度偏低",
+  NOT_ASSESSED: "未评估",
+  MODEL_NOT_LOADED: "模型未加载",
+}
+
+/** 未标定读数的标签：全站同一句，记录纸面与列表不许各写各的。 */
+export const UNVERIFIED_PROBABILITY_LABEL = "模型输出概率（未标定）"
+
+export type ProbabilityReading = {
+  /** 读数旁的标签 */
+  label: string
+  /** 是否经过真实数据标定 */
+  calibrated: boolean
+  /** 未标定 / 不作患者结论时的说明；可正常呈现时为 null */
+  note: string | null
+}
+
+/**
+ * 判读概率怎么读。
+ *
+ * <p>未标定的 softmax **不是置信度**：它只是模型输出强度，没有经过真实数据
+ * 标定。界面照此标注，否则患者会把一个未标定的数字读成「诊断有多可靠」。
+ * 已标定时才按校准后概率呈现，并保留风险分档；未标定时不给风险分档——
+ * 一个撑不起分档的数值不该借颜色说 severity。
+ *
+ * <p>「校准过」与「允许给患者看」是两道各自独立的门，后者更严：算法明确给了
+ * `patientConclusionAllowed === false` 时，即使概率标定过也不作患者结论。
+ */
+export function probabilityReading(result: {
+  calibrationStatus?: string | null
+  patientConclusionAllowed?: boolean | null
+}): ProbabilityReading {
+  if (result.patientConclusionAllowed === false) {
+    return {
+      label: "模型输出概率（不作患者结论）",
+      calibrated: false,
+      note: "本次判读未通过面向患者的结论准入（图像质量或拒识），只作参考，不作为诊断结论。",
+    }
+  }
+  const status = (result.calibrationStatus ?? "").trim().toUpperCase()
+  const calibrated = status === "CALIBRATED"
+  if (calibrated) {
+    return { label: "校准后概率", calibrated: true, note: null }
+  }
+  return {
+    label: UNVERIFIED_PROBABILITY_LABEL,
+    calibrated: false,
+    note: "该数值未经真实数据标定，不能当作诊断可靠性。",
+  }
+}
+
+/**
+ * 列表 / 摘要里的概率读数：**标签只由 {@link probabilityReading} 决定**。
+ *
+ * <p>记录列表一格数字最容易被读成「这条诊断有多可靠」。这里不另起一套判据——
+ * 校准状态怎么读、`patientConclusionAllowed === false` 时还叫不叫结论，与记录纸
+ * 是同一处规则；列表少一个字段就自己拼规则，同一条记录会在列表里叫「校准后概率」、
+ * 在记录纸上叫「不作患者结论」。
+ *
+ * <p>数值来源按可信度依次退：校准后概率 → 原始 softmax（`classificationProbability`，
+ * 0–1）→ V34 之前的 `probability`（0–100，同一件事的百分数刻度）。都没有才显示「—」。
+ */
+export function summaryProbabilityReading(record: {
+  confidence?: number | null
+  classificationProbability?: number | null
+  probability?: number | null
+  calibrationStatus?: string | null
+  patientConclusionAllowed?: boolean | null
+}): { label: string; value: number | null } {
+  const { label } = probabilityReading(record)
+  const numeric = (value?: number | null) =>
+    typeof value === "number" && !Number.isNaN(value)
+  // confidence 有值即可当校准后概率：后端三个 VO 都按 CALIBRATED 门控过
+  // （DiagnosisEvidence.exposedConfidence），未标定不会给值。
+  if (numeric(record.confidence)) {
+    return { label, value: record.confidence ?? null }
+  }
+  if (numeric(record.classificationProbability)) {
+    return { label, value: record.classificationProbability ?? null }
+  }
+  // V34 之前的老记录没有分类概率列，但 probability 里就是当时的 softmax 百分数：
+  // 读数仍然立得住，只是要按「未标定」标注，不能因为少一列就退化成「无读数」。
+  if (numeric(record.probability)) {
+    return { label, value: record.probability ?? null }
+  }
+  return { label, value: null }
+}
+
+/**
  * 置信度 → 百分比读数（一位小数，带 %）。
  *
  * 全站唯一口径：后端给 0–1 概率或 0–100 百分数都先归一到 0–1 再乘 100。

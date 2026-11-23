@@ -21,22 +21,18 @@ DISEASE_DESCRIPTIONS = {
 }
 
 
-def calculate_reliability(all_probabilities: dict) -> int:
-    sorted_probs = sorted(all_probabilities.values(), reverse=True)
-    if len(sorted_probs) < 2:
-        return 50
-    # Ignore binary floating-point noise at the decimal score thresholds.
-    gap = round(sorted_probs[0] - sorted_probs[1], 12)
-    if gap >= 0.5:
-        return 95
-    elif gap >= 0.3:
-        return 85
-    elif gap >= 0.2:
-        return 75
-    elif gap >= 0.1:
-        return 65
-    else:
-        return 50
+def top2_margin(all_probabilities: dict) -> float | None:
+    """top-1 与 top-2 概率差（0–1）。只有一个类别时返回 None。
+
+    这是**实测值**，不是分数：此前这里把差距映射成 95/85/75/65/50 的
+    ``reliability_score``，等于凭空造了一个「可靠性」读数（同一套审查里
+    M-02 要求拆开的正是这种东西）。样例 MCP server 不该比主链路更会编。
+    """
+    ranked = sorted(all_probabilities.values(), reverse=True)
+    if len(ranked) < 2:
+        return None
+    # 抹掉十进制阈值附近的双精度噪声
+    return round(ranked[0] - ranked[1], 12)
 
 
 def build_diagnosis_result(model_result: dict) -> dict:
@@ -49,7 +45,7 @@ def build_diagnosis_result(model_result: dict) -> dict:
         "predicted_label": predicted_label,
         "predicted_label_cn": DISEASE_LABELS_CN.get(predicted_label, predicted_label),
         "probability": round(model_result["probability"] * 100, 1),
-        "reliability_score": calculate_reliability(all_probs),
+        "top2_margin": top2_margin(all_probs),
         "description": DISEASE_DESCRIPTIONS.get(predicted_label, ""),
         "top_predictions": [
             {

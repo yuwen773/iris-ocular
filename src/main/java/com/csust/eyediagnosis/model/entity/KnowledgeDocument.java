@@ -25,6 +25,11 @@ public class KnowledgeDocument {
     private String contentHash;
     @TableField("indexVersion")
     private String indexVersion;
+    /** 候选索引版本：更新文档时先写候选，成功后再切换 indexVersion。 */
+    @TableField("pendingIndexVersion")
+    private String pendingIndexVersion;
+    @TableField("pendingUpdatedTime")
+    private LocalDateTime pendingUpdatedTime;
     @TableField("chunkCount")
     private Integer chunkCount;
     @TableField("status")

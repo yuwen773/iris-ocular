@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.service.IService;
 import com.csust.eyediagnosis.common.BatchResultVO;
 import com.csust.eyediagnosis.model.dto.diagnosis.DiagnosisReexamineDTO;
 import com.csust.eyediagnosis.model.dto.user.UserEditDTO;
+import com.csust.eyediagnosis.model.dto.user.UserUpdateDTO;
 import com.csust.eyediagnosis.model.dto.user.UserQueryDTO;
 import com.csust.eyediagnosis.model.entity.User;
 import com.csust.eyediagnosis.model.vo.user.LoginUserVO;
@@ -45,6 +46,17 @@ public interface UserService extends IService<User> {
      * @return user
      */
     User getLoginUser(HttpServletRequest request);
+
+    /**
+     * 账号当前是否仍可用于访问（存在且未被封禁）。
+     *
+     * <p>{@link #getLoginUser} 只能在请求开始时回答这个问题。流式响应会持续数分钟，
+     * 期间发生的封禁需要长连接自己回查——用这个方法，不要另写一份判据。
+     *
+     * @param userId 用户 id
+     * @return 存在且未封禁时为 {@code true}
+     */
+    boolean isAccountActive(Long userId);
 
 
     /**
@@ -137,4 +149,17 @@ public interface UserService extends IService<User> {
      * @return 逐条结果回执
      */
     BatchResultVO updateUserRole(List<Long> userIds, String userRole);
+
+    /**
+     * 单条删除用户。
+     *
+     * <p>与批量删除共用同一条策略：管理员账号不可删除。单条入口不再直接
+     * {@code removeById}，否则批量入口的保护会被绕过。
+     */
+    boolean deleteUser(Long id);
+
+    /**
+     * 单条更新用户。角色字段与批量改角色共用白名单，且管理员账号不可单条降级。
+     */
+    boolean updateUser(UserUpdateDTO input);
 }

@@ -24,7 +24,7 @@ import {
 import { alignPreviousWindow, changeLabel } from "@/lib/chartData"
 import { describeError } from "@/lib/api"
 import { queryKeys } from "@/lib/queryKeys"
-import { canonicalClassName, formatTimestamp } from "@/lib/domain"
+import { canonicalClassName, formatTimestamp, summaryProbabilityReading } from "@/lib/domain"
 import { fault } from "@/lib/faults"
 
 /** 统计时间窗：整页统一，KPI、趋势、分布都覆盖同一段时间。 */
@@ -183,10 +183,21 @@ export function AdminDashboardPage(): ReactElement {
     },
     {
       key: "confidence",
-      title: "置信度",
+      // 未标定时这里是模型自评概率，不是置信度：标题与逐格标签都不冒充可靠性
+      title: "概率读数",
       width: "128px",
       mono: true,
-      render: (row) => <ConfidenceCell value={row.confidence} />,
+      render: (row) => {
+        const reading = summaryProbabilityReading(row)
+        return reading.value === null ? (
+          <span className="admin-diagnosis__reading-none">—</span>
+        ) : (
+          <span className="admin-diagnosis__reading">
+            <span className="admin-diagnosis__reading-label">{reading.label}</span>
+            <ConfidenceCell value={reading.value} />
+          </span>
+        )
+      },
     },
     {
       key: "review",

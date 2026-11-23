@@ -5,6 +5,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.csust.eyediagnosis.agent.DiagnosisAgent;
 import com.csust.eyediagnosis.agent.config.AgentConstants;
+import com.csust.eyediagnosis.agent.service.AccountStreamGuard;
 import com.csust.eyediagnosis.agent.service.ChatHistoryService;
 import com.csust.eyediagnosis.model.dto.agent.AgentChatRequest;
 import com.csust.eyediagnosis.model.entity.User;
@@ -55,6 +56,8 @@ class AgentChatPrivacyTest {
         ReflectionTestUtils.setField(controller, "chatHistoryService", mock(ChatHistoryService.class));
         ReflectionTestUtils.setField(controller, "agentConstants", new AgentConstants());
         ReflectionTestUtils.setField(controller, "diagnosisAgent", agent);
+        // 流式闸门也在这里装配：控制器两条 SSE 出口都会调用它，缺了就 NPE
+        ReflectionTestUtils.setField(controller, "accountStreamGuard", new AccountStreamGuard(userService));
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
 
         logger = (Logger) LoggerFactory.getLogger(AgentController.class);
@@ -95,11 +98,13 @@ class AgentChatPrivacyTest {
                 ArgumentMatchers.anyString(), ArgumentMatchers.any(), ArgumentMatchers.any(),
                 ArgumentMatchers.any(), ArgumentMatchers.any(DiagnosisAgent.TurnStamp.class)))
                 .thenReturn(Flux.error(new IllegalStateException(SENSITIVE)));
+        UserService userService = userServiceForUser42();
         AgentController controller = new AgentController();
-        ReflectionTestUtils.setField(controller, "userService", userServiceForUser42());
+        ReflectionTestUtils.setField(controller, "userService", userService);
         ReflectionTestUtils.setField(controller, "chatHistoryService", mock(ChatHistoryService.class));
         ReflectionTestUtils.setField(controller, "agentConstants", new AgentConstants());
         ReflectionTestUtils.setField(controller, "diagnosisAgent", failing);
+        ReflectionTestUtils.setField(controller, "accountStreamGuard", new AccountStreamGuard(userService));
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
 
         mockMvc.perform(post("/agent/chat/stream")

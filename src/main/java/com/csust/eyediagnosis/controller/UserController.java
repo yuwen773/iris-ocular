@@ -181,9 +181,7 @@ public class UserController {
         if (userUpdateDTO == null || userUpdateDTO.getId() == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
-        User user = new User();
-        BeanUtils.copyProperties(userUpdateDTO, user);
-        boolean result = userService.updateById(user);
+        boolean result = userService.updateUser(userUpdateDTO);
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
         return ResultUtils.success(true);
     }
@@ -260,7 +258,7 @@ public class UserController {
     @AuthCheck(mustRole = AuthConstant.ADMIN_ROLE)
     public BaseResponse<Boolean> deleteUser(@PathVariable("id") Long id){
         ThrowUtils.throwIf(id<=0, ErrorCode.PARAMS_ERROR);
-        boolean result = userService.removeById(id);
+        boolean result = userService.deleteUser(id);
         return ResultUtils.success(result);
     }
 

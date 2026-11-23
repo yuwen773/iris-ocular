@@ -8,17 +8,54 @@ import logging
 import json
 from pathlib import Path
 
+import numpy as np
+
 import diagnosis_pb2
 import diagnosis_pb2_grpc
 from eye_disease_model import EyeDiseaseModel, disease_categories
 from eye_diagnosis.abstain import decide_abstain, should_reject_for_quality
-from eye_diagnosis.calibration import apply_temperature
+from eye_diagnosis.calibration import apply_temperature, softmax
 from eye_diagnosis.ood import OodDecision
-from eye_diagnosis.quality import evaluate_quality
+from eye_diagnosis.quality import (
+    QUALITY_CALIBRATION_STATE,
+    QUALITY_VERSION,
+    QualityState,
+    evaluate_quality,
+)
 from eye_diagnosis.registry import ModelRegistry
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def _probabilities(logits, calibration_status: str, temperature: float):
+    """→ (原始分布, 报给调用方的分布)。
+
+    温度缩放是**校准动作**：缩放后的分布不是原始 softmax。proto 里
+    ``probability`` / ``classification_probability`` / ``reliability_score``
+    的语义都是「原始 softmax」，``calibrated_probability`` 才是校准后的值；
+    未校准时两者相同，但计算上仍分开取，避免以后一开校准就把原始口径改掉。
+    """
+    raw = softmax(logits)
+    if calibration_status != "CALIBRATED":
+        return raw, raw
+    scaled = apply_temperature(np.asarray(logits, dtype=np.float32)[None, :], temperature)[0]
+    return raw, softmax(scaled)
+
+
+def _proto_quality_state(state) -> int:
+    """质量判定 → proto 枚举的唯一映射点。
+
+    判定本身由 ``QualityReport.state`` 给出（在 ``eye_diagnosis.quality`` 里算好），
+    这里只做「产品状态 → 线协议枚举」的翻译。认不出的状态返回 UNSPECIFIED
+    （「算法没给」），不要猜成 PASSED。
+    """
+    mapping = {
+        QualityState.PASSED: diagnosis_pb2.QUALITY_PASSED,
+        QualityState.FAILED: diagnosis_pb2.QUALITY_FAILED,
+    }
+    return mapping.get(state, diagnosis_pb2.QUALITY_UNSPECIFIED)
+
 
 DISEASE_DESCRIPTIONS = {
     "normal": "正常眼底图像，未发现明显异常。视网膜血管走行正常，视盘边界清晰，黄斑区结构正常。",
@@ -75,6 +112,8 @@ class DiagnosisServicer(diagnosis_pb2_grpc.DiagnosisServiceServicer):
             raise RuntimeError("Calibration status must be CALIBRATED or NOT_CALIBRATED")
         if calibration.get("model_version") != self.provenance.version:
             raise RuntimeError("Calibration model version does not match registered model")
+        # 校准产物的版本：判读结果必须能追到「这份概率是在哪份校准下算出来的」。
+        self.calibration_version = str(calibration.get("version", "unversioned"))
         self.inference_policy_version = os.getenv("INFERENCE_POLICY_VERSION", "medical-safety-v3-quality-observe").strip()
         if not self.inference_policy_version:
             raise RuntimeError("INFERENCE_POLICY_VERSION must not be empty")
@@ -104,16 +143,15 @@ class DiagnosisServicer(diagnosis_pb2_grpc.DiagnosisServiceServicer):
             try:
                 quality = evaluate_quality(image_data)
                 logits = self.model.predict_logits(temp_path)
-                scored_logits = logits
-                if self.calibration_status == "CALIBRATED":
-                    scored_logits = apply_temperature(logits[None, :], self.temperature)[0]
-                exp_logits = scored_logits - scored_logits.max()
-                probabilities = __import__("numpy").exp(exp_logits)
-                probabilities = probabilities / probabilities.sum()
+                # 原始分布与校准后分布各自算：温度缩放只影响后者。
+                raw_probabilities, probabilities = _probabilities(
+                    logits, self.calibration_status, self.temperature
+                )
                 ranked_indices = probabilities.argsort()[::-1]
                 predicted_class = int(ranked_indices[0])
                 predicted_label = disease_categories[predicted_class]
                 top1 = float(probabilities[ranked_indices[0]])
+                raw_top1 = float(raw_probabilities[ranked_indices[0]])
                 top2 = float(probabilities[ranked_indices[1]]) if len(ranked_indices) > 1 else 0.0
                 # No evaluated, version-bound OOD reference artifact is available. Do
                 # not use the former all-zero placeholder detector as a rejection gate.
@@ -129,17 +167,40 @@ class DiagnosisServicer(diagnosis_pb2_grpc.DiagnosisServiceServicer):
                 )
                 description = "" if abstain.rejected else DISEASE_DESCRIPTIONS.get(predicted_label, "")
 
+                # ── 相互独立的证据字段（2026-11-23）────────────────────
+                # 分类概率：0–1 的原始 softmax。它不是校准概率，也不是医学可靠性；
+                # 校准状态、图像质量、OOD、能否面向患者呈现，各走各的字段，
+                # 各自带版本，避免一个数字被当成所有结论。
+                # 质量判定只认 QualityReport.state（eye_diagnosis.quality 里算好的那一份），
+                # 这里只做「产品状态 → 线协议枚举」的翻译。再从 reasons 二次推导会多出
+                # 第二个判据来源：将来某个 reason 加进来却没改 state，两个字段就会各说各话。
+                image_quality_state = _proto_quality_state(quality.state)
+                # 「能否面向患者呈现结论」= 质量门通过且模型没有拒识。
+                # 注意它与「任务准入是否放行」是两道门：准入还额外要求版本绑定的
+                # OOD 证据（见 DiagnosisTaskRunner），这里不放宽那一道。
+                patient_conclusion_allowed = (not quality.reasons) and (not abstain.rejected)
                 return diagnosis_pb2.DiagnosisResponse(
                     predicted_label=predicted_label,
-                    probability=top1 * 100,
+                    # probability / classification_probability / reliability_score
+                    # 都是「原始 softmax」（proto 的字段注释如此）；校准后的值只走
+                    # calibrated_probability，两个口径不能互相冒充。
+                    probability=raw_top1 * 100,
+                    classification_probability=raw_top1,
                     calibrated_probability=top1 * 100 if self.calibration_status == "CALIBRATED" else 0.0,
                     calibration_status=self.calibration_status,
-                    reliability_score=round(top1 * 100),
+                    calibration_version=self.calibration_version,
+                    image_quality_state=image_quality_state,
+                    image_quality_version=QUALITY_VERSION,
+                    image_quality_calibration_state=QUALITY_CALIBRATION_STATE,
+                    patient_conclusion_allowed=patient_conclusion_allowed,
+                    reliability_score=round(raw_top1 * 100),
                     description=description,
+                    # top_predictions 与 predicted_label / probability 同一口径：
+                    # 都用**原始**分布，否则同一条响应里会出现两个不同的 top-1 数字。
                     top_predictions=[
                         diagnosis_pb2.DiseasePrediction(
                             label=disease_categories[int(index)],
-                            probability=float(probabilities[index]) * 100,
+                            probability=float(raw_probabilities[index]) * 100,
                         )
                         for index in ranked_indices[:3]
                     ],

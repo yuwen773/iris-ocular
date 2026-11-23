@@ -45,7 +45,7 @@ public class ImageArchive {
         } catch (RuntimeException e) {
             // 对象可能已经写进存储，只是回包解析失败（CI 字段缺失、宽高为空等）：
             // 那种情况下 key 从未返回给调用方，落库也不会发生，不删就是一张永久孤儿原图
-            // ——public/ 前缀没有对账器，只能靠人工排查。
+            // ——public/ 只有只读审计（列出无引用对象并告警，不自动删除），清理仍需人工。
             log.error("图片写入对象存储失败，清理可能已写入的对象: key={}", objectKey, e);
             discardQuietly(objectKey);
             throw e;

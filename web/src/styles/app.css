@@ -1413,6 +1413,13 @@ html:not(.dark) .pitch__glass.auth__glass::before {
   line-height: 1.4;
 }
 
+/* 读数旁的说明（例如「该数值未经真实数据标定」）：中性色，不借用风险色。 */
+.readout__note {
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--fg-2);
+}
+
 .readout__value--mono {
   font-family: var(--font-mono);
   font-size: 11.5px;

@@ -20,6 +20,7 @@ import com.csust.eyediagnosis.model.entity.User;
 import com.csust.eyediagnosis.model.vo.knowledge.KnowledgeChunkVO;
 import com.csust.eyediagnosis.model.vo.knowledge.KnowledgeDetailVO;
 import com.csust.eyediagnosis.utils.DateRanges;
+import jakarta.annotation.PreDestroy;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
@@ -38,9 +39,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @Service
@@ -70,8 +72,20 @@ public class KnowledgeBaseServiceImpl extends ServiceImpl<KnowledgeDocumentMappe
     @Resource
     private TextChunkerService textChunkerService;
 
-    private final ExecutorService uploadExecutor = Executors.newFixedThreadPool(
-            Math.max(2, Runtime.getRuntime().availableProcessors() / 2));
+    // 有界队列 + CallerRunsPolicy：队列满时由请求线程自己执行，形成背压，
+    // 避免无界队列把待处理文件堆到 OOM。
+    private final ThreadPoolExecutor uploadExecutor = new ThreadPoolExecutor(
+            Math.max(2, Runtime.getRuntime().availableProcessors() / 2),
+            Math.max(2, Runtime.getRuntime().availableProcessors() / 2),
+            60L, TimeUnit.SECONDS,
+            new ArrayBlockingQueue<>(64),
+            new ThreadPoolExecutor.CallerRunsPolicy());
+
+    /** 关停时收回线程池：非守护线程不回收会让进程退不干净。 */
+    @PreDestroy
+    void shutdownUploadExecutor() {
+        uploadExecutor.shutdownNow();
+    }
 
     @Override
     public List<Long> uploadDocument(KnowledgeUploadRequest request, Long userId) {
@@ -83,7 +97,7 @@ public class KnowledgeBaseServiceImpl extends ServiceImpl<KnowledgeDocumentMappe
         List<String> failedFiles = new ArrayList<>();
         String title = request.getTitle();
 
-        List<CompletableFuture<UploadResult>> futures = new ArrayList<>(files.length);
+        List<PendingUpload> futures = new ArrayList<>(files.length);
         for (MultipartFile file : files) {
             String originalFilename = file.getOriginalFilename();
             String fileType;
@@ -94,60 +108,84 @@ public class KnowledgeBaseServiceImpl extends ServiceImpl<KnowledgeDocumentMappe
                 continue;
             }
 
-            futures.add(CompletableFuture.supplyAsync(() -> {
-                File tempFile = null;
-                try {
-                    tempFile = File.createTempFile("upload_", originalFilename);
-                    file.transferTo(tempFile);
+            try {
+                CompletableFuture<UploadResult> future = CompletableFuture.supplyAsync(() -> {
+                    File tempFile = null;
+                    String storedFileName = null;
+                    boolean handedOff = false;
+                    try {
+                        // 后缀只取白名单扩展名，不把未清洗的原始文件名交给 createTempFile。
+                        tempFile = File.createTempFile("upload_", "." + fileType);
+                        file.transferTo(tempFile);
 
-                    String contentHash = documentProcessingService.computeContentHash(tempFile);
+                        String contentHash = documentProcessingService.computeContentHash(tempFile);
 
-                    KnowledgeDocument existing = baseMapper.selectList(
-                            new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<KnowledgeDocument>()
-                                    .eq(KnowledgeDocument::getUserId, userId)
-                                    .eq(KnowledgeDocument::getContentHash, contentHash)
-                                    .last("LIMIT 1")
-                    ).stream().findFirst().orElse(null);
+                        KnowledgeDocument existing = baseMapper.selectList(
+                                new LambdaQueryWrapper<KnowledgeDocument>()
+                                        .eq(KnowledgeDocument::getUserId, userId)
+                                        .eq(KnowledgeDocument::getContentHash, contentHash)
+                                        .last("LIMIT 1")
+                        ).stream().findFirst().orElse(null);
 
-                    if (existing != null) {
-                        return new UploadResult(null, originalFilename, "文档已存在");
+                        if (existing != null) {
+                            return new UploadResult(null, originalFilename, "文档已存在");
+                        }
+
+                        storedFileName = UUID.randomUUID() + "_" + originalFilename;
+                        cosManager.putObject(storedFileName, tempFile);
+
+                        KnowledgeDocument doc = new KnowledgeDocument();
+                        doc.setUserId(userId);
+                        doc.setTitle(title != null ? title : originalFilename);
+                        doc.setFileName(originalFilename);
+                        doc.setFileUrl(storedFileName);
+                        doc.setFileSize(file.getSize());
+                        doc.setFileType(fileType);
+                        doc.setContentHash(contentHash);
+                        doc.setStatus(0);
+                        doc.setIndexVersion(UUID.randomUUID().toString());
+                        baseMapper.insert(doc);
+
+                        documentProcessingService.processDocument(doc.getId(), tempFile, fileType, doc.getTitle(), doc.getIndexVersion());
+                        handedOff = true;
+                        return new UploadResult(doc.getId(), originalFilename, null);
+                    } catch (IOException e) {
+                        log.error("文件上传失败: filename={}", originalFilename, e);
+                        discardUnreferencedObject(storedFileName);
+                        return new UploadResult(null, originalFilename, "上传失败");
+                    } catch (RuntimeException e) {
+                        log.error("文件上传异常: filename={}", originalFilename, e);
+                        // 对象已写、行没落成：删掉，别留一个无人认领的孤儿对象。
+                        discardUnreferencedObject(storedFileName);
+                        return new UploadResult(null, originalFilename, "上传失败");
+                    } finally {
+                        // 异步 ETL 接管后由它删除；失败/重复路径自己兜底。
+                        if (!handedOff && tempFile != null && tempFile.exists() && !tempFile.delete()) {
+                            log.warn("上传临时文件删除失败: {}", tempFile.getAbsolutePath());
+                        }
                     }
-
-                    String storedFileName = UUID.randomUUID() + "_" + originalFilename;
-                    cosManager.putObject(storedFileName, tempFile);
-
-                    KnowledgeDocument doc = new KnowledgeDocument();
-                    doc.setUserId(userId);
-                    doc.setTitle(title != null ? title : originalFilename);
-                    doc.setFileName(originalFilename);
-                    doc.setFileUrl(storedFileName);
-                    doc.setFileSize(file.getSize());
-                    doc.setFileType(fileType);
-                    doc.setContentHash(contentHash);
-                    doc.setStatus(0);
-                    doc.setIndexVersion(UUID.randomUUID().toString());
-                    baseMapper.insert(doc);
-
-                    documentProcessingService.processDocument(doc.getId(), tempFile, fileType, doc.getTitle(), doc.getIndexVersion());
-                    return new UploadResult(doc.getId(), originalFilename, null);
-                } catch (IOException e) {
-                    log.error("文件上传失败: filename={}", originalFilename, e);
-                    return new UploadResult(null, originalFilename, "上传失败");
-                }
-            }, uploadExecutor));
+                }, uploadExecutor);
+                futures.add(new PendingUpload(originalFilename, future));
+            } catch (RuntimeException e) {
+                // CallerRunsPolicy 下队列满不会拒绝，只有线程池已关闭才会走到这里。
+                log.error("上传任务提交失败: filename={}", originalFilename, e);
+                failedFiles.add(originalFilename + "（提交失败：服务可能正在关闭，请稍后重试）");
+            }
         }
 
         List<Long> successIds = new ArrayList<>();
-        for (CompletableFuture<UploadResult> future : futures) {
+        for (PendingUpload pending : futures) {
             try {
-                UploadResult result = future.join();
+                UploadResult result = pending.future().join();
                 if (result.docId() != null) {
                     successIds.add(result.docId());
                 } else {
                     failedFiles.add(result.filename() + "（" + result.error() + "）");
                 }
             } catch (Exception e) {
-                log.error("批量上传结果收集异常", e);
+                // 收集阶段异常也必须落成失败回执，不能出现"空成功"。
+                log.error("批量上传结果收集异常: filename={}", pending.filename(), e);
+                failedFiles.add(pending.filename() + "（结果收集异常：" + e.getClass().getSimpleName() + "）");
             }
         }
 
@@ -285,34 +323,65 @@ public class KnowledgeBaseServiceImpl extends ServiceImpl<KnowledgeDocumentMappe
         KnowledgeDocument doc = loadDocument(documentId);
         if (!doc.getUserId().equals(userId)) throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
 
-        deleteVectors(doc);
-
-        // 2. 上传新文件到 COS
+        // 不先删旧向量：活动版本保持 READY 可检索，直到候选版本原子切换成功。
         String originalFilename = file.getOriginalFilename();
         String fileType = getFileType(originalFilename);
+        String newVersion = UUID.randomUUID().toString();
+        boolean hasActiveVersion = Integer.valueOf(1).equals(doc.getStatus());
+        if (Integer.valueOf(0).equals(doc.getStatus())) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "文档正在处理中，请稍后再更新");
+        }
+
         File tempFile = null;
+        String storedFileName = null;
+        boolean handedOff = false;
         try {
-            tempFile = File.createTempFile("update_", originalFilename);
+            tempFile = File.createTempFile("update_", "." + fileType);
             file.transferTo(tempFile);
 
-            String storedFileName = UUID.randomUUID() + "_" + originalFilename;
+            storedFileName = UUID.randomUUID() + "_" + originalFilename;
             cosManager.putObject(storedFileName, tempFile);
+            String resolvedTitle = title != null ? title : originalFilename;
 
-            // 3. 更新数据库记录
-            doc.setFileName(originalFilename);
-            doc.setFileUrl(storedFileName);
-            doc.setFileSize(file.getSize());
-            doc.setFileType(fileType);
-            doc.setTitle(title != null ? title : originalFilename);
-            doc.setStatus(0);
-            doc.setIndexVersion(UUID.randomUUID().toString());
-            doc.setChunkCount(null);
-            baseMapper.updateById(doc);
-
-            // 4. 异步重新处理文档
-            documentProcessingService.processDocument(doc.getId(), tempFile, fileType, doc.getTitle(), doc.getIndexVersion());
+            if (hasActiveVersion) {
+                // 元数据随候选索引一起发布：发布前文档行仍完整描述正在被检索的旧文件，
+                // 候选失败时也不会留下「文件名是新的、检索结果是旧的」的错位。
+                documentProcessingService.processDocumentCandidate(
+                        doc.getId(), tempFile, fileType, resolvedTitle, newVersion,
+                        new DocumentProcessingService.CandidateMetadata(
+                                originalFilename, storedFileName, file.getSize(), fileType, resolvedTitle,
+                                // 发布成功后由 ETL 清理这份被取代的旧对象；
+                                // 候选失败时它一步都不碰。
+                                doc.getFileUrl()));
+            } else {
+                // 失败态/无活动版本：走整代替换，没有旧版本需要保留。
+                doc.setFileName(originalFilename);
+                doc.setFileUrl(storedFileName);
+                doc.setFileSize(file.getSize());
+                doc.setFileType(fileType);
+                doc.setTitle(resolvedTitle);
+                doc.setStatus(0);
+                doc.setIndexVersion(newVersion);
+                doc.setChunkCount(null);
+                baseMapper.updateById(doc);
+                documentProcessingService.processDocument(
+                        doc.getId(), tempFile, fileType, resolvedTitle, newVersion);
+            }
+            handedOff = true;
         } catch (IOException e) {
+            discardUnreferencedObject(storedFileName);
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "文件更新失败");
+        } catch (RuntimeException e) {
+            // 对象已经写进 COS 却没有落成引用（DB 更新 / 候选登记失败）：删掉它，
+            // 否则就是一个无人认领的孤儿对象。是否「没人认领」靠回读数据库判断，
+            // 不是靠「刚才失败了」——见 discardUnreferencedObject。
+            discardUnreferencedObject(storedFileName);
+            throw e;
+        } finally {
+            // 异步 ETL 接管后由它删除；失败路径自己兜底，避免临时文件堆积。
+            if (!handedOff && tempFile != null && tempFile.exists() && !tempFile.delete()) {
+                log.warn("更新临时文件删除失败: {}", tempFile.getAbsolutePath());
+            }
         }
     }
 
@@ -334,6 +403,33 @@ public class KnowledgeBaseServiceImpl extends ServiceImpl<KnowledgeDocumentMappe
         boolean admin = AuthConstant.ADMIN_ROLE.equals(actor.getUserRole());
         ThrowUtils.throwIf(!admin && !actor.getId().equals(doc.getUserId()),
                 ErrorCode.NO_AUTH_ERROR, "只能操作自己的文档");
+    }
+
+    /**
+     * 失败路径上清掉「刚写进对象存储、却没有落成任何文档引用」的那一份。
+     *
+     * <p>判据是<b>回读数据库</b>，不是「刚才失败了」：{@code updateById} 成功、随后
+     * 提交异步 ETL 抛错时，新对象已经被文档行引用，删它等于删掉正在用的文件。
+     * 反过来，行没落成时这里删掉对象，孤儿窗口就只剩「进程在 putObject 与 rollback
+     * 之间被 kill」这种没有代码能覆盖的一瞬。
+     */
+    private void discardUnreferencedObject(String storedFileName) {
+        if (storedFileName == null || cosManager == null) {
+            return;
+        }
+        try {
+            Long referenced = baseMapper.selectCount(
+                    new LambdaQueryWrapper<KnowledgeDocument>()
+                            .eq(KnowledgeDocument::getFileUrl, storedFileName));
+            if (referenced != null && referenced > 0) {
+                return;
+            }
+            cosManager.deleteObject(storedFileName);
+            log.info("已清理未被引用的上传对象: key={}", storedFileName);
+        } catch (Exception e) {
+            // 清理是尽力而为：删不掉也不能把原始失败替换成清理异常。
+            log.warn("清理未被引用的上传对象失败: key={}", storedFileName, e);
+        }
     }
 
     /** 删除文档本体：向量 + 对象存储 + 数据库行。 */
@@ -462,5 +558,8 @@ public class KnowledgeBaseServiceImpl extends ServiceImpl<KnowledgeDocumentMappe
     }
 
     private record UploadResult(Long docId, String filename, String error) {
+    }
+
+    private record PendingUpload(String filename, CompletableFuture<UploadResult> future) {
     }
 }

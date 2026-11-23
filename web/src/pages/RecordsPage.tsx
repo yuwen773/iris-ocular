@@ -24,6 +24,7 @@ import {
   classCode,
   confidencePercent,
   formatTimestamp,
+  summaryProbabilityReading,
   severityLabel,
   severityRisk,
 } from "@/lib/domain"
@@ -233,7 +234,10 @@ export function RecordsPage() {
         {!fault && !loading && records.length > 0 ? (
           <>
             <ul className="records__list">
-              {records.map((item, index) => (
+              {records.map((item, index) => {
+                // 未标定时不叫置信度：标签与数值来自同一个读数（见 domain.summaryProbabilityReading）
+                const reading = summaryProbabilityReading(item)
+                return (
                 <li key={item.id} className="records__item">
                   <Link className="records__row" to={`/records/${item.id}`} data-cursor>
                     <span className="records__index num">
@@ -269,8 +273,8 @@ export function RecordsPage() {
                         <RiskTag risk="critical">拒识</RiskTag>
                       ) : (
                         <>
-                          <span className="readout__label">置信度</span>
-                          <span className="records__conf num">{confidencePercent(item.confidence)}</span>
+                          <span className="readout__label">{reading.label}</span>
+                          <span className="records__conf num">{confidencePercent(reading.value)}</span>
                           <RiskTag risk={severityRisk(item.severity ?? undefined)}>
                             {severityLabel(item.severity ?? undefined)}
                           </RiskTag>
@@ -318,7 +322,8 @@ export function RecordsPage() {
                     )
                   })()}
                 </li>
-              ))}
+                )
+              })}
             </ul>
 
             <nav className="records__pager" aria-label="判读记录分页">

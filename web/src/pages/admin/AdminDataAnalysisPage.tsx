@@ -559,7 +559,7 @@ function ModelSection(props: {
     <>
       <section className="admin-metric-strip" aria-label="模型与质量读数">
         <MetricCell
-          label="有效置信度样本"
+          label="有效自评置信度样本"
           value={formatCount(model.confidence.samples)}
           primary
           onInspect={() => onInspect("B-03")}
@@ -570,7 +570,7 @@ function ModelSection(props: {
           }
         />
         <MetricCell
-          label="平均置信度"
+          label="平均自评置信度"
           value={formatConfidence(model.confidence.avg)}
           onInspect={() => onInspect("B-03")}
           foot={
@@ -601,7 +601,7 @@ function ModelSection(props: {
         <section className="panel span-12" aria-label="模型版本对照">
           <div className="panel__head">
             <h2 className="panel__title">模型版本对照</h2>
-            <span className="panel__note">平均置信度只在有效样本内计算</span>
+            <span className="panel__note">平均自评置信度只在有效样本内计算（不是准确率）</span>
           </div>
           <div className="panel__body">
             <ModelVersionsTable versions={model.versions} onInspect={() => onInspect("B-01")} />

@@ -37,6 +37,7 @@ import {
   type DiagnosisReviewFilter,
 } from "@/lib/adminDomain"
 import { describeError, type ErrorDetail } from "@/lib/api"
+import { summaryProbabilityReading } from "@/lib/domain"
 import { queryKeys } from "@/lib/queryKeys"
 import {
   severityLabel,
@@ -336,9 +337,12 @@ export function AdminDiagnosisPage(): ReactElement {
               {severityLabel(detail.severity)}
             </span>
             <span>
-              <span className="admin-diagnosis__verdict-key">置信度</span>
+              {/* 未标定时不把模型自评概率叫置信度（与 RecordSheet 同一规则） */}
+              <span className="admin-diagnosis__verdict-key">
+                {summaryProbabilityReading(detail).label}
+              </span>
               <span className="num">
-                {confidencePercent(detail.confidence ?? detail.probability)}
+                {confidencePercent(summaryProbabilityReading(detail).value)}
               </span>
             </span>
           </div>
@@ -654,21 +658,24 @@ export function AdminDiagnosisPage(): ReactElement {
     },
     {
       key: "confidence",
-      title: "置信度",
+      // 列名不叫「置信度」：未标定的记录这里是模型自评概率，逐格标签才说得清
+      title: "概率读数",
       width: "128px",
       mono: true,
       sortable: true,
-      render: (row) =>
-        // 没有置信度不是 0.0%：AI 拒识的记录后端把置信度置空，读数要说清
-        // 「没有读数」，不能画成一条 0% 的进度。
-        typeof row.confidence === "number" && !Number.isNaN(row.confidence) ? (
+      render: (row) => {
+        // 没有读数不是 0.0%：AI 拒识的记录后端把概率置空，不能画成一条 0% 的进度。
+        const reading = summaryProbabilityReading(row)
+        if (reading.value === null) {
+          return <span className="admin-diagnosis__reading-none">— 无读数</span>
+        }
+        return (
           <span className="admin-diagnosis__reading">
-            <span className="admin-diagnosis__reading-label">置信度</span>
-            <ConfidenceCell value={row.confidence} />
+            <span className="admin-diagnosis__reading-label">{reading.label}</span>
+            <ConfidenceCell value={reading.value} />
           </span>
-        ) : (
-          <span className="admin-diagnosis__reading-none">— 无置信度</span>
-        ),
+        )
+      },
     },
     {
       key: "review",

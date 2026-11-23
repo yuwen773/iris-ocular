@@ -1,0 +1,38 @@
+# CODEOWNERS —— 迁移、安全策略与医疗证据契约需要专项复核。
+#
+# 这些路径的改动会直接改变「生产库长什么样」「谁能拿到什么」「判读结果凭什么
+# 成立」，因此由仓库维护者本人复核；其他文件不设默认所有者，避免评审义务被摊薄。
+#
+# 生效方式是仓库分支保护（GitHub 仓库设置，不在本文件、也不在 workflow 里）：
+#   gh api repos/<owner>/<repo>/branches/master/protection
+# 需 require_code_owner_reviews = true 且 pull_request = true；本文件只声明「谁拥有什么」。
+
+# 数据库迁移（只增不改：已应用脚本不得修改，只能追加更高版本）
+/src/main/resources/db/migration/ @yuwen773
+/src/main/resources/db/callback/ @yuwen773
+
+# 安全与授权边界
+/src/main/java/com/csust/eyediagnosis/security/ @yuwen773
+/src/main/java/com/csust/eyediagnosis/exception/ @yuwen773
+/src/main/java/com/csust/eyediagnosis/annotation/ @yuwen773
+/src/main/java/com/csust/eyediagnosis/config/StartupSafetyGuard.java @yuwen773
+
+# 医疗证据与判读链路
+/src/main/java/com/csust/eyediagnosis/diagnosistask/ @yuwen773
+/src/main/java/com/csust/eyediagnosis/doctorreview/ @yuwen773
+/src/main/java/com/csust/eyediagnosis/patientdraft/ @yuwen773
+/src/main/java/com/csust/eyediagnosis/patientexplanation/ @yuwen773
+/src/main/java/com/csust/eyediagnosis/patientauthorization/ @yuwen773
+/src/main/java/com/csust/eyediagnosis/patientfollowup/ @yuwen773
+/src/main/java/com/csust/eyediagnosis/agent/rag/ @yuwen773
+/src/main/java/com/csust/eyediagnosis/agent/service/ImageReferenceSigner.java @yuwen773
+/src/main/java/com/csust/eyediagnosis/agent/service/AgentImageReferenceResolver.java @yuwen773
+/src/main/java/com/csust/eyediagnosis/controlledreference/ @yuwen773
+/src/main/proto/ @yuwen773
+
+# 算法服务（质量门、MCP 传输层与鉴权）
+/algorithm/eye_diagnosis/quality.py @yuwen773
+/algorithm/eye_diagnosis/quality_calibration.py @yuwen773
+/algorithm/configs/calibration/ @yuwen773
+/algorithm/tools/ @yuwen773
+/algorithm/mcp_server/ @yuwen773

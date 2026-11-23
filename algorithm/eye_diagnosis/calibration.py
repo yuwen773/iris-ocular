@@ -6,7 +6,13 @@ from typing import Iterable
 import numpy as np
 
 
-def _softmax(logits: np.ndarray) -> np.ndarray:
+def softmax(logits: np.ndarray) -> np.ndarray:
+    """数值稳定的 softmax（支持 1 维或 2 维，按最后一维归一）。
+
+    这是**全仓唯一**的 softmax 实现：温度缩放、原始输出、校准后的分布都从
+    这一处取值。副本会悄悄分叉（比如一份带 keepdims、一份不带），
+    最后表现为「同一个模型给出两种概率」。
+    """
     z = logits - logits.max(axis=-1, keepdims=True)
     e = np.exp(z)
     return e / e.sum(axis=-1, keepdims=True)
@@ -21,7 +27,7 @@ class TemperatureScaler:
         best_loss = float("inf")
         for t in np.linspace(0.5, 3.0, 26):
             scaled = logits / t
-            probs = _softmax(scaled)
+            probs = softmax(scaled)
             loss = float(-np.log(np.clip(probs[np.arange(len(labels)), labels], 1e-9, 1.0)).mean())
             if loss < best_loss:
                 best_loss = loss

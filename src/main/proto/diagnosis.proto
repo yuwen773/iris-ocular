@@ -22,10 +22,20 @@ enum OodStatus {
   EVALUATION_FAILED = 4;
 }
 
+// 图像质量门的状态：与分类结论、OOD 分开，各自可追责。
+enum ImageQualityState {
+  QUALITY_UNSPECIFIED = 0;
+  QUALITY_PASSED = 1;
+  QUALITY_FAILED = 2;
+  QUALITY_NOT_EVALUATED = 3;
+}
+
 message DiagnosisResponse {
   string predicted_label = 1;
   double probability = 2;
-  int32 reliability_score = 3;
+  // 旧字段：语义是「原始 softmax 百分数」，不是校准概率，也不是医学可靠性。
+  // 仅作兼容保留，新代码请用 classification_probability + calibration_state。
+  int32 reliability_score = 3 [deprecated = true];
   string description = 4;
   repeated DiseasePrediction top_predictions = 5;
   bool rejected = 6;
@@ -42,6 +52,29 @@ message DiagnosisResponse {
   OodStatus ood_status = 17;
   string calibration_status = 18;
   string inference_policy_version = 19;
+
+  // ── 2026-11-23：把混在一起的语义拆成互不冒充的独立字段 ──────────────
+  // 分类概率：0–1 的原始 softmax 分布的 top-1。它**不是**校准概率，
+  // 更不是「诊断可靠性」；没有校准时只能当作模型输出强度来读。
+  // optional：proto3 的标量默认值就是 0，没有 presence 时「没给」和「给了 0」
+  // 分不开——而 0.0 会被读成「模型输出 0%」。
+  optional double classification_probability = 20;
+  // 校准产物版本（含数据集、样本量与统计口径）：可追到「这份概率是怎么来的」。
+  // 空串视为「未提供版本」，不编造。
+  string calibration_version = 21;
+  ImageQualityState image_quality_state = 22;
+  // 质量门判据版本：阈值变了必须换版本，否则历史记录无法区分。
+  string image_quality_version = 23;
+  // 质量门「阈值本身」是否在真实数据上标定过（UNCALIBRATED / CALIBRATED）。
+  // 与 image_quality_state 分开：前者说「这张图过没过」，后者说「判据可不可信」。
+  string image_quality_calibration_state = 24;
+  // 是否允许作为面向患者的结论呈现：由算法侧按质量门与拒识判定，
+  // 与「准入是否放行任务」是两道独立的门，不要互相替代。
+  optional bool patient_conclusion_allowed = 25;
+  // 校准状态沿用 calibration_status（CALIBRATED / NOT_CALIBRATED）：
+  // 它已经是独立字段，与分类概率分开；OOD 的状态在 ood_status。
+  // 版本绑定的 OOD 验证产物落地时，再补一个 ood_evaluation_version 字段——
+  // 在那之前没有版本可写，写空串等于编造出处。
 }
 
 service DiagnosisService {

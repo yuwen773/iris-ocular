@@ -59,4 +59,17 @@ public class AgentImageUploadController {
         agentImageUploadService.deleteImage(url, loginUser.getId());
         return ResultUtils.success(true);
     }
+
+    /**
+     * 签发短期图片引用。
+     *
+     * <p>算法侧的 MCP 工具只接受这种引用：签名在后端、有效期短、目标地址由
+     * 后端决定，模型无法把工具指向任意主机。归属校验与取图接口同口径。
+     */
+    @GetMapping("/reference/{fileName}")
+    @AuthCheck(mustRole = AuthConstant.DEFAULT_ROLE)
+    public BaseResponse<String> reference(@PathVariable String fileName, HttpServletRequest request) {
+        User loginUser = userService.getLoginUser(request);
+        return ResultUtils.success(agentImageUploadService.issueImageReference(fileName, loginUser.getId()));
+    }
 }

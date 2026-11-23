@@ -18,6 +18,7 @@ import type {
   AnalyticsStatusStat,
 } from "@/lib/adminApi"
 import { humanReviewStatusLabel } from "@/lib/adminDomain"
+import { QUALITY_GATE_REASON_LABELS } from "@/lib/domain"
 
 /* ── 窗口与分区 ───────────────────────────────────────────── */
 
@@ -71,11 +72,9 @@ export function formatMinutes(value: number | null): string {
 /* ── 枚举文案 ─────────────────────────────────────────────── */
 
 const REASON_LABELS: Record<string, string> = {
-  QUALITY_FAIL: "图像质量不合格",
-  OOD: "分布外影像（OOD）",
-  LOW_CONFIDENCE: "置信度偏低",
-  NOT_ASSESSED: "未评估",
-  MODEL_NOT_LOADED: "模型未加载",
+  // 与服务端枚举共用的码只在这里登记一次（见 domain.QUALITY_GATE_REASON_LABELS）：
+  // 同一份 `abstainReason` 在患者任务页与管理端分析里必须是同一句人话。
+  ...QUALITY_GATE_REASON_LABELS,
   UNCLASSIFIED: "未归类原因",
   UNRECORDED: "未记录原因",
 }
@@ -468,19 +467,23 @@ export const METRIC_DEFINITIONS: Record<string, MetricDefinition> = {
     unit: "0–100",
     exclusions: [
       "不是准确率：系统没有真实标签数据源",
+      "未校准的自评概率不等于医学可靠性；是否经过概率校准见 B-08",
       "(0,1] 视为量纲未知，单独计数，不自动 ×100",
       "≤0 / >100 / NULL 均不参与均值",
     ],
   },
   "B-04": {
     id: "B-04",
-    title: "置信度分布",
+    title: "模型自评置信度分布",
     question: "自评置信度的分布形状？",
     formula: "0–100 十档直方图（0–10 … 90–100）",
     denominator: "量纲可靠的样本",
     timeField: "createTime",
     unit: "条",
-    exclusions: ["量纲未知、越界与空值不进入任何桶，只在数据质量区计数"],
+    exclusions: [
+      "量纲未知、越界与空值不进入任何桶，只在数据质量区计数",
+      "这一列混着已校准与未校准的记录；按校准状态拆分见 B-08，别当成同一口径的平均可靠性",
+    ],
   },
   "B-05": {
     id: "B-05",
@@ -619,15 +622,15 @@ export function metricLiveRows(
       ]
     case "B-03":
       return [
-        { label: "有效置信度样本", value: count(data.model.confidence.samples) },
-        { label: "平均置信度（0–100）", value: formatConfidence(data.model.confidence.avg) },
+        { label: "有效自评置信度样本", value: count(data.model.confidence.samples) },
+        { label: "平均自评置信度（0–100）", value: formatConfidence(data.model.confidence.avg) },
         { label: "量纲歧义 (0,1]", value: count(data.model.confidence.ambiguous) },
         { label: "越界（≤0 或 >100）", value: count(data.model.confidence.outOfRange) },
         { label: "缺失", value: count(data.model.confidence.missing) },
       ]
     case "B-04":
       return [
-        { label: "有效置信度样本", value: count(data.model.confidence.samples) },
+        { label: "有效自评置信度样本", value: count(data.model.confidence.samples) },
         {
           label: "直方图记录合计",
           value: count(
@@ -714,8 +717,8 @@ export function buildAvailability(data: AdminAnalytics): AvailabilityItem[] {
       title: "模型与图像质量",
       statusLabel: "当前窗口统计",
       statusTone: "live",
-      value: `${formatCount(data.model.confidence.samples)} 个有效置信度样本`,
-      caption: `平均置信度 ${formatConfidence(data.model.confidence.avg)}（0–100）· 模型版本 ${
+      value: `${formatCount(data.model.confidence.samples)} 个有效自评置信度样本`,
+      caption: `平均自评置信度 ${formatConfidence(data.model.confidence.avg)}（0–100）· 模型版本 ${
         data.model.versions.length
       } 个`,
     },

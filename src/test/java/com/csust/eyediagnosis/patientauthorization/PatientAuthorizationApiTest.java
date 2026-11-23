@@ -85,7 +85,7 @@ class PatientAuthorizationApiTest {
         var controllers = new ArrayList<Object>();
         controllers.add(new com.csust.eyediagnosis.controller.PatientAuthorizationController(
                 new PatientAuthorizationService(jdbc, new DoctorReviewService(jdbc, evidence)), users));
-        controllers.addAll(List.of(new DoctorReviewController(new DoctorReviewService(jdbc, evidence), users),
+        controllers.addAll(List.of(new DoctorReviewController(new DoctorReviewService(jdbc, evidence), users, mock(com.csust.eyediagnosis.diagnosistask.DiagnosisTaskService.class)),
                         new DiagnosisTaskController(new DiagnosisTaskService(jdbc, mock(DiagnosisTaskStorage.class)), users),
                         new com.csust.eyediagnosis.controller.PatientExplanationController(new com.csust.eyediagnosis.patientexplanation.PatientExplanationService(jdbc, new DoctorReviewService(jdbc, evidence)), users)));
         mvc = MockMvcBuilders.standaloneSetup(controllers.toArray())

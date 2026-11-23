@@ -141,8 +141,8 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisMapper, Diagnosis
             result = this.saveOrUpdate(diagnosis);
         } catch (RuntimeException e) {
             // 与 doDiagnosis 同一类「提交结果未知」：不删（可能已经提交，删了不可逆）。
-            // 但这条日志是事后唯一能找回这个对象的线索——public/ 没有对账器，
-            // 不记就彻底查不到这张原图去了哪里。
+            // 但这条日志是事后最容易找回这个对象的线索：public/ 的只读审计只列「无引用」
+            // 对象，分不清「提交结果未知」，不记就查不到这张原图去了哪里。
             log.warn("影像已上传但落库结果未知，保留对象待人工排查, objectKey={}",
                     uploadPictureDetail.getObjectKey(), e);
             throw e;
@@ -150,7 +150,7 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisMapper, Diagnosis
         if (!result) {
             // 明确 0 行 = 记录没写进去，这张原图没有任何东西引用它。
             // 与 doDiagnosis 同一口径：删掉刚上传的那一个对象，否则它会在
-            // public/ 前缀下永久滞留（该前缀没有对账器）。
+            // public/ 前缀下永久滞留（该前缀只有只读审计，不会替人删）。
             // 注意只在「明确失败」时删：saveOrUpdate 抛异常属于提交结果未知，那里不删。
             fileManager.deleteUploadedPictureQuietly(uploadPictureDetail.getObjectKey());
             throw new BusinessException(ErrorCode.OPERATION_ERROR, PICTURE_FAIL_UPLOAD);
@@ -367,8 +367,9 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisMapper, Diagnosis
                 // 途中抛了超时——这时记录在库、原图却被删掉，是最坏的结果。
                 // 先按主键回查一次：查不到（且查询本身没失败）才认为记录确实没落库。
                 if (diagnosis != null && recordMayExist(diagnosis)) {
-                    // 注意：public/ 前缀下**没有**自动对账器（UploadCompensationService
-                    // 只扫 agent-chat/），这里留下的对象需要人工排查或后续接入对账。
+                    // 注意：public/ 前缀下只有**只读**审计（PublicImageOrphanAuditor 列出
+                    // 无引用对象并告警，UploadCompensationService 只扫 agent-chat/ 并自动删），
+                    // 这里留下的对象需要人工核对后清理。
                     // 仍然选择保留：删掉一张可能被正式记录引用的原图不可逆。
                     log.warn("诊断记录落库结果未知，保留已上传影像以免误删被引用对象（public/ 暂无常驻对账）, diagnosisId={}, objectKey={}",
                             diagnosis.getId(), imageKey);
@@ -606,19 +607,34 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisMapper, Diagnosis
                 .setPreprocessVersion(cache.getPreprocessVersion())
                 .setInferencePolicyVersion(cache.getInferencePolicyVersion())
                 .setPredictedLabel(cache.getPredictedLabel())
-                .setProbability(cache.getProbability())
-                .setCalibratedProbability(cache.getCalibratedProbability())
+                .setProbability(orZero(cache.getProbability()))
+                .setCalibratedProbability(orZero(cache.getCalibratedProbability()))
                 .setCalibrationStatus(cache.getCalibrationStatus() == null ? "NOT_CALIBRATED" : cache.getCalibrationStatus())
                 .setDescription(cache.getDescription() == null ? "" : cache.getDescription())
-                .setReliabilityScore(cache.getReliabilityScore())
-                .setQualityScore(cache.getQualityScore())
+                .setReliabilityScore(orZero(cache.getReliabilityScore()))
+                .setQualityScore(orZero(cache.getQualityScore()))
                 .setQualityReasons(cache.getQualityReasons() == null ? "" : cache.getQualityReasons())
                 .setIsOod(Boolean.TRUE.equals(cache.getIsOod()))
-                .setOodScore(cache.getOodScore())
+                .setOodScore(orZero(cache.getOodScore()))
                 .setOodStatus(parseOodStatus(cache.getOodStatus()))
                 .setRejected(Boolean.TRUE.equals(cache.getRejected()))
                 .setAbstainReason(cache.getAbstainReason() == null ? "" : cache.getAbstainReason())
-                .setRequiresReview(Boolean.TRUE.equals(cache.getRequiresReview()));
+                .setRequiresReview(Boolean.TRUE.equals(cache.getRequiresReview()))
+                // 缓存命中也必须带回完整证据：少了这些字段，命中缓存的那次判读
+                // 就会比没命中的那次少一截证据（例如质量门版本变成空）。
+                .setCalibrationVersion(cache.getCalibrationVersion() == null ? "" : cache.getCalibrationVersion())
+                .setImageQualityState(DiagnosisEvidence.protoImageQualityState(cache.getImageQualityState()))
+                .setImageQualityVersion(cache.getImageQualityVersion() == null ? "" : cache.getImageQualityVersion())
+                .setImageQualityCalibrationState(cache.getImageQualityCalibrationState() == null
+                        ? "" : cache.getImageQualityCalibrationState());
+        // optional 字段只在缓存里真有值时才写：proto3 不带 presence 时，
+        // 写个 0.0 就等于替算法说「模型输出 0%」。
+        if (cache.getClassificationProbability() != null) {
+            builder.setClassificationProbability(cache.getClassificationProbability());
+        }
+        if (cache.getPatientConclusionAllowed() != null) {
+            builder.setPatientConclusionAllowed(cache.getPatientConclusionAllowed());
+        }
         try {
             List<Map<String, Object>> topPredictions = JsonUtils.fromJson(
                     cache.getTopPredictions(), new TypeReference<>() {});
@@ -633,6 +649,21 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisMapper, Diagnosis
         return builder.build();
     }
 
+    /**
+     * 缓存行的可空数值 → proto 的标量字段。
+     *
+     * <p>proto3 的普通 {@code double} / {@code int32} 没有 presence，顺手拆箱一个
+     * {@code null} 会直接 NPE；写 0 与「字段不写」在线上是同一个值，语义信息由
+     * {@code calibrationStatus} 之类的状态字段表达，不靠这个 0 去猜。
+     */
+    private static double orZero(Double value) {
+        return value == null ? 0.0 : value;
+    }
+
+    private static int orZero(Integer value) {
+        return value == null ? 0 : value;
+    }
+
     private static DiagnosisProto.OodStatus parseOodStatus(String value) {
         try {
             return DiagnosisProto.OodStatus.valueOf(value);
@@ -644,6 +675,12 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisMapper, Diagnosis
     /**
      * 将 gRPC 响应转换为前端结果 VO。严重程度在没有已验证模型输出的情况下
      * 统一为 NOT_ASSESSED，不得通过概率或类别启发式伪造。
+     *
+     * <p>这里是<b>同步判读面</b>（研发演示推理）：只要算法没有拒识就返回分类结果，
+     * 「能不能作为患者结论」交给 {@code patientConclusionAllowed} 标注，前端据此换读法；
+     * 异步患者任务面（{@code DiagnosisTaskRunner}）还要额外过版本绑定的 OOD 证据门，
+     * 缺证据即 {@code RESTRICTED}。两套准入是不同产品面，不要在这里补异步那道门，
+     * 也不要把这里的放行当成患者任务已准入。
      */
     public static DiagnosisResultVO buildDiagnosisResult(DiagnosisProto.DiagnosisResponse grpcResponse) {
         return buildDiagnosisResult(grpcResponse, DiagnosisEvidence.fromResponse(grpcResponse));
@@ -663,7 +700,11 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisMapper, Diagnosis
         vo.setResult(DiagnosisCategoryEnum.getChineseLabelByEnglishLabel(predictedLabel));
         vo.setDetails(grpcResponse.getDescription());
         vo.setProbability(grpcResponse.getProbability());
-        vo.setConfidence(grpcResponse.getProbability());
+        // 「置信度」只有在真正校准过时才是置信度。未标定时把原始 softmax 填进
+        // 这个字段，等于让界面把未标定的模型输出读成临床可靠性——界面据此标注
+        // 「模型输出概率（未标定）」，数值本身仍由 probability 提供。
+        vo.setConfidence(DiagnosisEvidence.exposedConfidence(
+                grpcResponse.getCalibrationStatus(), grpcResponse.getCalibratedProbability()));
         vo.setRecommendations(DiagnosisRecommendationEnum.getRecommendationByEnglishLabel(predictedLabel));
         vo.setSeverity("NOT_ASSESSED");
         List<Disease> diseases = grpcResponse.getTopPredictionsList().stream()

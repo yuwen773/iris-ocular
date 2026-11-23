@@ -6,7 +6,7 @@
  * 还挂在表里（Vue 版踩过这个坑）。雪花 id 用 string，避免超出 JS 安全整数被截断。
  */
 
-import type { DiagnosisResult } from "./api"
+import type { DiagnosisResult, ProbabilityEvidence } from "./api"
 import { ApiError } from "./api-error"
 import {
   BASE_URL,
@@ -127,10 +127,9 @@ export function uploadNewsCover(id: string, file: File): Promise<string> {
 
 /* ── 诊断管理 ─────────────────────────────────────────────── */
 
-export type AdminDiagnosis = {
+/** 管理端判读台账的一行：概率证据与列表 VO 同一份字段定义（见 `ProbabilityEvidence`）。 */
+export type AdminDiagnosis = ProbabilityEvidence & {
   id: string; url?: string; username?: string; result?: string | null
-  /** AI 拒识的记录后端把置信度置空（null），不是 0——读数要显示「—」。 */
-  confidence?: number | null
   severity?: string | null; reexamineStatus?: number; createTime?: string
   aiRejected?: boolean; abstainReason?: string; requiresReview?: boolean
 }

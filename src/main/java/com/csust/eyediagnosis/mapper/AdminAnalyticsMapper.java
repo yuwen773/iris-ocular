@@ -150,6 +150,16 @@ public interface AdminAnalyticsMapper {
      *
      * <p>置信度均值只取 {@code 1 < confidence <= 100} 的样本；其余按量纲未知计数，
      * 不猜测、不自动乘 100。
+     *
+     * <p>这一列的写入方只有一个：{@code DiagnosisEvidence.applyTo(Diagnosis)} 把
+     * {@code top1 × 100} 落库（口径见 {@code docs/design/iris22-admin-metric-registry.md}
+     * B-03/B-04）。它是「模型自评概率百分数」，不是校准置信度。
+     *
+     * <p>这里**不做** {@code calibrationStatus} 过滤：分析页要看的正是「自评有多自信」，
+     * 页面标题与说明都写明「模型自评 · 不是诊断准确率」，并把校准情况交给 B-08 的
+     * 校准状态分布单列。患者端与判读记录面则相反——那里只有校准过才叫置信度
+     * （{@code DiagnosisEvidence.exposedConfidence}）。两处口径不同是有意的：
+     * 一个回答「模型自评什么水平」，一个回答「这个数能不能当医学可靠性」。
      */
     @Select("SELECT modelVersion, COUNT(*) AS count, "
             + "SUM(CASE WHEN aiRejected = 1 THEN 1 ELSE 0 END) AS rejected, "

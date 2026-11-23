@@ -16,6 +16,19 @@
 | MCP 服务 | 用户可启用的外部工具服务，会话覆盖 → 全局启用 → 禁用的解析优先级 | `agent/manager/MCPManager.java` |
 | 知识库文档（KnowledgeDocument） | RAG 文档的上传、切块与向量化记录 | `model/entity/` |
 | 知识索引版本（indexVersion） | 一次文档处理的服务端 UUID；仅 READY 文档当前版本的片段和引用可作为证据，失败代及旧代必须排除 | `KnowledgeDocument` / `DocumentProcessingService` / `DocumentSearchTool` |
+| 词法语料（LexicalCorpus） | 按 `ownerUserId` 元数据从向量库**直取**的该用户可见全部分块（含内置语料），供 BM25 使用；不是语义近邻子集 | `agent/rag/LexicalCorpusService.java` |
+| 混合检索（hybrid-search） | 向量检索 + 词法召回经 RRF 融合；词法命中必须回向量库核对相似度阈值，未通过的一律丢弃 | `agent/tools/DocumentSearchTool.java` |
+| 图片引用（iris-img://） | 后端签发的短期对象引用（HMAC-SHA256，≤15 分钟）；MCP 默认只认它，不认任意 URL | `agent/service/ImageReferenceSigner.java` / `algorithm/mcp_server/image_ref.py` |
+| 图像质量门（ImageQualityState） | 这张图过没过质量门的结论，对外只说 `PASSED / FAILED / NOT_EVALUATED`；与「结论可不可信」分开 | `algorithm/eye_diagnosis/quality.py` / `V34` |
+| 质量门标定产物（QualityCalibration） | 模糊阈值及其出处的版本化产物；`UNCALIBRATED` 时必须如实标注，不得当成已验证阈值 | `algorithm/eye_diagnosis/quality_calibration.py` / `algorithm/configs/calibration/` |
+| 分类概率（classificationProbability） | 原始 softmax top-1（0–1）。**不是**校准概率，更不是医学可靠性；未标定时界面必须照此标注 | `DiagnosisEvidence` / `V34` |
+| 患者结论准入（patientConclusionAllowed） | 算法侧判定「这条结论能否面向患者呈现」；与异步任务准入（`restrictReason`）是两道独立的门 | `diagnosis.proto` / `DiagnosisTaskRunner` |
+| 任务受限原因（restrictReason） | 异步患者任务为准入未通过时落库/下发的受限码；前端据此如实说明为何被限制 | `V33` / `DiagnosisTaskRunner` |
+| 两条判读准入 | 同步 `/api/diagnosis/*` 是「研发演示推理」：未被拒识就回分类结果，并用 `patientConclusionAllowed` 标注能不能作患者结论；异步 `/api/diagnosis-tasks/*` 是「满足证据准入的患者任务」：另加版本绑定的 OOD 证据门，缺证据即 `RESTRICTED`。两者是不同产品面，不是同一道门的两份实现 | `DiagnosisServiceImpl` / `DiagnosisTaskRunner` |
+| 两种「未标定」 | `NOT_CALIBRATED` 说的是**概率**有没有做温度校准（`t_diagnosis.calibrationStatus`）；`UNCALIBRATED` 说的是**图像质量门阈值**有没有在真实数据上标定（`imageQualityCalibrationState`）。两者互不相干，不要互相顶替：一张图可能质量阈值已标定、而概率还没校准 | `diagnosis.proto` / `quality_calibration.py` |
+| 对外置信度（exposedConfidence） | 只有 `calibrationStatus = CALIBRATED` 才有值；未标定时对外为 null，读法改用 `classificationProbability` 并标注「模型输出概率（未标定）」。库里的 `confidence` 列另有一套口径（模型自评概率，供分析工作台），不要混用 | `DiagnosisEvidence.exposedConfidence` / `web/src/lib/domain.ts` |
+| 流式账号闸门（AccountStreamGuard） | 流式回答进行中按时间片回查账号是否仍可用；封禁发生在开写之后也要立刻停止投递，不能等下一次请求 | `agent/service/AccountStreamGuard.java` |
+| 公开影像前缀审计（public/） | `public/` 下判读原图与头像**没有任务表登记**，只做只读对账：列出无数据库引用的对象并告警，删除仍由人工决定（同一前缀混两类对象，删错不可恢复） | `upload/audit/PublicImageOrphanAuditor.java` |
 
 ## 两个流程状态不要混用
 

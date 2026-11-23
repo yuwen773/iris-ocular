@@ -242,6 +242,13 @@ class InferenceCacheTest {
                 .setPreprocessVersion(PREPROCESS)
                 .setInferencePolicyVersion(POLICY)
                 .setRequiresReview(true)
+                // 语义拆分后的六项证据：往返必须逐项保持（含 optional 的 presence）
+                .setClassificationProbability(0.915)
+                .setCalibrationVersion("calibration-v0")
+                .setImageQualityState(DiagnosisProto.ImageQualityState.QUALITY_FAILED)
+                .setImageQualityVersion("quality-blur-v0-uncalibrated")
+                .setImageQualityCalibrationState("UNCALIBRATED")
+                .setPatientConclusionAllowed(false)
                 .build();
     }
 
