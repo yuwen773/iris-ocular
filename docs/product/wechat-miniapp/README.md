@@ -61,7 +61,7 @@ miniapp/src/
   app.tsx / app.config.ts
   styles/tokens.scss        ← scripts/gen-tokens.mjs 从 web/src/styles/tokens.css 生成（勿手改）
   theme.json                ← 同一脚本生成（导航栏 / tabBar 色值跟随令牌，勿手改）
-  lib/{env,token,raw,auth,request,api,domain,upload,privacy,sse,utf8,agentStream}.ts
+  lib/{env,token,raw,auth,authedCall,request,api,domain,upload,privacy,sse,utf8,agentStream,agentHistory}.ts
   components/{Tags,Feedback,PrivacyDialog}.tsx
   pages/diagnosis/{index,result}.tsx   判读入口 / 结果
   pages/records/index.tsx              记录列表（上拉分页）
@@ -70,9 +70,12 @@ miniapp/src/
 ```
 
 - 主题：`darkmode: true` + `theme.json`，令牌用 `@media (prefers-color-scheme: dark)` 翻转。
+  `app.config.ts` 的导航栏 / tabBar 色值从生成的 `theme.json` 读，不手写十六进制。
 - 图片：`chooseMedia(compressed)` + `compressImage` 压到 2MB 内；仍超限再走离屏画布等比缩放（见下）。
 - 合规四项：隐私授权（自建说明弹层 `components/PrivacyDialog` → 平台 `requirePrivacyAuthorize`）、
   健康数据用途说明、AI 生成内容标识、结果页免责声明。
+  弹层守的是**影像采集与相册**这两类平台隐私接口；启动时的静默登录只换 openid（`jscode2session`，
+  不在隐私接口清单里），因此不挡在弹层之后——否则每次冷启动都要先点「同意」才能进判读页。
 - 图片超限的顺序：`compressImage` 70 → 40 → 离屏画布等比缩到最长边 1600 重编码 → 仍超就明确要求重拍。
 - Agent：单会话 + 「最近的对话」列表（`/agent/sessions` → 点选恢复）；流式除总超时 120s 外，
   还有 30s 无分片看门狗，按断流提示，不把半截回答当完整回答。
@@ -92,6 +95,8 @@ miniapp/src/
 ## 5. 验证
 
 - 小程序：`npm run typecheck && npm test && npm run build:weapp`（CI `miniapp` job 同口径）。
+  单测只覆盖纯函数（SSE 切帧、流式 UTF-8 解码、域映射、历史回放过滤），**没有组件测试**——
+  计划里提过的 `@tarojs/test-utils-react` 没有引入，页面行为靠真机清单验收。
 - 后端：`scripts/verify-fast.sh --java FlywayMySqlIntegrationTest --java MiniAppAuthServiceTest --java MiniAppTokenFilterTest --java MiniAppTokenServiceTest --java WeChatCode2SessionClientTest --java SameOriginFilterTest --db`
   （L2，覆盖 V35 迁移与 Spring 装配）。脚本不接受「只有 `--db`」的写法——它要求点名要跑的用例。
 - 手工清单：静默登录建号且二次进入同账号；>2MB 图片被压缩或明确拒绝；拒识/待复核不给结论；
