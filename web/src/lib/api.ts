@@ -93,6 +93,23 @@ export type DiagnosisResult = {
   inferencePolicyVersion?: string
   calibratedProbability?: number
   calibrationStatus?: string
+  /**
+   * 原始 softmax top-1（0–1）。
+   *
+   * <p>它**不是**校准概率，也**不是**医学可靠性：没有校准时只能读作
+   * 「模型输出强度」，界面据此标注，不按置信度呈现。
+   */
+  classificationProbability?: number
+  /** 校准产物版本 */
+  calibrationVersion?: string
+  /** 图像质量门结论：PASSED / FAILED / NOT_EVALUATED */
+  imageQualityState?: string
+  /** 质量门判据版本 */
+  imageQualityVersion?: string
+  /** 质量门阈值是否在真实数据上标定过 */
+  imageQualityCalibrationState?: string
+  /** 是否允许作为面向患者的结论呈现 */
+  patientConclusionAllowed?: boolean
   oodStatus?: string
   oodScore?: number
   /**

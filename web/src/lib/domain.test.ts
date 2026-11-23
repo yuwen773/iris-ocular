@@ -9,6 +9,7 @@ import {
   confidencePercent,
   isUrgentAdvice,
   normalizeConfidence,
+  probabilityReading,
   rankClasses,
   severityLabel,
   severityRisk,
@@ -299,5 +300,26 @@ describe("formatAuthorizedAt", () => {
     expect(formatAuthorizedAt(null)).toBeNull()
     expect(formatAuthorizedAt("")).toBeNull()
     expect(formatAuthorizedAt(undefined)).toBeNull()
+  })
+})
+
+describe("probabilityReading", () => {
+  it("已标定时按校准后概率呈现", () => {
+    expect(probabilityReading({ calibrationStatus: "CALIBRATED" })).toEqual({
+      label: "校准后概率",
+      calibrated: true,
+      note: null,
+    })
+  })
+
+  it("未标定时不叫置信度，并说明它不能当可靠性读", () => {
+    const reading = probabilityReading({ calibrationStatus: "NOT_CALIBRATED" })
+    expect(reading.calibrated).toBe(false)
+    expect(reading.label).toContain("未标定")
+    expect(reading.note).toContain("不能当作诊断可靠性")
+  })
+
+  it("没有任何校准信息时按未标定处理，不猜", () => {
+    expect(probabilityReading({}).calibrated).toBe(false)
   })
 })

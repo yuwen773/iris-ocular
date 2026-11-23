@@ -297,3 +297,41 @@ describe("RecordSheet 来源与授权投影", () => {
     expect(screen.getByText(/AI 判读结果/)).toBeTruthy()
   })
 })
+
+describe("RecordSheet 判读概率的读法", () => {
+  it("未标定时标注为模型输出概率，并说明不能当可靠性读", () => {
+    render(
+      <RecordSheet
+        result={
+          {
+            result: "正常",
+            probability: 0.82,
+            calibrationStatus: "NOT_CALIBRATED",
+          } as DiagnosisResult
+        }
+      />,
+    )
+
+    expect(screen.getByText("模型输出概率（未标定）")).toBeTruthy()
+    expect(screen.getByText(/未经真实数据标定/)).toBeTruthy()
+    // 未标定的数值撑不起风险分档：不借颜色说 severity。
+    expect(screen.queryByText("可信")).toBeNull()
+  })
+
+  it("已标定时才给风险分档", () => {
+    render(
+      <RecordSheet
+        result={
+          {
+            result: "正常",
+            probability: 0.82,
+            calibrationStatus: "CALIBRATED",
+          } as DiagnosisResult
+        }
+      />,
+    )
+
+    expect(screen.getByText("校准后概率")).toBeTruthy()
+    expect(screen.getByText("可信")).toBeTruthy()
+  })
+})

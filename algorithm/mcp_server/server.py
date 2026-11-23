@@ -4,6 +4,7 @@ from mcp.server.fastmcp import FastMCP
 
 from mcp_server.auth import BearerTokenMiddleware
 from mcp_server.config import MCPConfig
+from mcp_server.image_handler import reference_secret_configured, remote_urls_allowed
 from mcp_server.tools import diagnose, load_model
 
 logger = logging.getLogger(__name__)
@@ -18,14 +19,16 @@ mcp = FastMCP(
 async def eye_disease_diagnosis(image_input: str) -> str:
     """对眼科眼底图像进行AI疾病诊断。
 
-    接收眼底图像（支持本地文件路径、HTTP/HTTPS URL、Base64编码），返回疾病预测结果，
+    接收眼底图像（优先使用后端签发的短期图片引用），返回疾病预测结果，
     包括预测标签、概率、可靠性评分、疾病描述和Top3预测。
 
     Args:
         image_input: 图片输入，支持以下格式：
+            - 后端签发的短期图片引用（首选）: iris-img://<payload>?exp=...&sig=...
             - 本地文件路径: /path/to/image.jpg 或 C:\\path\\to\\image.png
-            - HTTP/HTTPS URL: https://example.com/eye.png
+              （仅限 MCP_IMAGE_ROOT 之内的目录）
             - Base64编码字符串: iVBORw0KGgo...
+            - HTTP/HTTPS URL: 仅当服务显式开启 MCP_ALLOW_REMOTE_URLS 时接受
 
     Returns:
         JSON格式的诊断结果，包含 predicted_label、predicted_label_cn、probability、
@@ -67,7 +70,9 @@ def main():
 
     logger.info(f"Starting MCP server on {config.host}:{config.port} "
                 f"(auth={'bearer' if config.auth_token else 'none'}, "
-                f"image_root={config.image_root or 'disabled'})")
+                f"image_root={config.image_root or 'disabled'}, "
+                f"image_ref={'configured' if reference_secret_configured() else 'disabled'}, "
+                f"remote_urls={'allowed' if remote_urls_allowed() else 'refused'})")
     load_model(config)
     logger.info("Model loaded, server ready")
 

@@ -100,6 +100,23 @@ public class DiagnosisResultVO  implements Serializable {
     private String oodStatus;
     /** OOD 分数 */
     private Double oodScore;
+    /**
+     * 原始 softmax top-1（0-1）。
+     *
+     * <p>它<b>不是</b>校准概率，也<b>不是</b>医学可靠性：没有校准时只能当作
+     * 「模型输出强度」来读，界面必须照此标注。
+     */
+    private Double classificationProbability;
+    /** 校准产物版本 */
+    private String calibrationVersion;
+    /** 图像质量门结论：PASSED / FAILED / NOT_EVALUATED */
+    private String imageQualityState;
+    /** 质量门判据版本 */
+    private String imageQualityVersion;
+    /** 质量门阈值是否在真实数据上标定过 */
+    private String imageQualityCalibrationState;
+    /** 是否允许作为面向患者的结论呈现 */
+    private Boolean patientConclusionAllowed;
 
     /**
      * 来源与复核投影（只读，仅详情接口下发）。

@@ -2,6 +2,7 @@ package com.csust.eyediagnosis.agent.mcp;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.csust.eyediagnosis.agent.manager.MCPManager;
+import com.csust.eyediagnosis.agent.service.AgentImageReferenceResolver;
 import com.csust.eyediagnosis.mapper.McpServerMapper;
 import com.csust.eyediagnosis.model.dto.mcp.McpTool;
 import com.csust.eyediagnosis.model.entity.McpServer;
@@ -17,6 +18,7 @@ public class McpToolCallbackProvider {
 
     private final MCPManager mcpManager;
     private final McpServerMapper mcpServerMapper;
+    private final AgentImageReferenceResolver imageReferenceResolver;
 
     public ToolCallback[] getCallbacks(Long userId, List<String> mcpServerCodes) {
         if (userId == null || mcpServerCodes == null || mcpServerCodes.isEmpty()) {
@@ -40,7 +42,7 @@ public class McpToolCallbackProvider {
                 List<McpTool> tools = mcpManager.getTools(entity);
                 if (tools != null) {
                     for (McpTool tool : tools) {
-                        callbacks.add(new McpToolCallback(mcpManager, entity, tool));
+                        callbacks.add(new McpToolCallback(mcpManager, entity, tool, imageReferenceResolver, userId));
                     }
                 }
             } catch (Exception e) {

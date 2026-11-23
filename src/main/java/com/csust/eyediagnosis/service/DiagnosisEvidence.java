@@ -49,6 +49,16 @@ public final class DiagnosisEvidence {
     private final String abstainReason;
     private final boolean requiresReview;
 
+    // ── 相互独立的证据字段（2026-11-23）─────────────────────────────────
+    // 分类概率、校准状态与版本、图像质量状态与版本、能否面向患者呈现：
+    // 各读各的字段，不从别的字段推。缺字段时留空，不猜。
+    private final Double classificationProbability;
+    private final String calibrationVersion;
+    private final String imageQualityState;
+    private final String imageQualityVersion;
+    private final String imageQualityCalibrationState;
+    private final Boolean patientConclusionAllowed;
+
     private DiagnosisEvidence(DiagnosisProto.DiagnosisResponse resp,
                               String configuredModelVersion,
                               String configuredWeightSha256,
@@ -71,6 +81,12 @@ public final class DiagnosisEvidence {
         this.rejected = resp.getRejected();
         this.abstainReason = resp.getAbstainReason();
         this.requiresReview = resp.getRequiresReview();
+        this.classificationProbability = resp.getClassificationProbability();
+        this.calibrationVersion = resp.getCalibrationVersion();
+        this.imageQualityState = resp.getImageQualityState().name();
+        this.imageQualityVersion = resp.getImageQualityVersion();
+        this.imageQualityCalibrationState = resp.getImageQualityCalibrationState();
+        this.patientConclusionAllowed = resp.getPatientConclusionAllowed();
     }
 
     /**
@@ -111,6 +127,12 @@ public final class DiagnosisEvidence {
         diagnosis.setQualityReasons(qualityReasons);
         diagnosis.setOodStatus(oodStatus);
         diagnosis.setOodScore(oodScore);
+        diagnosis.setClassificationProbability(classificationProbability);
+        diagnosis.setCalibrationVersion(calibrationVersion);
+        diagnosis.setImageQualityState(imageQualityState);
+        diagnosis.setImageQualityVersion(imageQualityVersion);
+        diagnosis.setImageQualityCalibrationState(imageQualityCalibrationState);
+        diagnosis.setPatientConclusionAllowed(patientConclusionAllowed);
         diagnosis.setHumanReviewStatus(requiresReview
                 ? HumanReviewStatus.AWAITING_REVIEW
                 : HumanReviewStatus.AI_ONLY);
@@ -130,6 +152,12 @@ public final class DiagnosisEvidence {
         vo.setCalibratedProbability(exposedCalibratedProbability);
         vo.setOodStatus(oodStatus);
         vo.setOodScore(oodScore);
+        vo.setClassificationProbability(classificationProbability);
+        vo.setCalibrationVersion(calibrationVersion);
+        vo.setImageQualityState(imageQualityState);
+        vo.setImageQualityVersion(imageQualityVersion);
+        vo.setImageQualityCalibrationState(imageQualityCalibrationState);
+        vo.setPatientConclusionAllowed(patientConclusionAllowed);
         vo.setRequiresReview(requiresReview);
         vo.setHumanReviewStatus(requiresReview
                 ? HumanReviewStatus.AWAITING_REVIEW : HumanReviewStatus.AI_ONLY);
@@ -148,6 +176,12 @@ public final class DiagnosisEvidence {
         cache.setQualityReasons(qualityReasons);
         cache.setOodScore(oodScore);
         cache.setOodStatus(oodStatus);
+        cache.setClassificationProbability(classificationProbability);
+        cache.setCalibrationVersion(calibrationVersion);
+        cache.setImageQualityState(imageQualityState);
+        cache.setImageQualityVersion(imageQualityVersion);
+        cache.setImageQualityCalibrationState(imageQualityCalibrationState);
+        cache.setPatientConclusionAllowed(patientConclusionAllowed);
         cache.setRejected(rejected);
         cache.setAbstainReason(abstainReason);
         cache.setRequiresReview(requiresReview);

@@ -23,9 +23,14 @@
 /src/main/java/com/csust/eyediagnosis/patientauthorization/ @yuwen773
 /src/main/java/com/csust/eyediagnosis/patientfollowup/ @yuwen773
 /src/main/java/com/csust/eyediagnosis/agent/rag/ @yuwen773
+/src/main/java/com/csust/eyediagnosis/agent/service/ImageReferenceSigner.java @yuwen773
+/src/main/java/com/csust/eyediagnosis/agent/service/AgentImageReferenceResolver.java @yuwen773
 /src/main/java/com/csust/eyediagnosis/controlledreference/ @yuwen773
 /src/main/proto/ @yuwen773
 
 # 算法服务（质量门、MCP 传输层与鉴权）
 /algorithm/eye_diagnosis/quality.py @yuwen773
+/algorithm/eye_diagnosis/quality_calibration.py @yuwen773
+/algorithm/configs/calibration/ @yuwen773
+/algorithm/tools/ @yuwen773
 /algorithm/mcp_server/ @yuwen773

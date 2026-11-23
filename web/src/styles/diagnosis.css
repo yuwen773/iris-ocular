@@ -392,6 +392,15 @@
   border-color: color-mix(in srgb, var(--risk-critical) 40%, var(--line));
 }
 
+/* 未标定概率的说明：不是风险色，只是把「这个数还不能当可靠性读」讲清楚。 */
+.dx__band-note {
+  display: block;
+  margin-top: 4px;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--ink-3);
+}
+
 .dx__fineprint {
   margin: 0;
   font-size: 12px;

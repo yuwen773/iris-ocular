@@ -14,7 +14,11 @@ from eye_disease_model import EyeDiseaseModel, disease_categories
 from eye_diagnosis.abstain import decide_abstain, should_reject_for_quality
 from eye_diagnosis.calibration import apply_temperature
 from eye_diagnosis.ood import OodDecision
-from eye_diagnosis.quality import evaluate_quality
+from eye_diagnosis.quality import (
+    QUALITY_CALIBRATION_STATE,
+    QUALITY_VERSION,
+    evaluate_quality,
+)
 from eye_diagnosis.registry import ModelRegistry
 
 logging.basicConfig(level=logging.INFO)
@@ -75,6 +79,8 @@ class DiagnosisServicer(diagnosis_pb2_grpc.DiagnosisServiceServicer):
             raise RuntimeError("Calibration status must be CALIBRATED or NOT_CALIBRATED")
         if calibration.get("model_version") != self.provenance.version:
             raise RuntimeError("Calibration model version does not match registered model")
+        # 校准产物的版本：判读结果必须能追到「这份概率是在哪份校准下算出来的」。
+        self.calibration_version = str(calibration.get("version", "unversioned"))
         self.inference_policy_version = os.getenv("INFERENCE_POLICY_VERSION", "medical-safety-v3-quality-observe").strip()
         if not self.inference_policy_version:
             raise RuntimeError("INFERENCE_POLICY_VERSION must not be empty")
@@ -129,11 +135,30 @@ class DiagnosisServicer(diagnosis_pb2_grpc.DiagnosisServiceServicer):
                 )
                 description = "" if abstain.rejected else DISEASE_DESCRIPTIONS.get(predicted_label, "")
 
+                # ── 相互独立的证据字段（2026-11-23）────────────────────
+                # 分类概率：0–1 的原始 softmax。它不是校准概率，也不是医学可靠性；
+                # 校准状态、图像质量、OOD、能否面向患者呈现，各走各的字段，
+                # 各自带版本，避免一个数字被当成所有结论。
+                image_quality_state = (
+                    diagnosis_pb2.QUALITY_FAILED
+                    if quality.reasons
+                    else diagnosis_pb2.QUALITY_PASSED
+                )
+                # 「能否面向患者呈现结论」= 质量门通过且模型没有拒识。
+                # 注意它与「任务准入是否放行」是两道门：准入还额外要求版本绑定的
+                # OOD 证据（见 DiagnosisTaskRunner），这里不放宽那一道。
+                patient_conclusion_allowed = (not quality.reasons) and (not abstain.rejected)
                 return diagnosis_pb2.DiagnosisResponse(
                     predicted_label=predicted_label,
                     probability=top1 * 100,
+                    classification_probability=top1,
                     calibrated_probability=top1 * 100 if self.calibration_status == "CALIBRATED" else 0.0,
                     calibration_status=self.calibration_status,
+                    calibration_version=self.calibration_version,
+                    image_quality_state=image_quality_state,
+                    image_quality_version=QUALITY_VERSION,
+                    image_quality_calibration_state=QUALITY_CALIBRATION_STATE,
+                    patient_conclusion_allowed=patient_conclusion_allowed,
                     reliability_score=round(top1 * 100),
                     description=description,
                     top_predictions=[

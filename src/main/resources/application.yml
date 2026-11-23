@@ -118,6 +118,11 @@ eye-diagnosis:
     # enable the legacy dispatcher or it can replay pre-existing Outbox rows.
     outbox:
       enabled: false
+    # 短期图片引用：Java 侧签发、算法侧 MCP 校验，两侧密钥必须一致
+    # （算法侧读 MCP_IMAGE_REF_SECRET）。未配置时签发直接失败，不生成验不过的引用。
+    image-reference:
+      secret: ${IMAGE_REFERENCE_SECRET:}
+      ttl-seconds: 300
   # 上传补偿对账：清理 COS 上没有任务行登记的孤儿图片。
   # 默认开启：该任务是「对象已写入、任务行没写成」这类残留的唯一周期性兜底，
   # 关闭会让孤儿对象无限累积。清理前有 30 分钟宽限期，且只删没有有效任务行的对象。
@@ -153,11 +158,16 @@ eye-diagnosis:
       enabled: true
       model: gte-rerank-v2
     hybrid-search:
-      # 默认关闭：词法通道是在「语义近邻前 1000 条片段」上算的 BM25，不是全量倒排
-      # 索引；片段数超过上限时词法召回会静默不完整，且词法命中不受 similarity-threshold
-      # 约束。开启前请确认语料规模，并接受这两条已知限制。
+      # 默认关闭：词法通道需要按 owner 元数据直取全量分块，语料规模越大取回成本越高。
+      # 词法通道已重建为「按 owner 直取该用户可见的全部分块」，不再是「语义近邻前 1000 条」
+      # 那种语义偏置的子集；词法命中仍需回向量库核对 similarity-threshold，核对不通过的
+      # 会被丢弃并记账。开启前请按 WP-Q1 补 Recall@K / 延迟评估。
       enabled: false
       rrf-k: 60
+      # 一次词法召回最多取多少分块（内存边界，不是召回目标）。触顶会记 WARN。
+      max-corpus-chunks: 5000
+      # 词法语料缓存的用户数上限；超出按 LRU 驱逐。
+      cache-max-users: 20
     # B2 来源标记：默认关闭。开启后只会在既有 owner 过滤之后进一步收窄
     # 可见集合（BUILTIN/USER_UPLOAD 保留，UNKNOWN/AUTHORIZED_EXTERNAL 一律排除），
     # 绝不扩大默认可见性；不参与受控引用库的准入判定。

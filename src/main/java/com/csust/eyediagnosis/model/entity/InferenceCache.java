@@ -54,5 +54,18 @@ public class InferenceCache {
 
     private Boolean requiresReview;
 
+    /** 原始 softmax top-1（0-1）；不是校准概率，更不是医学可靠性 */
+    private Double classificationProbability;
+
+    private String calibrationVersion;
+
+    private String imageQualityState;
+
+    private String imageQualityVersion;
+
+    private String imageQualityCalibrationState;
+
+    private Boolean patientConclusionAllowed;
+
     private Date createTime;
 }

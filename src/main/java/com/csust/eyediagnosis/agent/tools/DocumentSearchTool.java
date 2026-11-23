@@ -7,6 +7,7 @@ import com.csust.eyediagnosis.agent.observability.EvidenceContextViolation;
 import com.csust.eyediagnosis.agent.observability.ToolResourceContext;
 import com.csust.eyediagnosis.agent.rag.Bm25Segmenter;
 import com.csust.eyediagnosis.agent.rag.BuiltinCorpus;
+import com.csust.eyediagnosis.agent.rag.LexicalCorpusService;
 import com.csust.eyediagnosis.agent.rag.SourceTypePolicy;
 import com.csust.eyediagnosis.mapper.KnowledgeDocumentMapper;
 import com.csust.eyediagnosis.model.dto.agent.ResourceRef;
@@ -18,6 +19,7 @@ import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.ai.vectorstore.filter.Filter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -50,6 +52,24 @@ public class DocumentSearchTool {
     private int rrfK;
 
     /**
+     * 词法通道一次最多取多少分块。
+     *
+     * <p>这是内存边界，不是召回目标：语料超过这个规模时剩余分块本轮不参与词法召回，
+     * 取满时服务会记 WARN。静默截断会让「证据变少」看起来像「本来就没有」。
+     */
+    @Value("${eye-diagnosis.rag.hybrid-search.max-corpus-chunks:5000}")
+    private int maxCorpusChunks = 5000;
+
+    /**
+     * 缓存的用户数上限；超出按 LRU 驱逐。
+     *
+     * <p>语料缓存按用户只增不减会把内存吃光（每个用户一份全量分块），
+     * 因此缓存必须有容量上限，且驱逐策略必须是 LRU。
+     */
+    @Value("${eye-diagnosis.rag.hybrid-search.cache-max-users:20}")
+    private int cacheMaxUsers = 20;
+
+    /**
      * B2 source-type restriction. Default OFF: turning it on can only REMOVE
      * candidates (BUILTIN / USER_UPLOAD survive; UNKNOWN / AUTHORIZED_EXTERNAL
      * are fail-closed). It never changes the existing owner OR filter.
@@ -67,16 +87,18 @@ public class DocumentSearchTool {
     @Autowired(required = false)
     private KnowledgeDocumentMapper knowledgeDocumentMapper;
 
+    /** 词法召回语料（按 owner 元数据直取的全量分块）。 */
+    @Autowired(required = false)
+    private LexicalCorpusService lexicalCorpusService;
+
     private final Bm25Segmenter segmenter = new Bm25Segmenter();
 
-    /** 文档缓存的最大用户数；超出按 LRU 驱逐，避免按 userId 只增不减。 */
-    private static final int CACHE_MAX_USERS = 200;
-
+    /** 文档缓存的最大用户数由 {@code cacheMaxUsers} 控制；超出按 LRU 驱逐。 */
     private final Map<Long, UserDocumentCache> documentCaches =
             new LinkedHashMap<>(16, 0.75f, true) {
                 @Override
                 protected boolean removeEldestEntry(Map.Entry<Long, UserDocumentCache> eldest) {
-                    return size() > CACHE_MAX_USERS;
+                    return size() > cacheMaxUsers;
                 }
             };
     private static final long CACHE_REFRESH_INTERVAL = 60_000; // 1 minute
@@ -117,7 +139,11 @@ public class DocumentSearchTool {
             if (hybridSearchEnabled) {
                 List<Document> userDocuments = refreshDocumentCache(currentUserId);
                 List<Document> bm25Results = bm25Search(query, userDocuments, searchTopK);
-                candidates = rrfFusion(vectorStore.similaritySearch(searchRequest), bm25Results, searchTopK);
+                List<Document> vectorResults = vectorStore.similaritySearch(searchRequest);
+                // 词法命中没有向量分数，必须回向量库核对相似度阈值，否则词法通道
+                // 会成为绕过阈值的旁路。核对不通过的命中一律丢弃并记账。
+                bm25Results = dropUnconfirmedLexicalHits(query, bm25Results, vectorResults, currentUserId);
+                candidates = rrfFusion(vectorResults, bm25Results, searchTopK);
             } else {
                 candidates = vectorStore.similaritySearch(searchRequest);
             }
@@ -409,12 +435,13 @@ public class DocumentSearchTool {
         log.info("DocumentSearchTool initialized, hybrid-search: {}, rerank: {}",
                 hybridSearchEnabled, rerankEnabled);
         if (hybridSearchEnabled) {
-            // 说清楚这条通道到底是什么：词法召回建在「语义近邻 top-1000」这份子集上，
-            // 不是全量倒排索引。片段数超过上限、或语料分布偏离查询语义时，词法召回会
-            // 静默漏掉本该命中的片段，且词法命中不带 similarity 分数（不受阈值约束）。
-            log.warn("混合检索已开启：词法通道基于语义近邻前 1000 条片段做 BM25，"
-                    + "不是全量倒排索引；命中数超过该上限时词法召回不完整。"
-                    + "生产默认关闭，确需开启请先评估语料规模。");
+            // 说清楚这条通道到底是什么：词法语料按 owner 元数据从向量库直取，
+            // 是该用户可见的全部分块（不是语义近邻的子集）；命中后仍要回向量库
+            // 核对相似度阈值，核对不通过的一律丢弃并记账。
+            log.warn("混合检索已开启：词法通道按 owner 元数据直取全量分块做 BM25，"
+                    + "语料上限 {} 分块（触顶会记 WARN，召回随之不完整）；"
+                    + "词法命中需回向量库核对相似度阈值，未通过的会被丢弃。",
+                    maxCorpusChunks);
         }
     }
 
@@ -423,26 +450,143 @@ public class DocumentSearchTool {
         if (cached != null && System.currentTimeMillis() - cached.refreshedAt() < CACHE_REFRESH_INTERVAL) {
             return cached.documents();
         }
-        try {
-            if (vectorStore != null) {
-                // 注意：这不是「该用户的全部片段」。相似度检索没有全量列举语义，
-                // "*" 只是拿语义近邻的前 1000 条，且阈值设为 0 只是关掉过滤。
-                // 所以基于它的 BM25 是「子集上的词法召回」，不是独立倒排召回。
-                List<Document> allDocs = vectorStore.similaritySearch(SearchRequest.builder()
-                        .query("*")
-                        .topK(1000)
-                        .similarityThreshold(0.0)
-                        .filterExpression(BuiltinCorpus.ownerFilter(userId))
-                        .build());
-                List<Document> documents = new ArrayList<>(allDocs);
-                documentCaches.put(userId, new UserDocumentCache(documents, System.currentTimeMillis()));
-                log.debug("Document cache refreshed for user {}, size: {}", userId, documents.size());
-                return documents;
-            }
-        } catch (Exception e) {
-            log.warn("Failed to refresh document cache: {}", e.getMessage());
+        List<Document> documents = List.of();
+        if (lexicalCorpusService != null && lexicalCorpusService.available()) {
+            // 按 owner 元数据直取全量分块：这是真正的词法语料，不再是
+            // 「语义近邻前 1000 条」那种语义偏置的子集。取不到就退化为空列表，
+            // 词法通道本轮没有候选——而不是拿一份不完整的语料假装完整。
+            documents = lexicalCorpusService.loadOwnerCorpus(userId, maxCorpusChunks);
         }
-        return List.of();
+        documentCaches.put(userId, new UserDocumentCache(documents, System.currentTimeMillis()));
+        log.debug("Document cache refreshed for user {}, size: {}", userId, documents.size());
+        return documents;
+    }
+
+    /**
+     * 词法命中的相似度阈值核对。
+     *
+     * <p>词法通道命中的是「词面相似」，本身没有向量分数；旧的实现直接把它并进
+     * 证据，等于给 {@code similarity-threshold} 开了一个旁路：一条只有词面沾边、
+     * 语义上并不相关的片段也能成为证据。现在每条词法命中都要回向量库核对——
+     * 已在向量候选里的（自然带分数）直接放行，其余按文档分组做一次带过滤的
+     * 向量检索，只有同样通过阈值的才留下。核对不通过的丢弃并记账。
+     *
+     * <p>核对失败（向量库异常）时按不通过处理：阈值是安全边界，宁可少召回。
+     */
+    List<Document> dropUnconfirmedLexicalHits(String query, List<Document> lexicalHits,
+                                              List<Document> vectorResults, Long currentUserId) {
+        if (lexicalHits == null || lexicalHits.isEmpty()) {
+            return List.of();
+        }
+        Set<String> vectorIds = new HashSet<>();
+        if (vectorResults != null) {
+            for (Document doc : vectorResults) {
+                if (doc != null && doc.getId() != null) {
+                    vectorIds.add(doc.getId());
+                }
+            }
+        }
+        List<Document> lexicalOnly = lexicalHits.stream()
+                .filter(doc -> doc != null && doc.getId() != null && !vectorIds.contains(doc.getId()))
+                .toList();
+        if (lexicalOnly.isEmpty()) {
+            return lexicalHits;
+        }
+
+        Map<Long, List<Document>> byDocument = new LinkedHashMap<>();
+        List<Document> withoutDocument = new ArrayList<>();
+        for (Document doc : lexicalOnly) {
+            Long documentId = documentIdOf(doc);
+            if (documentId == null) {
+                withoutDocument.add(doc);
+            } else {
+                byDocument.computeIfAbsent(documentId, key -> new ArrayList<>()).add(doc);
+            }
+        }
+
+        Set<String> confirmed = new HashSet<>();
+        for (Map.Entry<Long, List<Document>> entry : byDocument.entrySet()) {
+            List<Document> group = entry.getValue();
+            confirmed.addAll(confirmByVectorStore(query, group, ownerOf(group), currentUserId));
+        }
+        if (!withoutDocument.isEmpty()) {
+            // 内置语料片段没有 documentId：按 owner 口径整体核对一次。
+            confirmed.addAll(confirmByVectorStore(query, withoutDocument, null, currentUserId));
+        }
+
+        List<Document> kept = lexicalHits.stream()
+                .filter(doc -> doc == null || doc.getId() == null || confirmed.contains(doc.getId()))
+                .toList();
+        int dropped = lexicalHits.size() - kept.size();
+        if (dropped > 0) {
+            log.warn("词法命中未通过相似度阈值核对，已丢弃 {} 条（阈值旁路已拦截）", dropped);
+        }
+        return kept;
+    }
+
+    /**
+     * 带过滤的向量检索，确认这批词法命中在语义上确实达到阈值。
+     *
+     * @param owner 命中片段的 owner；为 null 时按当前用户 + 内置语料核对
+     */
+    private Set<String> confirmByVectorStore(String query, List<Document> group, Long owner,
+                                             Long currentUserId) {
+        if (vectorStore == null || group.isEmpty()) {
+            return Set.of();
+        }
+        // 与 purgeVectors 同一套 Filter 写法：值直接用 Long，不走文本表达式
+        // （文本解析器把数字按 Integer 解析，雪花 ID 会直接抛 NumberFormatException）。
+        Filter.Expression ownerExpression = owner == null
+                ? BuiltinCorpus.ownerFilter(currentUserId)
+                : new Filter.Expression(Filter.ExpressionType.EQ,
+                        new Filter.Key("ownerUserId"), new Filter.Value(owner));
+        List<Document> groupList = group;
+        Long documentId = groupList.isEmpty() ? null : documentIdOf(groupList.get(0));
+        Filter.Expression expression = documentId == null
+                ? ownerExpression
+                : new Filter.Expression(Filter.ExpressionType.AND,
+                        ownerExpression,
+                        new Filter.Expression(Filter.ExpressionType.EQ,
+                                new Filter.Key("documentId"), new Filter.Value(documentId)));
+        try {
+            int topK = Math.min(100, Math.max(searchTopK, groupList.size() + searchTopK));
+            List<Document> confirmed = vectorStore.similaritySearch(SearchRequest.builder()
+                    .query(query)
+                    .topK(topK)
+                    .similarityThreshold(similarityThreshold)
+                    .filterExpression(expression)
+                    .build());
+            if (confirmed == null || confirmed.isEmpty()) {
+                return Set.of();
+            }
+            return confirmed.stream()
+                    .filter(doc -> doc != null && doc.getId() != null)
+                    .map(Document::getId)
+                    .collect(Collectors.toSet());
+        } catch (Exception e) {
+            // 核对失败按不通过处理：阈值是安全边界。
+            log.warn("词法命中的向量核对失败，本批按未通过处理: {}", e.getMessage());
+            return Set.of();
+        }
+    }
+
+    /** 命中片段的 owner；取不到就按当前用户核对。 */
+    private Long ownerOf(List<Document> group) {
+        if (group == null || group.isEmpty()) {
+            return null;
+        }
+        Object owner = group.get(0).getMetadata().get("ownerUserId");
+        if (owner instanceof Number number) {
+            return number.longValue();
+        }
+        if (owner instanceof String text) {
+            try {
+                return Long.valueOf(text.trim());
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
     }
 
     private List<Document> bm25Search(String query, List<Document> documents, int topK) {

@@ -8,6 +8,7 @@ import {
   classCode,
   confidenceBand,
   confidencePercent,
+  probabilityReading,
   type Risk,
 } from "@/lib/domain"
 import { useSession } from "@/lib/session"
@@ -494,6 +495,8 @@ function ResultSummary(props: { result: DiagnosisResult; onReset: () => void }) 
   const { result, onReset } = props
   const outcome = outcomeOf(result)
   const band = confidenceBand(result.confidence ?? result.probability)
+  // 未标定的 softmax 不是置信度：标题、风险分档与说明都跟着校准状态走。
+  const reading = probabilityReading(result)
   const className = canonicalClassName(result.result) ?? result.result ?? null
   const code = className ? classCode(className) : null
   const recordId = result.id
@@ -532,12 +535,17 @@ function ResultSummary(props: { result: DiagnosisResult; onReset: () => void }) 
           </h2>
           <dl className="dx__facts">
             <div>
-              <dt>模型置信度</dt>
+              <dt>{reading.label}</dt>
               <dd>
                 {confidencePercent(result.confidence ?? result.probability)}
-                <span className="dx__band" data-risk={band.risk}>
-                  {band.label}
-                </span>
+                {reading.calibrated ? (
+                  <span className="dx__band" data-risk={band.risk}>
+                    {band.label}
+                  </span>
+                ) : null}
+                {reading.note ? (
+                  <span className="dx__band-note">{reading.note}</span>
+                ) : null}
               </dd>
             </div>
             <div>

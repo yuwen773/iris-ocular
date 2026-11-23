@@ -41,8 +41,9 @@ CI 的 MySQL 作业使用 `mysql:8.0` / `mysql:8.0.36`，`scripts/verify.sh` 与
 | V31 | 无 | 无 | `V31__diagnosis_run_cancellation.sql`（新增 `t_diagnosis_run`：一次判读运行的 PENDING / DONE / CANCELLED 状态，「取消判读」与落库的仲裁点；不改动任何既有表） |
 | V32 | 无 | 无 | `V32__knowledge_candidate_index_version.sql`（`t_knowledge_document` 增加可空 `pendingIndexVersion`、`pendingUpdatedTime`：文档更新先写候选版本，成功后再原子切换 `indexVersion` 与文件元数据；候选失败则文档行仍完整描述旧文件、新对象被删除） |
 | V33 | 无 | 无 | `V33__diagnosis_task_restrict_reason.sql`（`t_diagnosis_task` 增加可空 `restrictReason`：任务进入 `RESTRICTED` 时记录准入拒绝的原因码） |
+| V34 | 无 | 无 | `V34__diagnosis_evidence_semantics.sql`（`t_diagnosis` 与 `t_inference_cache` 各增加六个可空列：`classificationProbability`、`calibrationVersion`、`imageQualityState`、`imageQualityVersion`、`imageQualityCalibrationState`、`patientConclusionAllowed`——把分类概率/校准/图像质量/能否面向患者呈现拆成互不冒充的字段） |
 
-整合后的唯一链为 **V1–V9 + V15–V27**，其后追加 **V28、V29、V30、V31、V32、V33**。目录里不再存在同号迁移。
+整合后的唯一链为 **V1–V9 + V15–V27**，其后追加 **V28、V29、V30、V31、V32、V33、V34**。目录里不再存在同号迁移。
 V28 只新增 `t_agent_tool_audit`，不修改此前任何已应用脚本；该表独立于 `t_agent_message`，
 不存原始工具参数、Prompt 或患者文本。V29 只给既有表加一列可空列，不改写任何既有行；
 历史行的 `indexVersion` 为 NULL，**在按版本准入的检索里等于「不能证明处理完整」**，
@@ -59,10 +60,10 @@ V32 只给 `t_knowledge_document` 加两列可空列：既有行 `pendingIndexVe
 
 | 目标库状态 | 识别方式 | 动作 |
 | --- | --- | --- |
-| 空库 | 无 `flyway_schema_history` | 正常启动，Flyway 顺序执行 V1–V9、V15–V33；等价于 `FlywayMySqlIntegrationTest#migratesAnEmptyMySqlDatabaseThroughTheCurrentSafetySchema` |
-| master 生产/主线库 | history 最高版本 V17，V15–V17 checksum 与 master 一致 | 直接启动，追加执行 V18–V33；V15 的 `CREATE TABLE IF NOT EXISTS` 不会改动既有 `t_user`；等价于 `#preservesExistingAccountsWhenUpgradingFromMasterV17` |
+| 空库 | 无 `flyway_schema_history` | 正常启动，Flyway 顺序执行 V1–V9、V15–V34；等价于 `FlywayMySqlIntegrationTest#migratesAnEmptyMySqlDatabaseThroughTheCurrentSafetySchema` |
+| master 生产/主线库 | history 最高版本 V17，V15–V17 checksum 与 master 一致 | 直接启动，追加执行 V18–V34；V15 的 `CREATE TABLE IF NOT EXISTS` 不会改动既有 `t_user`；等价于 `#preservesExistingAccountsWhenUpgradingFromMasterV17` |
 | Java 线旧开发库 | history 含 V10–V20，且 V10–V14 的 checksum 对应原脚本 | **重建**。这些库不在生产序列；旧文件已从 `db/migration` 移出，Flyway 会把 V10–V14 判为 missing。不要用 `repair`/`ignoreMigrationPatterns` 掩盖，按 `db/migration` 全量重建后再灌测试数据 |
-| 迁移中途库 | history 最高版本在 V18–V33 之间且校验和一致 | 直接启动续跑；Flyway 只执行缺失的高版本 |
+| 迁移中途库 | history 最高版本在 V18–V34 之间且校验和一致 | 直接启动续跑；Flyway 只执行缺失的高版本 |
 | `flyway_schema_history` 校验和不一致 | `Validate failed: checksum mismatch` | 停止发布，先比对实际脚本与 history；不得修改已应用脚本或删除 history 强行通过 |
 
 `spring.flyway.out-of-order` 必须保持 `false`。本整合方案不依赖 out-of-order，也不允许把它当作跳过版本缺口的开关。
@@ -74,7 +75,7 @@ V32 只给 `t_knowledge_document` 加两列可空列：既有行 `pendingIndexVe
 
 | 库的 history | 更旧的 jar（只认到 V17）能否直接启动 | 依据 |
 | --- | --- | --- |
-| 升到 V33 之后（master V17 线上来的） | **能启动**。V18–V33 对它记为 `FUTURE_SUCCESS`，Flyway 默认 `ignoreMigrationPatterns=*:future` 放行，迁移数 0；对既有表只有 V22 加的一列可空 `patientTaskId`、V29 的一列可空 `indexVersion`、V30 的三列可空版本字段、V32 的两列可空候选版本字段、V33 的一列可空 `restrictReason` 与 V31 新建的 `t_diagnosis_run` 表 | `#oldMigrationSetAcceptsFutureVersionsWithoutCertifyingArtifactSafety` |
+| 升到 V34 之后（master V17 线上来的） | **能启动**。V18–V34 对它记为 `FUTURE_SUCCESS`，Flyway 默认 `ignoreMigrationPatterns=*:future` 放行，迁移数 0；对既有表只有 V22 加的一列可空 `patientTaskId`、V29 的一列可空 `indexVersion`、V30 的三列可空版本字段、V32 的两列可空候选版本字段、V33 的一列可空 `restrictReason`、V34 的六列可空证据字段 与 V31 新建的 `t_diagnosis_run` 表 | `#oldMigrationSetAcceptsFutureVersionsWithoutCertifyingArtifactSafety` |
 | history 里含本 jar 解析不了、且低于其已知最高版本的版本（如旧 release 线 V10–V14） | **不能**。Flyway 判 missing 并拒绝启动 | `#aJarRejectsAHistoryThatContainsVersionsItDoesNotResolve` |
 
 > 该用例的名字是刻意写成的：它只证明**迁移解析**对 future 版本放行，
@@ -113,13 +114,13 @@ JAVA_HOME=/c/Users/yuwen/.jdks/corretto-21.0.7 \
 mvn -o -B -Dtest=FlywayMySqlIntegrationTest test
 ```
 
-三个用例分别覆盖：master V17 → V33、空库 → V33、V23 → V24 历史行标注不改写冻结消息。
+三个用例分别覆盖：master V17 → V34、空库 → V34、V23 → V24 历史行标注不改写冻结消息。
 另有两个回滚方向用例（旧迁移集合能否接受 future 版本、history 含无法解析版本时是否拒绝启动，见 §2.1）。
 测试会为每次运行创建并删除独立 schema，不触碰现有库。
 
 ## 5. 约束
 
 - 已应用迁移的内容不得修改；只能追加更高版本。
-- 新迁移必须大于 V33。
+- 新迁移必须大于 V34。
 - 不得删除或手工编辑 `flyway_schema_history` 来绕过冲突。
 - 历史冻结脚本 `scripts/product_acceptance_inputs.py` 记录过已删除的 `V15__bootstrap_user_table.sql` 作为 `additionalDependency`；该字段只描述 2026-11-12 的输入快照，不参与当前迁移链。重新封存验收证据时应改为引用 master V15，而不是恢复旧文件。

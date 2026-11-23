@@ -3,6 +3,7 @@ package com.csust.eyediagnosis.agent.mcp;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.csust.eyediagnosis.agent.ToolStepContract;
 import com.csust.eyediagnosis.agent.manager.MCPManager;
+import com.csust.eyediagnosis.agent.service.AgentImageReferenceResolver;
 import com.csust.eyediagnosis.agent.exception.McpOverloadException;
 import com.csust.eyediagnosis.agent.exception.McpTimeoutException;
 import com.csust.eyediagnosis.model.dto.mcp.*;
@@ -12,6 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.definition.ToolDefinition;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 @Slf4j
@@ -21,10 +23,25 @@ public class McpToolCallback implements ToolCallback {
     private final McpServer mcpServer;
     private final McpTool mcpTool;
 
+    /**
+     * 图片引用翻译器；为 null 时不做翻译（工具拿到的仍是模型给的原始参数）。
+     */
+    private final AgentImageReferenceResolver imageReferenceResolver;
+
+    /** 当前会话用户；图片引用必须按它的归属签发。 */
+    private final Long userId;
+
     public McpToolCallback(MCPManager mcpManager, McpServer entity, McpTool tool) {
+        this(mcpManager, entity, tool, null, null);
+    }
+
+    public McpToolCallback(MCPManager mcpManager, McpServer entity, McpTool tool,
+                           AgentImageReferenceResolver imageReferenceResolver, Long userId) {
         this.mcpManager = mcpManager;
         this.mcpServer = entity;
         this.mcpTool = tool;
+        this.imageReferenceResolver = imageReferenceResolver;
+        this.userId = userId;
     }
 
     @Override
@@ -46,6 +63,7 @@ public class McpToolCallback implements ToolCallback {
     @Override
     public String call(String functionInput) {
         Map<String, Object> params = parseInput(functionInput);
+        params = translateImageReferences(params);
 
         McpServerCallToolRequest request = new McpServerCallToolRequest();
         request.setMcpServerCode(mcpServer.getMcpServerCode());
@@ -78,6 +96,28 @@ public class McpToolCallback implements ToolCallback {
                             "MCP 工具返回错误：" + formatResponse(response)));
         }
         return formatResponse(response);
+    }
+
+    /**
+     * 把参数里的服务端取图路径换成后端签发的短期引用。
+     *
+     * <p>算法侧的图片工具只接受签发过的引用；模型手里只有服务端路径，翻译
+     * 放在这一跳完成，模型与算法侧都不需要知道对象存储地址。
+     */
+    private Map<String, Object> translateImageReferences(Map<String, Object> params) {
+        if (imageReferenceResolver == null || params == null || params.isEmpty()) {
+            return params;
+        }
+        Map<String, Object> translated = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : params.entrySet()) {
+            Object value = entry.getValue();
+            if (value instanceof String text) {
+                translated.put(entry.getKey(), imageReferenceResolver.toReference(text, userId));
+            } else {
+                translated.put(entry.getKey(), value);
+            }
+        }
+        return translated;
     }
 
     private Map<String, Object> parseInput(String functionInput) {

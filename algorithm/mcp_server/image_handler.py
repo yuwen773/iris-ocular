@@ -1,5 +1,6 @@
 import base64
 import ipaddress
+import logging
 import os
 import socket
 import tempfile
@@ -7,6 +8,10 @@ import urllib.parse
 from pathlib import Path
 
 import httpx
+
+from mcp_server.image_ref import ImageReferenceError, is_reference, verify
+
+logger = logging.getLogger(__name__)
 
 _IMAGE_SUFFIXES = frozenset((".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"))
 _TEMP_SUFFIX_MAP = {".png", ".bmp", ".tif", ".tiff", ".webp"}
@@ -25,21 +30,81 @@ async def _get_client() -> httpx.AsyncClient:
     return _http_client
 
 
+def _remote_urls_allowed() -> bool:
+    """是否显式放开「任意远程图片 URL」。
+
+    默认关闭。过去这个工具读模型给的任何 URL，等于把服务变成内网探测器与
+    公网抓取器；现在默认只认后端签发的短期引用，确需读任意 URL 的部署要自己
+    打开这个开关，并且知道 SSRF 过滤此时仍然生效。
+    """
+    return os.getenv("MCP_ALLOW_REMOTE_URLS", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def remote_urls_allowed() -> bool:
+    """对外暴露的开关状态（启动日志用，不含任何密钥）。"""
+    return _remote_urls_allowed()
+
+
+def reference_secret_configured() -> bool:
+    """是否配置了图片引用密钥（只报有没有，不报内容）。"""
+    return bool(_reference_secret())
+
+
+def _reference_secret() -> str:
+    return os.getenv("MCP_IMAGE_REF_SECRET", "").strip()
+
+
 async def resolve_image(image_input: str) -> str:
     """Resolve image input to a local file path.
 
     Accepts:
-    - HTTP/HTTPS URL pointing at a public host (private/loopback targets are refused)
+    - Backend-issued short-lived reference (``iris-img://...``) — the default and
+      preferred form: signed by the backend, expires quickly, cannot be forged.
+    - HTTP/HTTPS URL, only when ``MCP_ALLOW_REMOTE_URLS`` is explicitly enabled
     - Local file path, only inside MCP_IMAGE_ROOT when that variable is set
     - Base64 encoded image data
     """
+    if is_reference(image_input):
+        return await _resolve_reference(image_input)
+
     if image_input.startswith(("http://", "https://")):
+        if not _remote_urls_allowed():
+            raise ValueError(
+                "默认不接受任意远程图片 URL：请改用后端签发的短期图片引用（iris-img://…），"
+                "确需读取任意 URL 时显式设置 MCP_ALLOW_REMOTE_URLS=true"
+            )
         return await _resolve_url(image_input)
 
     if _looks_like_filepath(image_input):
         return _resolve_filepath(image_input)
 
     return _resolve_base64(image_input)
+
+
+async def _resolve_reference(reference: str) -> str:
+    """按后端签发的引用取图。
+
+    签名本身即授权：目标地址由后端决定，因此不再套用「必须是公网地址」的限制
+    （后端有权把图指向内网服务）。仍然限制协议、体积，并且不跟随重定向。
+    """
+    try:
+        target = verify(reference, _reference_secret())
+    except ImageReferenceError as e:
+        raise ValueError(f"图片引用不可用: {e}") from e
+
+    host = urllib.parse.urlsplit(target).hostname
+    try:
+        client = await _get_client()
+        resp = await client.get(target, timeout=30)
+        resp.raise_for_status()
+    except httpx.HTTPError as e:
+        raise ValueError(f"下载图片失败: {e}") from e
+    content = resp.content
+    if len(content) > _MAX_DOWNLOAD_BYTES:
+        raise ValueError("下载图片超过 50MB 限制")
+    # 只记主机名：签名与目标地址都不进日志（目标里带签名参数）。
+    logger.info("已按后端签发的引用取图: host=%s", host)
+    return _write_temp(content, target)
 
 
 def _looks_like_filepath(s: str) -> bool:

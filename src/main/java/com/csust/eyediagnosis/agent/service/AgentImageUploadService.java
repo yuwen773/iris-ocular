@@ -48,6 +48,9 @@ public class AgentImageUploadService {
     @Resource
     private UploadCompensationService uploadCompensationService;
 
+    @Resource
+    private ImageReferenceSigner imageReferenceSigner;
+
     private static final long MAX_SIZE = 2 * 1024 * 1024;
 
     /** 取图重定向签名链接的有效期（分钟）。 */
@@ -171,6 +174,18 @@ public class AgentImageUploadService {
         String key = resolveOwnedImageId(VIEW_PREFIX + fileName, userId);
         return cosManager.generatePresignedUrl(key,
                 Date.from(Instant.now().plus(VIEW_PRESIGN_MINUTES, ChronoUnit.MINUTES)));
+    }
+
+    /**
+     * 签发一个短期图片引用，供算法侧 MCP 工具取图。
+     *
+     * <p>算法侧只认这种引用：签名在���端、有效期短、目标地址由这里决定，
+     * 模型无法把工具指向任意主机。归属校验照旧先做一遍（只有本人且未删除的
+     * 图片才签发），引用里装的是短时预签名 URL。
+     */
+    public String issueImageReference(String fileName, Long userId) {
+        ThrowUtils.throwIf(fileName == null || fileName.isBlank(), ErrorCode.PARAMS_ERROR, "缺少图片标识");
+        return imageReferenceSigner.sign(resolveViewTarget(fileName, userId));
     }
 
     public void deleteImage(String imageUrl, Long userId) {

@@ -415,6 +415,39 @@ export function confidenceBand(confidence?: number | null): ConfidenceBand {
 }
 
 /**
+ * 判读概率怎么读。
+ *
+ * <p>未标定的 softmax **不是置信度**：它只是模型输出强度，没有经过真实数据
+ * 标定。界面照此标注，否则患者会把一个未标定的数字读成「诊断有多可靠」。
+ * 已标定时才按校准后概率呈现，并保留风险分档；未标定时不给风险分档——
+ * 一个撑不起分档的数值不该借颜色说 severity。
+ */
+export type ProbabilityReading = {
+  /** 读数旁的标签 */
+  label: string
+  /** 是否经过真实数据标定 */
+  calibrated: boolean
+  /** 未标定时的说明；已标定时为 null */
+  note: string | null
+}
+
+/** 判读结果的校准状态：只有 CALIBRATED 才算经过真实数据标定。 */
+export function probabilityReading(result: {
+  calibrationStatus?: string | null
+}): ProbabilityReading {
+  const status = (result.calibrationStatus ?? "").trim().toUpperCase()
+  const calibrated = status === "CALIBRATED"
+  if (calibrated) {
+    return { label: "校准后概率", calibrated: true, note: null }
+  }
+  return {
+    label: "模型输出概率（未标定）",
+    calibrated: false,
+    note: "该数值未经真实数据标定，不能当作诊断可靠性。",
+  }
+}
+
+/**
  * 置信度 → 百分比读数（一位小数，带 %）。
  *
  * 全站唯一口径：后端给 0–1 概率或 0–100 百分数都先归一到 0–1 再乘 100。

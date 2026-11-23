@@ -618,7 +618,17 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisMapper, Diagnosis
                 .setOodStatus(parseOodStatus(cache.getOodStatus()))
                 .setRejected(Boolean.TRUE.equals(cache.getRejected()))
                 .setAbstainReason(cache.getAbstainReason() == null ? "" : cache.getAbstainReason())
-                .setRequiresReview(Boolean.TRUE.equals(cache.getRequiresReview()));
+                .setRequiresReview(Boolean.TRUE.equals(cache.getRequiresReview()))
+                // 缓存命中也必须带回完整证据：少了这些字段，命中缓存的那次判读
+                // 就会比没命中的那次少一截证据（例如质量门版本变成空）。
+                .setClassificationProbability(cache.getClassificationProbability() == null
+                        ? 0.0 : cache.getClassificationProbability())
+                .setCalibrationVersion(cache.getCalibrationVersion() == null ? "" : cache.getCalibrationVersion())
+                .setImageQualityState(parseImageQualityState(cache.getImageQualityState()))
+                .setImageQualityVersion(cache.getImageQualityVersion() == null ? "" : cache.getImageQualityVersion())
+                .setImageQualityCalibrationState(cache.getImageQualityCalibrationState() == null
+                        ? "" : cache.getImageQualityCalibrationState())
+                .setPatientConclusionAllowed(Boolean.TRUE.equals(cache.getPatientConclusionAllowed()));
         try {
             List<Map<String, Object>> topPredictions = JsonUtils.fromJson(
                     cache.getTopPredictions(), new TypeReference<>() {});
@@ -631,6 +641,25 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisMapper, Diagnosis
             throw new IllegalStateException("Unable to restore cached top predictions", exception);
         }
         return builder.build();
+    }
+
+    /**
+     * 缓存里的质量门结论字符串 → proto 枚举。
+     *
+     * <p>缓存存的就是枚举名，往返必须逐字相等：认不出时返回 UNSPECIFIED，
+     * 不能替换成别的取值——那会让「缓存往返保持原样」的契约在边缘取值上失真。
+     */
+    private static DiagnosisProto.ImageQualityState parseImageQualityState(String value) {
+        if ("QUALITY_PASSED".equals(value) || "PASSED".equals(value)) {
+            return DiagnosisProto.ImageQualityState.QUALITY_PASSED;
+        }
+        if ("QUALITY_FAILED".equals(value) || "FAILED".equals(value)) {
+            return DiagnosisProto.ImageQualityState.QUALITY_FAILED;
+        }
+        if ("QUALITY_NOT_EVALUATED".equals(value) || "NOT_EVALUATED".equals(value)) {
+            return DiagnosisProto.ImageQualityState.QUALITY_NOT_EVALUATED;
+        }
+        return DiagnosisProto.ImageQualityState.QUALITY_UNSPECIFIED;
     }
 
     private static DiagnosisProto.OodStatus parseOodStatus(String value) {
@@ -663,7 +692,11 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisMapper, Diagnosis
         vo.setResult(DiagnosisCategoryEnum.getChineseLabelByEnglishLabel(predictedLabel));
         vo.setDetails(grpcResponse.getDescription());
         vo.setProbability(grpcResponse.getProbability());
-        vo.setConfidence(grpcResponse.getProbability());
+        // 「置信度」只有在真正校准过时才是置信度。未标定时把原始 softmax 填进
+        // 这个字段，等于让界面把未标定的模型输出读成临床可靠性——界面据此标注
+        // 「模型输出概率（未标定）」，数值本身仍由 probability 提供。
+        vo.setConfidence("CALIBRATED".equals(grpcResponse.getCalibrationStatus())
+                ? grpcResponse.getCalibratedProbability() : null);
         vo.setRecommendations(DiagnosisRecommendationEnum.getRecommendationByEnglishLabel(predictedLabel));
         vo.setSeverity("NOT_ASSESSED");
         List<Disease> diseases = grpcResponse.getTopPredictionsList().stream()

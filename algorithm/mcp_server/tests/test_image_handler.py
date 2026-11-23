@@ -5,6 +5,7 @@ import pytest
 from unittest.mock import patch, MagicMock, AsyncMock
 from pathlib import Path
 
+from mcp_server import image_ref
 from mcp_server.image_handler import resolve_image
 
 
@@ -64,7 +65,17 @@ async def test_resolve_base64():
 
 
 @pytest.mark.asyncio
+async def test_arbitrary_remote_url_is_refused_by_default(monkeypatch):
+    # 默认只认后端签发的短期引用：模型给的任意 URL 不再被直接读取。
+    monkeypatch.delenv("MCP_ALLOW_REMOTE_URLS", raising=False)
+    with pytest.raises(ValueError, match="MCP_ALLOW_REMOTE_URLS"):
+        await resolve_image("https://example.com/eye.png")
+
+
+@pytest.mark.asyncio
 async def test_resolve_http_url(monkeypatch):
+    # 显式放开任意 URL 后，SSRF 过滤仍然生效。
+    monkeypatch.setenv("MCP_ALLOW_REMOTE_URLS", "true")
     img_bytes = _make_test_image_bytes()
     mock_response = MagicMock()
     mock_response.content = img_bytes
@@ -94,6 +105,7 @@ async def test_resolve_http_url(monkeypatch):
 async def test_private_and_metadata_targets_are_refused(address, monkeypatch):
     # 内网、回环、链路本地（含云元数据 169.254.169.254）一律拒绝：
     # 这个工具不接受「让服务端替调用方访问内网」。
+    monkeypatch.setenv("MCP_ALLOW_REMOTE_URLS", "true")
     monkeypatch.setattr(
         "mcp_server.image_handler._resolve_host_ips",
         lambda host, port: {address},
@@ -119,3 +131,39 @@ async def test_resolve_missing_file(tmp_path, monkeypatch):
     monkeypatch.setenv("MCP_IMAGE_ROOT", str(tmp_path))
     with pytest.raises(FileNotFoundError):
         await resolve_image(str(tmp_path / "missing.png"))
+
+
+@pytest.mark.asyncio
+async def test_signed_reference_is_accepted(monkeypatch):
+    # 后端签发的短期引用是首选输入：签名有效即可取图，不再要求目标必须是公网地址
+    # （目标由后端决定，签名本身就是授权）。
+    monkeypatch.setenv("MCP_IMAGE_REF_SECRET", "s3cret")
+    reference = image_ref.sign("https://cos.example.com/agent-chat/7/a.png", "s3cret", 300)
+
+    mock_response = MagicMock()
+    mock_response.content = _make_test_image_bytes()
+    mock_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.get = AsyncMock(return_value=mock_response)
+
+    with patch("mcp_server.image_handler._get_client", return_value=mock_client):
+        result_path = await resolve_image(reference)
+        assert os.path.exists(result_path)
+        assert mock_client.get.await_args.args[0] == "https://cos.example.com/agent-chat/7/a.png"
+
+
+@pytest.mark.asyncio
+async def test_reference_without_configured_secret_is_refused(monkeypatch):
+    monkeypatch.delenv("MCP_IMAGE_REF_SECRET", raising=False)
+    reference = image_ref.sign("https://cos.example.com/a.png", "s3cret", 300)
+    with pytest.raises(ValueError, match="图片引用不可用"):
+        await resolve_image(reference)
+
+
+@pytest.mark.asyncio
+async def test_reference_with_broken_signature_is_refused(monkeypatch):
+    monkeypatch.setenv("MCP_IMAGE_REF_SECRET", "s3cret")
+    reference = image_ref.sign("https://cos.example.com/a.png", "other-secret", 300)
+    with pytest.raises(ValueError, match="图片引用不可用"):
+        await resolve_image(reference)
