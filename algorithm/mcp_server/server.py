@@ -20,7 +20,7 @@ async def eye_disease_diagnosis(image_input: str) -> str:
     """对眼科眼底图像进行AI疾病诊断。
 
     接收眼底图像（优先使用后端签发的短期图片引用），返回疾病预测结果，
-    包括预测标签、概率、可靠性评分、疾病描述和Top3预测。
+    包括预测标签、概率、top-1 与 top-2 的实测概率差、疾病描述和Top3预测。
 
     Args:
         image_input: 图片输入，支持以下格式：

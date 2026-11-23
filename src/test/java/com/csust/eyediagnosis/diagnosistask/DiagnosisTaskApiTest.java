@@ -121,10 +121,15 @@ class DiagnosisTaskApiTest {
         mvc.perform(multipart("/diagnosis-tasks").file("file", new byte[]{1, 2}).param("idempotencyKey", invalidKey))
                 .andExpect(jsonPath("$.code").value(40000));
         mvc.perform(multipart("/diagnosis-tasks").file("file", png(0)).param("idempotencyKey", versionKey))
-                .andExpect(jsonPath("$.data.status").value("RESTRICTED"));
+                .andExpect(jsonPath("$.data.status").value("RESTRICTED"))
+                .andExpect(jsonPath("$.data.restrictReason").value("STORAGE_VERSION_MISSING"));
+        // 请求重放走的是「从库里读回」这条路：原因只在内存里带着的话，用户刷新状态就只剩「受限」。
         mvc.perform(multipart("/diagnosis-tasks").file("file", png(0)).param("idempotencyKey", versionKey))
-                .andExpect(jsonPath("$.data.status").value("RESTRICTED"));
+                .andExpect(jsonPath("$.data.status").value("RESTRICTED"))
+                .andExpect(jsonPath("$.data.restrictReason").value("STORAGE_VERSION_MISSING"));
         org.mockito.Mockito.verify(storage, org.mockito.Mockito.times(1)).upload(any(), any(), any());
+        org.junit.jupiter.api.Assertions.assertEquals("STORAGE_VERSION_MISSING", jdbc.queryForObject(
+                "SELECT restrictReason FROM t_diagnosis_task WHERE userId=95 AND idempotencyKey=?", String.class, versionKey));
         org.junit.jupiter.api.Assertions.assertEquals(0, jdbc.queryForObject(
                 "SELECT COUNT(*) FROM t_diagnosis_task WHERE userId=95 AND idempotencyKey=?", Integer.class, invalidKey));
         org.junit.jupiter.api.Assertions.assertEquals(1, jdbc.queryForObject(

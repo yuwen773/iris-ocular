@@ -40,6 +40,9 @@ if str(REPO_ROOT / "algorithm") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "algorithm"))
 
 from eye_diagnosis.quality import laplacian_variance  # noqa: E402
+# 退回阈值只有一个真源：运行期（quality_calibration）与产物生成必须一致，
+# 否则重新生成的 UNCALIBRATED 产物会与运行时兜底值悄悄分叉。
+from eye_diagnosis.quality_calibration import FALLBACK_THRESHOLD  # noqa: E402
 
 # 标定所需的最小清晰样本量：低于这个数，统计噪声会大到阈值没有意义。
 MIN_CLEAR_SAMPLES = 30
@@ -108,9 +111,9 @@ def build_artifact(
             f"（{len(clear_values)} 张清晰样本）。"
         )
     else:
-        threshold = 100.0
+        threshold = FALLBACK_THRESHOLD
         state = "UNCALIBRATED"
-        note = "；".join(reasons) + " 阈值退回保守起点 100.0，仅供观察模式使用。"
+        note = f"；".join(reasons) + f" 阈值退回保守起点 {FALLBACK_THRESHOLD:g}，仅供观察模式使用。"
 
     return {
         "version": version or f"quality-blur-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}",

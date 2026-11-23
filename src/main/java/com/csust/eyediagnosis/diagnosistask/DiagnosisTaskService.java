@@ -57,15 +57,18 @@ public class DiagnosisTaskService {
         boolean validVersion = version != null && !version.isBlank() && !"null".equalsIgnoreCase(version.trim());
         if (!validVersion) version = null;
         String status = validVersion ? "PENDING" : "RESTRICTED";
+        // 受限原因必须和状态一起落库：只放在返回对象里，用户刷新状态或幂等重放
+        // 之后就只剩一句「受限」——那正是 V33 加这一列要消掉的现象。
+        String restrictReason = validVersion ? null : "STORAGE_VERSION_MISSING";
         try {
-            jdbc.update("INSERT INTO t_diagnosis_task (taskId,userId,idempotencyKey,requestDigest,imageDigest,objectKey,objectVersion,imageFormat,status,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?,?,?,NOW(6),NOW(6))",
-                    id, userId, key, requestDigest, imageDigest, objectKey, version, format, status);
+            jdbc.update("INSERT INTO t_diagnosis_task (taskId,userId,idempotencyKey,requestDigest,imageDigest,objectKey,objectVersion,imageFormat,status,restrictReason,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,NOW(6),NOW(6))",
+                    id, userId, key, requestDigest, imageDigest, objectKey, version, format, status, restrictReason);
         } catch (DuplicateKeyException e) {
             var concurrent = findRequest(userId, key, requestDigest);
             if (concurrent == null) throw e;
             return concurrent;
         }
-        return new SafeStatus(id, safeStatus(status), validVersion ? null : "STORAGE_VERSION_MISSING");
+        return new SafeStatus(id, safeStatus(status), restrictReason);
     }
 
     private SafeStatus findRequest(long userId, String key, String requestDigest) {

@@ -43,7 +43,7 @@ algorithm/
 │   ├── server.py              # FastMCP 服务器定义
 │   ├── tools.py               # 模型加载与推理编排
 │   ├── image_handler.py       # 图片输入解析（URL/文件/Base64）
-│   ├── diagnosis.py           # 诊断结果构建与可靠性评分
+│   ├── diagnosis.py           # 诊断结果构建与 top-1/top-2 概率差
 │   └── tests/                 # 单元测试
 │       ├── test_config.py
 │       ├── test_diagnosis.py
@@ -101,7 +101,9 @@ message DiagnosisResponse {
 }
 ```
 
-**返回内容**：预测标签、概率（0-100）、可靠性评分（50-95）、中文描述、Top-3 预测。
+**返回内容**：预测标签、概率（0-100）、中文描述、Top-3 预测。
+`reliability_score` 是 proto 里保留的旧字段（`deprecated`），语义为「原始 softmax 百分数」，
+不是医学可靠性；新代码请用 `classification_probability` + `calibration_*`。
 
 ### MCP 服务
 
@@ -204,17 +206,19 @@ python -m eye_diagnosis.frozen_eval \
 - 文件存在但**内容非法**（manifest 格式非法、样本 ID 重复、样本不来自冻结的 `val` 划分或缺少 `split` 字段、权重未登记在 `checkpoints/registry.json`）一律以 1 退出
 - `--require-manifest-not-newer` 额外要求 manifest 的修改时间不晚于权重的修改时间（冻结集必须早于模型训练）
 
-## 可靠性评分
+## 概率读数与 top-2 概率差
 
-根据 Top-1 和 Top-2 概率差值计算：
+**不再提供「可靠性评分」。** 早期版本把 Top-1 与 Top-2 的概率差映射成 95/85/75/65/50
+五档，那是一个凭空造出来的刻度——两份模型输出之间的距离不等于医学可靠性，也没有
+任何真实数据支撑这几个分界值。这类数字一旦出现在报告里，就会被当成经过验证的结论。
 
-| 差值 | 评分 |
-|------|------|
-| ≥ 0.5 | 95 |
-| ≥ 0.3 | 85 |
-| ≥ 0.2 | 75 |
-| ≥ 0.1 | 65 |
-| < 0.1 | 50 |
+现在只报**实测值**：
+
+- gRPC / proto：`probability`、`classification_probability`、`top_predictions[].probability`
+  都是原始 softmax；`calibrated_probability` 才是温度缩放后的值，两者不互相冒充。
+- MCP 工具的 `top2_margin`：Top-1 与 Top-2 的实测概率差（0–1），原样给出，不映射成分档。
+- 「这个结论可不可信」由校准状态（`calibration_status` / `calibration_*`）与图像质量
+  门（`image_quality_*`）回答；两者都没有真实标定产物时就如实标 `UNCALIBRATED`。
 
 ## 注意事项
 
