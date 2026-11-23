@@ -217,8 +217,9 @@ python -m eye_diagnosis.frozen_eval \
 - gRPC / proto：`probability`、`classification_probability`、`top_predictions[].probability`
   都是原始 softmax；`calibrated_probability` 才是温度缩放后的值，两者不互相冒充。
 - MCP 工具的 `top2_margin`：Top-1 与 Top-2 的实测概率差（0–1），原样给出，不映射成分档。
-- 「这个结论可不可信」由校准状态（`calibration_status` / `calibration_*`）与图像质量
-  门（`image_quality_*`）回答；两者都没有真实标定产物时就如实标 `UNCALIBRATED`。
+- 「这个结论可不可信」由校准状态（`calibration_status`：`CALIBRATED` / `NOT_CALIBRATED`）
+  与图像质量门（`image_quality_state`，其标定状态 `image_quality_calibration_state` 取
+  `CALIBRATED` / `UNCALIBRATED`）回答；两者都没有真实标定产物时如实标未标定，不猜。
 
 ## 注意事项
 
