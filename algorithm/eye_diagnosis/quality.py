@@ -52,7 +52,8 @@ class QualityReport:
     fundus_coverage: float
     lateral_sign: str
     reasons: List[str]
-    state: QualityState = QualityState.PASSED
+    # 没有默认值：漏传就无法构造报告。默认 PASSED 会把「忘了判」变成「判过」。
+    state: QualityState
 
     @property
     def verdict(self) -> QualityVerdict:

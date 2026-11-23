@@ -39,10 +39,11 @@ async def _download_bounded(url: str) -> bytes:
     client = await _get_client()
     try:
         async with client.stream("GET", url, timeout=30) as resp:
-            if resp.is_redirect:
+            if 300 <= resp.status_code < 400:
                 # 「不跟随重定向」是安全策略，但 3xx 本身也不该被当成图片收下：
                 # 它的响应体不是图像，收下来只会在解码阶段失败，或者更糟——
-                # 写下一个看起来成功、内容却不是图的对象。
+                # 写下一个看起来成功、内容却不是图的对象。按状态码判断，
+                # 不用 httpx 的 is_redirect（它只认带 Location 的 3xx）。
                 raise ValueError(f"图片地址返回重定向（{resp.status_code}），已拒绝")
             resp.raise_for_status()
             declared = (resp.headers.get("content-length") or "").strip()

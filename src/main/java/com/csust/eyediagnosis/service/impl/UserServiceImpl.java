@@ -186,7 +186,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         if (currentUser == null) {
             throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR);
         }
-        if (AuthConstant.BAN_ROLE.equals(currentUser.getUserRole())) {
+        if (isBanned(currentUser)) {
             session.invalidate();
             throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR, "账号已被封禁");
         }
@@ -199,7 +199,17 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
             return false;
         }
         User user = this.getById(userId);
-        return user != null && !AuthConstant.BAN_ROLE.equals(user.getUserRole());
+        return user != null && !isBanned(user);
+    }
+
+    /**
+     * 封禁判据的唯一实现。
+     *
+     * <p>登录入口与长连接回查必须用同一条判据：两处各写一遍
+     * {@code BAN_ROLE.equals(...)}，将来多一个停用档位就会只改一处。
+     */
+    private static boolean isBanned(User user) {
+        return user != null && AuthConstant.BAN_ROLE.equals(user.getUserRole());
     }
 
     /**

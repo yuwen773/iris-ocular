@@ -418,7 +418,7 @@ public class KnowledgeBaseServiceImpl extends ServiceImpl<KnowledgeDocumentMappe
         }
         try {
             Long referenced = baseMapper.selectCount(
-                    new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<KnowledgeDocument>()
+                    new LambdaQueryWrapper<KnowledgeDocument>()
                             .eq(KnowledgeDocument::getFileUrl, storedFileName));
             if (referenced != null && referenced > 0) {
                 return;

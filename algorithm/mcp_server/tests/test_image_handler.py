@@ -17,10 +17,6 @@ class _FakeStream:
         self.headers = headers or {}
         self.status_code = status_code
 
-    @property
-    def is_redirect(self) -> bool:
-        return 300 <= self.status_code < 400
-
     def raise_for_status(self) -> None:
         return None
 
@@ -216,6 +212,13 @@ async def test_redirect_response_is_refused_instead_of_downloaded(monkeypatch):
     )
     mock_client = AsyncMock()
     mock_client.stream = MagicMock(return_value=_FakeStream(b"<html>", status_code=302))
+
+    with patch("mcp_server.image_handler._get_client", return_value=mock_client):
+        with pytest.raises(ValueError, match="重定向"):
+            await resolve_image("https://example.com/eye.png")
+
+    # 不带 Location 的 3xx 同样不是图片：httpx 的 is_redirect 认不出来，状态码认得
+    mock_client.stream = MagicMock(return_value=_FakeStream(b"", status_code=304))
     with patch("mcp_server.image_handler._get_client", return_value=mock_client):
         with pytest.raises(ValueError, match="重定向"):
             await resolve_image("https://example.com/eye.png")

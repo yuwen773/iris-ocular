@@ -135,6 +135,13 @@ eye-diagnosis:
       initial-delay-ms: 600000
       # 宽限期：最近 N 分钟内被修改的对象不参与清理，避免误删正在上传的图片
       min-age-minutes: 30
+    # public/ 前缀（判读原图、用户头像）没有任务表登记，只做只读审计：
+    # 列出「没有任何数据库记录引用」的对象并告警，删除仍由人决定。
+    orphan-audit:
+      enabled: true
+      interval-ms: 86400000
+      initial-delay-ms: 1800000
+      min-age-minutes: 1440
   inference:
     model-version: efficientnet-b4@1.0.0
     model-weight-sha256: ${MODEL_WEIGHTS_SHA256:}

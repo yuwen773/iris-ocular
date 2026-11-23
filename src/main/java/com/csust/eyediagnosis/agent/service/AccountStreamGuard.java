@@ -57,6 +57,8 @@ public class AccountStreamGuard {
             return stream;
         }
         return Flux.defer(() -> {
+            // 每个订阅一份时间片：同一 guard 被订阅两次（重试、重新生成）时各查各的。
+            // concatMap 保证同一订阅内事件串行处理，所以这里只要 get/set。
             AtomicLong nextCheckNanos = new AtomicLong(System.nanoTime());
             return stream.concatMap(message -> {
                 long now = System.nanoTime();
@@ -64,10 +66,7 @@ public class AccountStreamGuard {
                 if (now < due) {
                     return Mono.just(message);
                 }
-                if (!nextCheckNanos.compareAndSet(due, now + recheckInterval.toNanos())) {
-                    // 另一个事件刚刚取走了这一片的检查权，不必重复查询
-                    return Mono.just(message);
-                }
+                nextCheckNanos.set(now + recheckInterval.toNanos());
                 if (userService.isAccountActive(userId)) {
                     return Mono.just(message);
                 }
