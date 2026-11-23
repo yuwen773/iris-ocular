@@ -4,6 +4,7 @@ import com.csust.eyediagnosis.exception.BusinessException;
 import com.csust.eyediagnosis.exception.ErrorCode;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -26,6 +27,11 @@ public class WeChatCode2SessionClient {
     private final RestClient restClient;
     private final WeChatMiniAppProperties properties;
 
+    /**
+     * 本类有第二个（包内可见的）构造器给单测用，Spring 因此不会自动选中唯一的构造器，
+     * 必须在这里显式标注；漏了会在启动时变成「No default constructor found」。
+     */
+    @Autowired
     public WeChatCode2SessionClient(RestClient.Builder builder, WeChatMiniAppProperties properties) {
         this(withTimeouts(builder).build(), properties);
     }
