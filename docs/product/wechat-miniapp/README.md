@@ -97,8 +97,9 @@ miniapp/src/
 - 小程序：`npm run typecheck && npm test && npm run build:weapp`（CI `miniapp` job 同口径）。
   单测只覆盖纯函数（SSE 切帧、流式 UTF-8 解码、域映射、历史回放过滤），**没有组件测试**——
   计划里提过的 `@tarojs/test-utils-react` 没有引入，页面行为靠真机清单验收。
-- 后端：`scripts/verify-fast.sh --java FlywayMySqlIntegrationTest --java MiniAppAuthServiceTest --java MiniAppTokenFilterTest --java MiniAppTokenServiceTest --java WeChatCode2SessionClientTest --java SameOriginFilterTest --db`
+- 后端：`scripts/verify-fast.sh --java EyeDiagnosisApplicationTests --java FlywayMySqlIntegrationTest --java MiniAppAuthServiceTest --java MiniAppTokenFilterTest --java MiniAppTokenServiceTest --java WeChatCode2SessionClientTest --java SameOriginFilterTest --db`
   （L2，覆盖 V35 迁移与 Spring 装配）。脚本不接受「只有 `--db`」的写法——它要求点名要跑的用例。
+  必须带 `EyeDiagnosisApplicationTests`：新增的 Spring bean 装配错误只在加载完整上下文时暴露，定向用例跑不出来。
 - 手工清单：静默登录建号且二次进入同账号；>2MB 图片被压缩或明确拒绝；拒识/待复核不给结论；
   Agent 流式逐字出现且以 `done` 收尾；隐私弹窗先于影像采集；系统深浅色切换无闪烁；
   `web/` 端 Cookie 会话与无令牌 POST 的 403 行为不变。
