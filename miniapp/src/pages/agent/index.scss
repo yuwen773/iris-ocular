@@ -1,0 +1,126 @@
+.agent-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--field);
+}
+
+.agent-scroll {
+  flex: 1;
+  min-height: 0;
+}
+
+.agent-inner {
+  padding: 24rpx 32rpx 32rpx;
+}
+
+.agent-intro {
+  padding: 32rpx 0 16rpx;
+}
+
+.agent-suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+  margin-top: 24rpx;
+}
+
+.agent-chip {
+  padding: 20rpx 24rpx;
+  border: 1rpx solid var(--line-strong);
+  background: var(--surface);
+}
+
+/* 历史会话：intro 里的一段台账式列表，不做卡片堆叠。 */
+.agent-sessions {
+  margin-top: 40rpx;
+  padding-top: 24rpx;
+  border-top: 1rpx solid var(--line);
+}
+
+.agent-session {
+  padding: 20rpx 0;
+  border-bottom: 1rpx solid var(--line);
+}
+
+.agent-session__title {
+  display: block;
+  font-size: 28rpx;
+  color: var(--ink);
+}
+
+.agent-session__preview {
+  display: block;
+  margin-top: 6rpx;
+  font-size: 24rpx;
+  color: var(--ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-msg {
+  padding: 24rpx;
+  border: 1rpx solid var(--line);
+  background: var(--surface);
+}
+
+.agent-msg + .agent-msg {
+  margin-top: 16rpx;
+}
+
+.agent-msg--user {
+  background: var(--surface-2);
+  border-color: var(--line-strong);
+}
+
+.agent-msg__text {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 28rpx;
+  line-height: 1.75;
+  color: var(--ink);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.agent-msg__badge {
+  display: block;
+  margin-top: 12rpx;
+  font-size: 22rpx;
+  color: var(--ink-3);
+}
+
+.agent-bar {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  padding: 16rpx 24rpx;
+  border-top: 1rpx solid var(--line);
+  background: var(--surface);
+}
+
+.agent-input {
+  flex: 1;
+  min-height: 76rpx;
+  padding: 0 20rpx;
+  border: 1rpx solid var(--line-strong);
+  background: var(--paper-surface);
+  font-size: 28rpx;
+}
+
+.agent-send {
+  min-width: 140rpx;
+  min-height: 76rpx;
+  padding: 0 24rpx;
+  font-size: 28rpx;
+}
+
+.agent-new {
+  margin: 0 24rpx 16rpx;
+}
+
+.agent-disclaimer {
+  padding: 0 24rpx 32rpx;
+  background: var(--field);
+}

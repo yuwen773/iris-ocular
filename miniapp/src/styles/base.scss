@@ -1,0 +1,209 @@
+/**
+ * 全局基础样式（Clinical 场景：白纸、墨字、发丝线、零圆角）。
+ * 只引用 tokens.scss 生成的令牌，不写死色值。
+ */
+page {
+  background: var(--field);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 28rpx;
+  line-height: 1.6;
+}
+
+view,
+text,
+button,
+input,
+image {
+  box-sizing: border-box;
+}
+
+.mp-page {
+  min-height: 100vh;
+  padding: 32rpx 32rpx 64rpx;
+  background: var(--field);
+}
+
+.mp-card {
+  background: var(--surface);
+  border: 1rpx solid var(--line);
+  border-radius: var(--radius-none);
+  padding: 32rpx;
+}
+
+.mp-card + .mp-card {
+  margin-top: 24rpx;
+}
+
+.mp-title {
+  font-family: var(--font-serif);
+  font-size: 40rpx;
+  line-height: 1.35;
+  color: var(--ink);
+}
+
+.mp-subtitle {
+  margin-top: 8rpx;
+  font-size: 26rpx;
+  color: var(--ink-2);
+}
+
+.mp-label {
+  font-family: var(--font-mono);
+  font-size: 22rpx;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.mp-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.mp-hairline {
+  height: 1rpx;
+  background: var(--line);
+  margin: 24rpx 0;
+}
+
+.mp-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+}
+
+.mp-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+}
+
+/* 按钮：微信原生 button 会带 ::after 边框，这里统一抹掉，按设计系统重画。 */
+.mp-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 88rpx;
+  padding: 0 32rpx;
+  border-radius: var(--radius-none);
+  border: 1rpx solid var(--ink);
+  background: var(--ink);
+  color: var(--paper-surface);
+  font-size: 30rpx;
+  line-height: 1.2;
+
+  &::after {
+    border: none;
+  }
+
+  &[disabled] {
+    opacity: 0.45;
+  }
+}
+
+.mp-btn--ghost {
+  background: transparent;
+  color: var(--ink);
+  border: 1rpx solid var(--line-strong);
+}
+
+.mp-btn--danger {
+  background: transparent;
+  color: var(--risk-critical-ink);
+  border: 1rpx solid var(--risk-critical);
+}
+
+/* 状态标签：颜色不是唯一信息载体，永远同时给出文字；只描边着色，不铺底色。 */
+.mp-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 6rpx 16rpx;
+  border-radius: var(--radius-none);
+  border: 1rpx solid var(--line-strong);
+  font-size: 24rpx;
+  color: var(--ink-2);
+}
+
+.mp-tag--normal {
+  border-color: var(--risk-normal);
+  color: var(--risk-normal-ink);
+}
+
+.mp-tag--attention {
+  border-color: var(--risk-attention);
+  color: var(--risk-attention-ink);
+}
+
+.mp-tag--critical {
+  border-color: var(--risk-critical);
+  color: var(--risk-critical-ink);
+}
+
+.mp-tag--signal {
+  border-color: var(--signal);
+  color: var(--signal-text);
+}
+
+.mp-note {
+  font-size: 24rpx;
+  color: var(--ink-2);
+}
+
+.mp-disclaimer {
+  margin-top: 24rpx;
+  padding: 24rpx;
+  border-left: 4rpx solid var(--signal);
+  background: var(--signal-soft);
+  font-size: 24rpx;
+  line-height: 1.7;
+  color: var(--ink-2);
+}
+
+.mp-empty {
+  padding: 96rpx 32rpx;
+  text-align: center;
+  color: var(--ink-3);
+  font-size: 26rpx;
+}
+
+.mp-fault {
+  padding: 24rpx;
+  border: 1rpx solid var(--risk-critical);
+  color: var(--risk-critical-ink);
+  font-size: 26rpx;
+}
+
+.mp-fault--info {
+  border-color: var(--line-strong);
+  color: var(--ink-2);
+}
+
+/* 底部弹层（隐私授权等确认）：全幅纸面 + 顶部发丝线，不用半透明遮罩——
+   遮罩需要一层不与主题联动的颜色，而这里所有色值都必须来自令牌。 */
+.mp-sheet-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: flex-end;
+  background: var(--field);
+}
+
+.mp-sheet {
+  width: 100%;
+  padding: 40rpx 32rpx 48rpx;
+  background: var(--surface);
+  border-top: 1rpx solid var(--line-strong);
+}
+
+.mp-sheet__actions {
+  display: flex;
+  gap: 16rpx;
+  margin-top: 32rpx;
+}
+
+.mp-sheet__actions .mp-btn {
+  flex: 1;
+}

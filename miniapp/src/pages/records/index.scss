@@ -1,0 +1,45 @@
+.record-card {
+  background: var(--surface);
+  border: 1rpx solid var(--line);
+  border-radius: var(--radius-none);
+  padding: 24rpx 28rpx;
+}
+
+.record-card + .record-card {
+  margin-top: 16rpx;
+}
+
+.record-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+}
+
+.record-card__body {
+  display: flex;
+  gap: 24rpx;
+  margin-top: 20rpx;
+  align-items: center;
+}
+
+.record-card__thumb {
+  width: 128rpx;
+  height: 128rpx;
+  background: var(--surface-2);
+  border: 1rpx solid var(--line);
+  flex-shrink: 0;
+}
+
+.record-card__text {
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+  min-width: 0;
+}
+
+.record-card__title {
+  font-family: var(--font-serif);
+  font-size: 32rpx;
+  color: var(--ink);
+}
