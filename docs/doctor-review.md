@@ -36,6 +36,6 @@ V13 新增 `t_doctor_review`，不修改已应用迁移。分配时保存任务�
 
 ## 测试边界
 
-用户已确认：从医生复核 HTTP API、医生页面公开交互及患者状态 API 验证，使用隔离 MySQL、合成材料和受控身份。本地和 CI 的专项套件 `DoctorReviewApiTest` 共 36 项，必须实际执行且零跳过；`scripts/check_surefire_skips.py ... issue20` 检查报告存在、完整例数与跳过情况。未配置 `ISSUE20_TEST_URL` 时专项套件明确跳过，不算验收通过。
+用户已确认：从医生复核 HTTP API、医生页面公开交互及患者状态 API 验证，使用隔离 MySQL、合成材料和受控身份。本地和 CI 的专项套件 `DoctorReviewApiTest` 共 38 项，必须实际执行且零跳过；`scripts/check_surefire_skips.py ... issue20` 检查报告存在、完整例数与跳过情况。未配置 `ISSUE20_TEST_URL` 时专项套件明确跳过，不算验收通过。
 
 本功能的工程测试不代表真实医生资格验证、真实资料领域审核、模型临床有效性或生产验收。运行证据见 [本次验收记录](testing/2026-11-09-issue20-doctor-review-acceptance.md)。
