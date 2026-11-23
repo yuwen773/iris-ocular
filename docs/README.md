@@ -30,6 +30,7 @@
 | `architecture/css-architecture-contract.md` | 查 Tailwind / Iris CSS 的职责边界、混用三档与 `@layer` 迁移路径（提案，基线 `origin/ui@b805377f`） |
 | `testing/2026-10-19-test-audit.md` | 质疑某个测试是否真的调用了被测实现 |
 | `testing/verification-levels.md` | 决定这次改动该跑 L0/L1/L2/L3 的哪一级，以及各模块至少跑什么（`scripts/verify-fast.sh`） |
+| `testing/pr153-visual-20261123/README.md` | 查 PR #153 rebase 后 Dashboard / Analytics 的视觉回归证据、夹具边界与复现说明 |
 | `reproducibility/p1_f01_fold_repair.md` | 追溯 P1-F01 冻结折修复的来历 |
 | `security-governance-plan-2026-11-18.md` | 判断 MD5→BCrypt 存量迁移的退出条件、配置中心三条上线门禁、CSRF 该按什么载体判定——写安全相关结论前先读，避免把「缺注解」直接当漏洞 |
 | `cleanup-ledger-2026-11-18.md` | 接手「考古报告逐项清理」前先读：哪些已交付成 PR、报告哪几条结论被实测修正、哪些还等 owner 拍板 |
