@@ -53,5 +53,7 @@ try {
     if ($probeExit) { throw "RAG generation probe failed: $probeExit" }
 } finally {
     # These names are generated above and belong only to this disposable run.
-    & docker rm -f $mysqlName $chromaName *> $null
+    # -v removes the anonymous volumes the MySQL/Chroma images declare; without it
+    # each probe leaks a ~210MB anonymous volume (same root cause as verify-fast L2).
+    & docker rm -fv $mysqlName $chromaName *> $null
 }

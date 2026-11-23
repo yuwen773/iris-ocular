@@ -26,11 +26,17 @@
 #
 # 覆盖：VERIFY_FAST_MYSQL_PORT(33316) / VERIFY_FAST_REDIS_PORT(36389) /
 #       VERIFY_FAST_TIMEOUT(900) / MYSQL_IMAGE / REDIS_IMAGE / CHROMA_IMAGE /
-#       MVN_FLAGS(-o) / JAVA_HOME
+#       MVN_FLAGS(-o) / JAVA_HOME / EYE_DOCKER_KEEP(1=保留现场)
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+
+# 镜像版本单一真源；harness 提供 Run ID / 标签 / 命名卷 / teardown / 残留断言。
+# shellcheck source=scripts/lib/docker-images.env
+. "$ROOT/scripts/lib/docker-images.env"
+# shellcheck source=scripts/lib/docker-test-harness.sh
+. "$ROOT/scripts/lib/docker-test-harness.sh"
 
 LEVEL="L1"
 JAVA_PATTERNS=()
@@ -162,30 +168,51 @@ run_static() {
 }
 
 # ── 一次性 MySQL + Redis + Chroma（L2 / --db） ─────────────────────────────
+# 生命周期统一走 scripts/lib/docker-test-harness.sh：每个容器/卷都带
+# eye.owner / eye.run-id 标签，MySQL/Redis 挂命名卷，退出时 `docker rm -f -v`
+# 并断言无残留。旧的裸 `docker run` + `docker rm -f` 不删匿名卷——MySQL 镜像声明了
+# VOLUME /var/lib/mysql，于是每跑一次 L2 就漏一个 ~210MB 匿名卷，这是历史上膨胀的源头。
 MYSQL_CID=""; REDIS_CID=""; CHROMA_CID=""
 
 cleanup_db() {
-  # 只删本次运行自己创建的容器；复用到的既有服务（例如 docker-compose 起的 Chroma）不动
-  [[ -n "$MYSQL_CID" ]] && docker rm -f "$MYSQL_CID" >/dev/null 2>&1
-  [[ -n "$REDIS_CID" ]] && docker rm -f "$REDIS_CID" >/dev/null 2>&1
-  [[ -n "$CHROMA_CID" ]] && docker rm -f "$CHROMA_CID" >/dev/null 2>&1
-  return 0
+  # 只回收本次 run-id 的资源；L0/L1 没开 DB（未初始化）就什么都不做。
+  [[ $NEED_DB -eq 1 && -n "${EYE_DOCKER_RUN_ID:-}" ]] || return 0
+  eye_docker_teardown
 }
 
 start_db() {
   command -v docker >/dev/null || { echo "docker is required for --db" >&2; return 1; }
+  EYE_DOCKER_KIND=test eye_docker_init
+  eye_docker_require || return 1
+
   local mysql_port="${VERIFY_FAST_MYSQL_PORT:-33316}"
   local redis_port="${VERIFY_FAST_REDIS_PORT:-36389}"
-  MYSQL_CID="eye-diagnosis-fast-mysql-$RUN_ID"
-  REDIS_CID="eye-diagnosis-fast-redis-$RUN_ID"
+  MYSQL_CID="$(eye_docker_container_name mysql)"
+  REDIS_CID="$(eye_docker_container_name redis)"
+  local mysql_vol redis_vol
+  mysql_vol="$(eye_docker_volume_name mysql-data)"
+  redis_vol="$(eye_docker_volume_name redis-data)"
+
+  eye_docker_require_image "$MYSQL_IMAGE"
+  eye_docker_require_image "$REDIS_IMAGE"
+
+  # 官方镜像声明了 VOLUME（MySQL /var/lib/mysql、Redis /data）；用带标签的命名卷
+  # 接管数据目录，匿名卷就不会再出现。
+  eye_docker_volume_create "$mysql_vol"
+  eye_docker_volume_create "$redis_vol"
 
   echo "==> 起一次性 MySQL 8 (:$mysql_port) + Redis (:$redis_port)"
-  docker run -d --name "$REDIS_CID" -p "${redis_port}:6379" "${REDIS_IMAGE:-redis:7-alpine}" >/dev/null || return 1
-  docker run -d --name "$MYSQL_CID" \
+  eye_docker_run_named "$REDIS_CID" -d \
+    -p "${redis_port}:6379" \
+    --mount "type=volume,src=${redis_vol},dst=/data" \
+    "$REDIS_IMAGE" >/dev/null || return 1
+  eye_docker_run_named "$MYSQL_CID" -d \
     -e MYSQL_DATABASE=diagnosis_ci \
     -e MYSQL_USER=eyeuser -e MYSQL_PASSWORD=ci-password \
     -e MYSQL_ROOT_PASSWORD=root-password \
-    -p "${mysql_port}:3306" "${MYSQL_IMAGE:-mysql:8.0.26}" >/dev/null || return 1
+    -p "${mysql_port}:3306" \
+    --mount "type=volume,src=${mysql_vol},dst=/var/lib/mysql" \
+    "$MYSQL_IMAGE" >/dev/null || return 1
 
   local ready=0
   for _ in $(seq 1 90); do
@@ -203,9 +230,10 @@ start_db() {
   if curl -fsS --max-time 3 http://127.0.0.1:8000/api/v2/heartbeat >/dev/null 2>&1; then
     echo "    Chroma 已在 :8000 上运行，复用"
   else
-    CHROMA_CID="eye-diagnosis-fast-chroma-$RUN_ID"
-    docker run -d --name "$CHROMA_CID" -p 8000:8000 \
-      -e IS_PERSISTENT=FALSE "${CHROMA_IMAGE:-ghcr.io/chroma-core/chroma:1.0.0}" >/dev/null || return 1
+    CHROMA_CID="$(eye_docker_container_name chroma)"
+    eye_docker_require_image "$CHROMA_IMAGE"
+    eye_docker_run_named "$CHROMA_CID" -d -p 8000:8000 \
+      -e IS_PERSISTENT=FALSE "$CHROMA_IMAGE" >/dev/null || return 1
     local chroma_ready=0
     for _ in $(seq 1 60); do
       if curl -fsS --max-time 2 http://127.0.0.1:8000/api/v2/heartbeat >/dev/null 2>&1; then chroma_ready=1; break; fi
@@ -304,6 +332,14 @@ case "$LEVEL" in
     [[ ${#WEB_PATTERNS[@]} -gt 0 ]] && run_web
     ;;
 esac
+
+# 资源回收属于验收的一部分：删干净并断言，不以测试绿代替；失败/中断路径由 trap 兜底。
+if [[ $NEED_DB -eq 1 && -n "${EYE_DOCKER_RUN_ID:-}" ]]; then
+  eye_docker_teardown
+  if [[ "${EYE_DOCKER_KEEP:-0}" != 1 ]]; then
+    eye_docker_assert_clean || record_stage "docker-clean" 1
+  fi
+fi
 
 echo
 echo "------------------------------------------------------------"
