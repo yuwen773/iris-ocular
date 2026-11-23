@@ -24,6 +24,7 @@
 | 分类概率（classificationProbability） | 原始 softmax top-1（0–1）。**不是**校准概率，更不是医学可靠性；未标定时界面必须照此标注 | `DiagnosisEvidence` / `V34` |
 | 患者结论准入（patientConclusionAllowed） | 算法侧判定「这条结论能否面向患者呈现」；与异步任务准入（`restrictReason`）是两道独立的门 | `diagnosis.proto` / `DiagnosisTaskRunner` |
 | 任务受限原因（restrictReason） | 异步患者任务为准入未通过时落库/下发的受限码；前端据此如实说明为何被限制 | `V33` / `DiagnosisTaskRunner` |
+| 两条判读准入 | 同步 `/api/diagnosis/*` 是「研发演示推理」：未被拒识就回分类结果，并用 `patientConclusionAllowed` 标注能不能作患者结论；异步 `/api/diagnosis-tasks/*` 是「满足证据准入的患者任务」：另加版本绑定的 OOD 证据门，缺证据即 `RESTRICTED`。两者是不同产品面，不是同一道门的两份实现 | `DiagnosisServiceImpl` / `DiagnosisTaskRunner` |
 | 流式账号闸门（AccountStreamGuard） | 流式回答进行中按时间片回查账号是否仍可用；封禁发生在开写之后也要立刻停止投递，不能等下一次请求 | `agent/service/AccountStreamGuard.java` |
 | 公开影像前缀审计（public/） | `public/` 下判读原图与头像**没有任务表登记**，只做只读对账：列出无数据库引用的对象并告警，删除仍由人工决定（同一前缀混两类对象，删错不可恢复） | `upload/audit/PublicImageOrphanAuditor.java` |
 

@@ -675,6 +675,12 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisMapper, Diagnosis
     /**
      * 将 gRPC 响应转换为前端结果 VO。严重程度在没有已验证模型输出的情况下
      * 统一为 NOT_ASSESSED，不得通过概率或类别启发式伪造。
+     *
+     * <p>这里是<b>同步判读面</b>（研发演示推理）：只要算法没有拒识就返回分类结果，
+     * 「能不能作为患者结论」交给 {@code patientConclusionAllowed} 标注，前端据此换读法；
+     * 异步患者任务面（{@code DiagnosisTaskRunner}）还要额外过版本绑定的 OOD 证据门，
+     * 缺证据即 {@code RESTRICTED}。两套准入是不同产品面，不要在这里补异步那道门，
+     * 也不要把这里的放行当成患者任务已准入。
      */
     public static DiagnosisResultVO buildDiagnosisResult(DiagnosisProto.DiagnosisResponse grpcResponse) {
         return buildDiagnosisResult(grpcResponse, DiagnosisEvidence.fromResponse(grpcResponse));
