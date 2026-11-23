@@ -60,7 +60,6 @@ export default function DiagnosisResultPage() {
 
   useEffect(() => {
     void load()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
 
   if (state === 'loading') {
@@ -120,7 +119,9 @@ export default function DiagnosisResultPage() {
             <View className="result-headline result-headline--muted">本次未给出分类结论</View>
             <Text className="result-text">{abstainReasonLabel(result.abstainReason)}</Text>
             {outcome === 'review' ? (
-              <Text className="mp-note">这条结果已进入医生复核队列，复核完成后会在记录里更新。</Text>
+              <Text className="mp-note">
+                这次判读的置信度不足以给出结论。体验版没有医生在线复核，请携原图到正规医疗机构由眼科医生判断。
+              </Text>
             ) : null}
           </View>
         )}

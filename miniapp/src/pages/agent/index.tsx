@@ -2,17 +2,15 @@ import { Button, Input, ScrollView, Text, View } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import { useEffect, useRef, useState } from 'react'
 import { Disclaimer } from '@/components/Feedback'
-import { getAgentHistory, listAgentSessions, type AgentSession, type ChatHistory } from '@/lib/api'
+import { getAgentHistory, listAgentSessions, type AgentSession } from '@/lib/api'
+import { toChatItems, type ChatItem as HistoryItem } from '@/lib/agentHistory'
 import { ensureLogin } from '@/lib/auth'
 import { streamAgentChat, type AgentStreamHandle } from '@/lib/agentStream'
 import './index.scss'
 
 const THREAD_KEY = 'iris.miniapp.threadId'
 
-interface ChatItem {
-  id: string
-  role: 'user' | 'assistant'
-  content: string
+interface ChatItem extends HistoryItem {
   pending?: boolean
 }
 
@@ -28,17 +26,6 @@ function ensureThreadId(): string {
   const created = newThreadId()
   Taro.setStorageSync(THREAD_KEY, created)
   return created
-}
-
-/** 服务端历史 → 页面消息。空内容消息（工具调用等）不展示。 */
-function toItems(history: ChatHistory): ChatItem[] {
-  return history.messages
-    .filter((item) => typeof item.content === 'string' && item.content.length > 0)
-    .map((item) => ({
-      id: `h-${item.id ?? Math.random().toString(36).slice(2)}`,
-      role: item.role === 'user' ? 'user' : 'assistant',
-      content: item.content ?? '',
-    }))
 }
 
 export default function AgentPage() {
@@ -57,7 +44,7 @@ export default function AgentPage() {
       try {
         const history = await getAgentHistory(stored)
         if (!alive) return
-        setMessages(toItems(history))
+        setMessages(toChatItems(history))
       } catch {
         // 历史恢复失败不阻塞新对话：threadId 仍有效，继续问即可。
       }
@@ -105,7 +92,7 @@ export default function AgentPage() {
     setMessages([])
     Taro.setStorageSync(THREAD_KEY, sessionId)
     try {
-      setMessages(toItems(await getAgentHistory(sessionId)))
+      setMessages(toChatItems(await getAgentHistory(sessionId)))
     } catch {
       setFault('历史对话加载失败，请重试')
     }

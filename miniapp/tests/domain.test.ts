@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   abstainReasonLabel,
+  canonicalClassName,
+  classCode,
   confidenceBand,
   outcomeOf,
   severityLabel,
@@ -39,5 +41,24 @@ describe('判读结果口径', () => {
     expect(abstainReasonLabel('ABSTAIN_QUALITY_FAIL')).toContain('影像质量')
     expect(abstainReasonLabel('SOME_NEW_CODE')).toBe('SOME_NEW_CODE')
     expect(abstainReasonLabel(null)).toContain('暂无法提供结果')
+  })
+})
+
+describe('类别名归一与短码', () => {
+  it('别名、大小写、包含关系都归一到同一个名字', () => {
+    expect(canonicalClassName('AMD')).toBe('年龄相关性黄斑变性')
+    expect(canonicalClassName(' 糖尿病 ')).toBe('糖尿病视网膜病变')
+    expect(canonicalClassName('青光眼')).toBe('青光眼')
+  })
+
+  it('认不出的名字返回 null，短码给占位符而不是瞎猜', () => {
+    expect(canonicalClassName('不存在的类别')).toBeNull()
+    expect(canonicalClassName('')).toBeNull()
+    expect(classCode('不存在的类别')).toBe('—')
+  })
+
+  it('短码与名字一一对应', () => {
+    expect(classCode('年龄相关性黄斑变性')).toBe('AMD')
+    expect(classCode('正常')).toBe('N')
   })
 })

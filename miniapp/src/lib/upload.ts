@@ -1,4 +1,4 @@
-import { ensureLogin, relogin } from './auth'
+import { withAuthRetry } from './authedCall'
 import { API_BASE } from './env'
 import { ApiError, ERROR_CODE, errorForStatus, unpack } from './raw'
 import { getToken } from './token'
@@ -180,21 +180,12 @@ function chooseImage(): Promise<string> {
  * 上传并同步判读。`runId` 是客户端生成、服务端登记的运行标识，
  * 只有它能让 `/diagnosis/cancel/{runId}` 真正停下这次判读。
  *
- * <p>登录态与 `request.ts` 同口径：先确保有令牌，服务端回 40100 就重登一次再试。
- * 上传走 `wx.uploadFile`（multipart），不经过 Taro 的 request 封装，因此这层
- * 需要自己补上重登——否则首启抢拍会带着空令牌直接撞 403。
+ * <p>登录态与 `request.ts` 同口径（`authedCall.withAuthRetry`）：先确保有令牌，服务端
+ * 回 40100 就重登一次再试。上传走 `wx.uploadFile`（multipart），不经过 Taro 的 request
+ * 封装，但重登口径必须一致——否则首启抢拍会带着空令牌直接撞 403。
  */
 export async function uploadDiagnosis(filePath: string, runId: string): Promise<DiagnosisResult> {
-  await ensureLogin()
-  try {
-    return await uploadOnce(filePath, runId)
-  } catch (error) {
-    if (error instanceof ApiError && error.code === ERROR_CODE.NOT_LOGIN) {
-      await relogin()
-      return uploadOnce(filePath, runId)
-    }
-    throw error
-  }
+  return withAuthRetry(() => uploadOnce(filePath, runId))
 }
 
 function uploadOnce(filePath: string, runId: string): Promise<DiagnosisResult> {
@@ -203,7 +194,8 @@ function uploadOnce(filePath: string, runId: string): Promise<DiagnosisResult> {
       url: `${API_BASE}/diagnosis/diagnosis?runId=${encodeURIComponent(runId)}`,
       filePath,
       name: 'file',
-      header: { Authorization: `Bearer ${getToken() ?? ''}` },
+      // 没有令牌就不带这个头：空 Bearer 会被服务端当成「带了但无效」。
+      header: getToken() ? { Authorization: `Bearer ${getToken()}` } : {},
       timeout: 60000,
       success: (res) => {
         const statusError = errorForStatus(res.statusCode)

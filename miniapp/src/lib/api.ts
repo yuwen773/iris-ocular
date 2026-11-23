@@ -1,3 +1,4 @@
+import type { LoginUser } from './auth'
 import { request } from './request'
 
 /** 与后端 VO 对齐的最小字段集：只取患者端真正会展示的字段。 */
@@ -66,11 +67,18 @@ export interface AgentSession {
   isPinned?: boolean
 }
 
+/**
+ * 历史行。`role` 落库为大写（`USER` / `ASSISTANT`），`subType` 是落库词汇表
+ * （`text` / `reasoning` / `tool-call` / `tool-result` / `mcp-confirm` / `turn-end` /
+ * `user-attachments-v1`），筛选规则见 `lib/agentHistory.ts`。
+ */
 export interface AgentMessage {
   id?: number
   role?: string
-  subType?: string
+  /** 旧行没有子类型，服务端可能是 null。 */
+  subType?: string | null
   content?: string
+  isSummary?: boolean
   createdTime?: string
 }
 
@@ -96,6 +104,11 @@ export function getDiagnosis(id: string | number): Promise<DiagnosisResult> {
   return request<DiagnosisResult>(`/diagnosis/get/${id}`)
 }
 
+/** 当前登录用户。放在这里而不是 auth.ts：它需要 request.ts 的重登口径，而 auth.ts 是它的下层。 */
+export function fetchCurrentUser(): Promise<LoginUser> {
+  return request<LoginUser>('/user/get/login')
+}
+
 export function listMyDiagnoses(current: number, pageSize = 10): Promise<PageResult<DiagnosisSummary>> {
   return request<PageResult<DiagnosisSummary>>('/diagnosis/list/page/my', {
     method: 'POST',
@@ -103,8 +116,13 @@ export function listMyDiagnoses(current: number, pageSize = 10): Promise<PageRes
   })
 }
 
-export function cancelDiagnosis(runId: string): Promise<{ runId: string; outcome: string }> {
-  return request(`/diagnosis/cancel/${encodeURIComponent(runId)}`, { method: 'POST' })
+/** 与服务端 `DiagnosisRunService.CancelOutcome` 同值：取消是否真的赢下了这次运行。 */
+export type CancelOutcome = 'CANCELLED' | 'ALREADY_FINISHED' | 'NOT_FOUND'
+
+export function cancelDiagnosis(runId: string): Promise<{ runId: string; outcome: CancelOutcome }> {
+  return request<{ runId: string; outcome: CancelOutcome }>(`/diagnosis/cancel/${encodeURIComponent(runId)}`, {
+    method: 'POST',
+  })
 }
 
 export function listAgentSessions(): Promise<AgentSession[]> {

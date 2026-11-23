@@ -68,17 +68,6 @@ export async function logout(): Promise<void> {
   clearToken()
 }
 
-export async function fetchCurrentUser(): Promise<LoginUser> {
-  await ensureLogin()
-  return unpack<LoginUser>(
-    await rawRequest<LoginUser>({
-      path: '/user/get/login',
-      method: 'GET',
-      token: getToken(),
-    }),
-  )
-}
-
 async function doLogin(): Promise<void> {
   const login = await Taro.login()
   if (!login.code) {

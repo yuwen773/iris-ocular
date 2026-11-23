@@ -4,7 +4,7 @@ import { useRef, useState } from 'react'
 import { AiBadge } from '@/components/Tags'
 import { Disclaimer } from '@/components/Feedback'
 import { PrivacyDialog } from '@/components/PrivacyDialog'
-import { cancelDiagnosis } from '@/lib/api'
+import { cancelDiagnosis, type CancelOutcome } from '@/lib/api'
 import { getPrivacyStatus, openPrivacyContract, requirePrivacyAuthorize } from '@/lib/privacy'
 import { ApiError, ERROR_CODE } from '@/lib/raw'
 import { ImageTooLargeError, pickAndPrepareImage, uploadDiagnosis } from '@/lib/upload'
@@ -16,12 +16,19 @@ function newRunId(): string {
   return `mp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
 
+/** 取消的结果必须如实说：服务端说「已经完成」时，用户不该以为白拍了。 */
+function cancelMessage(outcome: CancelOutcome): string {
+  if (outcome === 'CANCELLED') return '已取消本次判读'
+  if (outcome === 'ALREADY_FINISHED') return '这次判读已经完成，结果已存入记录'
+  return '服务端已没有这次判读，本次没有产生记录'
+}
+
 function describeError(error: unknown): string {
   if (error instanceof ImageTooLargeError) {
     return `${error.message}，请重拍或换一张更小的影像`
   }
   if (error instanceof ApiError) {
-    if (error.code === 40013) return '判读已取消'
+    if (error.code === ERROR_CODE.CANCELLED) return '判读已取消'
     if (error.code === ERROR_CODE.NOT_LOGIN) return '登录状态已失效，请重新进入小程序'
     return error.message || '判读失败，请重试'
   }
@@ -127,11 +134,13 @@ export default function DiagnosisHome() {
     runIdRef.current = null
     stopTimer()
     setStage('idle')
-    setMessage('已请求取消本次判读')
+    setMessage('正在通知服务端取消…')
     try {
-      await cancelDiagnosis(runId)
+      const { outcome } = await cancelDiagnosis(runId)
+      setMessage(cancelMessage(outcome))
     } catch {
-      // 取消失败不阻塞界面：本次上传的响应仍会被丢弃，不会落到新一次判读上。
+      // 没拿到确认就不替服务端宣布结果：本次判读可能仍在跑，结果会出现在记录里。
+      setMessage('没有收到取消确认：本次判读可能仍在进行，结果会出现在记录里')
     }
   }
 

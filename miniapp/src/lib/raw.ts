@@ -18,6 +18,8 @@ export interface BaseResponse<T> {
 export const ERROR_CODE = {
   NOT_LOGIN: 40100,
   FORBIDDEN: 40300,
+  /** ErrorCode.DIAGNOSIS_CANCELLED：用户在判读进行中取消了本次运行。 */
+  CANCELLED: 40013,
   NETWORK: -1,
   HTTP: -2,
   MALFORMED: -3,

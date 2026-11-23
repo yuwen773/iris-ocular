@@ -8,6 +8,8 @@ export default defineAppConfig({
   ],
   window: {
     backgroundTextStyle: 'dark',
+    // 这里的色值是「浅色兜底」：`darkmode: true` 时以生成的 `src/theme.json` 为准
+    //（`npm run gen:tokens` 从 web/src/styles/tokens.css 生成，勿手改 theme.json）。
     navigationBarBackgroundColor: '#f3f4f1',
     navigationBarTitleText: 'Iris 眼底影像判读',
     navigationBarTextStyle: 'black',
