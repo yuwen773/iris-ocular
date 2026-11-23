@@ -256,6 +256,7 @@ Iris 的外壳是光：钴蓝、银蓝与冰青的光学玻璃，让公开层看
 
 - **Signal Orange**（`--paper-signal` / `--signal-text`）：当前态、重点标记与模型标记。承载文字时用压深一档的 `--signal-text` 保证对比度。
 - **Medical Risk**（`--risk-normal`、`--risk-attention`、`--risk-critical`）：只表示病情严重度；暗主题下 `html.dark` 把 `--risk-*` 翻为对应的提亮值。
+- **Risk Ink**（`--risk-normal-ink`、`--risk-attention-ink`、`--risk-critical-ink`）：承载文字的一档（chip 文字、圆点）——原色在浅底上只有 4.4–4.5:1，ink 压深一档到 5.6–6.7:1，只改标记内的文字，不动 `--risk-*` 的语义值。纸面原语 `--paper-risk-*-ink` 不参与主题翻转：记录纸（`.is-sheet`）在暗主题下仍是那张白纸，纸上的风险文字必须取纸面值。
 - **Destructive Rose**（`--danger`）：只用于删除会话、删除记录这类不可逆的数据动作，与医学风险分属两条色相。
 - **Data Series**（`--viz-series-1` … `--viz-series-6`）：只用于数据图表的分类系列，不占用信号橙、风险色与管理紫。
 
