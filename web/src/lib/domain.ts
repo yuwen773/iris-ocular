@@ -445,19 +445,15 @@ export type ProbabilityReading = {
 }
 
 /**
- * 判读结果的校准状态与患者结论准入。
- *
- * <p>只有 CALIBRATED 才算经过真实数据标定；算法明确给了
- * `patientConclusionAllowed === false` 时，即使概率标定过也不作患者结论——
- * 「校准过」与「允许给患者看」是两道各自独立的门，后者更严。
- */
-/**
  * 判读概率怎么读。
  *
  * <p>未标定的 softmax **不是置信度**：它只是模型输出强度，没有经过真实数据
  * 标定。界面照此标注，否则患者会把一个未标定的数字读成「诊断有多可靠」。
  * 已标定时才按校准后概率呈现，并保留风险分档；未标定时不给风险分档——
  * 一个撑不起分档的数值不该借颜色说 severity。
+ *
+ * <p>「校准过」与「允许给患者看」是两道各自独立的门，后者更严：算法明确给了
+ * `patientConclusionAllowed === false` 时，即使概率标定过也不作患者结论。
  */
 export function probabilityReading(result: {
   calibrationStatus?: string | null

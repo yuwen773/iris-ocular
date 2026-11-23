@@ -427,11 +427,6 @@ export function uploadAvatar(file: File) {
 }
 
 /**
- * 我的判读分页。行对象是 DiagnosisManageVO——列表接口不做详情级脱敏补全，
- * 人工复核结论等完整字段要点开走 /diagnosis/get/{id}。
- * AI 拒识的行 result/confidence/severity 是 null，不是 0。
- */
-/**
  * 判读概率证据：列表 `DiagnosisManageVO` 与详情 `DiagnosisResultVO` 的公共投影。
  *
  * <p>口径（写入与读回同一处规则，见后端 `DiagnosisEvidence`）：
@@ -459,6 +454,11 @@ export type ProbabilityEvidence = {
   patientConclusionAllowed?: boolean | null
 }
 
+/**
+ * 我的判读分页。行对象是 DiagnosisManageVO——列表接口不做详情级脱敏补全，
+ * 人工复核结论等完整字段要点开走 /diagnosis/get/{id}。
+ * AI 拒识的行 result/confidence/severity 是 null，不是 0。
+ */
 export type DiagnosisManage = ProbabilityEvidence & {
   /** 雪花 id，线上是字符串。 */
   id: string
