@@ -113,7 +113,8 @@
 | `agent.queue.parallelism`（默认 8） | **无 yml** | `agent/queue/AgentQueueConfig.java:12` | 会话队列并行度 | DEPLOY_ONLY | startup | 中 | 保留 |
 | `document.executor.core-size` / `max-size` / `queue-capacity` | **无 yml** | `config/AsyncConfig.java:28-34` | 文档 ETL 线程池 | DEPLOY_ONLY | startup | 中 | 保留 |
 | `eye-diagnosis.upload.compensation.enabled`（默认 `true`） | `application.yml` `eye-diagnosis.upload.compensation` | `upload/state/UploadCompensationScheduler.java` | 破坏性对账开关；默认开启（孤儿对象唯一周期性兜底），显式 `false` 时启动打警告 | STATIC_POLICY | startup | **高**（会真实删 COS 对象） | 保留 |
-| `eye-diagnosis.upload.compensation.interval-ms` / `initial-delay-ms` / `min-age-minutes` | `application.yml:87-90` | `UploadCompensationScheduler.java:24-25`、`UploadCompensationService.java:48,120` | 对账节奏与宽限期 | DYNAMIC | startup / scheduled | 中 | 后续重构 |
+| `eye-diagnosis.upload.compensation.interval-ms` / `initial-delay-ms` / `min-age-minutes` | `application.yml` `eye-diagnosis.upload.compensation` | `UploadCompensationScheduler.java`、`UploadCompensationService.java` | 对账节奏与宽限期 | DYNAMIC | startup / scheduled | 中 | 后续重构 |
+| `eye-diagnosis.upload.orphan-audit.enabled` / `interval-ms` / `initial-delay-ms` / `min-age-minutes`（默认 `true` / 一天 / 30 分钟 / 1440 分钟） | `application.yml` `eye-diagnosis.upload.orphan-audit` | `upload/audit/PublicImageOrphanAuditScheduler.java`、`PublicImageOrphanAuditor.java` | `public/` 前缀（判读原图、头像）的**只读**孤儿审计：列出无数据库记录引用的对象并告警，不删除 | STATIC_POLICY | startup / scheduled | 低（不写、不删任何对象） | 保留 |
 
 ### 2.6 测试与本地验证（per-test-run，不入产品配置）
 
