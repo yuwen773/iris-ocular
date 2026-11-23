@@ -608,6 +608,11 @@ function statusRows(value: unknown): AnalyticsStatusStat[] {
 }
 
 function toAnalytics(raw: Record<string, unknown>): AdminAnalytics {
+  // `code: 0` 但 `data: null` 也是坏响应：必须先挡住，否则下面读
+  // `raw[key]` 会抛原生 TypeError，绕过 ApiError 码，页面认不出是载荷问题。
+  if (raw === null || raw === undefined || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new ApiError(STATS_PAYLOAD_CODE, "统计响应为空")
+  }
   const review = requireDomain(raw, "review")
   const rejection = requireDomain(raw, "rejection")
   const model = requireDomain(raw, "model")

@@ -160,10 +160,73 @@ describe("AdminDataAnalysisPage 窗口与缓存", () => {
     expect(screen.getAllByText(/近 90 天/).length).toBeGreaterThan(0)
   })
 
-  it("空窗口给专属空态，不摆一排 0", async () => {
+  it("四域全空才给专属空态，不摆一排 0", async () => {
+    const base = analyticsOf(30)
+    vi.mocked(getAdminAnalytics).mockResolvedValue(
+      analyticsOf(30, {
+        review: {
+          ...base.review,
+          awaitingTotal: 0,
+          queuedInWindow: 0,
+          completedInWindow: 0,
+          completionRate: null,
+          reviewedInWindow: 0,
+          overriddenInWindow: 0,
+          overrideRate: null,
+          latencySamples: 0,
+          avgMinutes: null,
+          p50Minutes: null,
+          p90Minutes: null,
+          maxMinutes: null,
+          reviewers: [],
+          queueReasons: [],
+          unclassifiedReasonCount: 0,
+          unknownReasonCount: 0,
+        },
+        rejection: {
+          total: 0,
+          rejected: 0,
+          rate: null,
+          reasons: [],
+          unclassifiedReasonCount: 0,
+          unknownReasonCount: 0,
+        },
+        model: {
+          ...base.model,
+          versions: [],
+          confidence: { samples: 0, avg: null, ambiguous: 0, outOfRange: 0, missing: 0 },
+          confidenceHistogram: [],
+          qualityScores: [],
+          qualityOutOfContract: 0,
+          qualityUnknown: 0,
+          qualityReasons: [],
+          unclassifiedQualityReasonCount: 0,
+          oodStatuses: [],
+          calibrationStatuses: [],
+        },
+        dataQuality: {
+          ...base.dataQuality,
+          qualityOutOfContract: 0,
+          ambiguousConfidence: 0,
+          confidenceOutOfRange: 0,
+          confidenceMissing: 0,
+          reviewedWithoutTime: 0,
+        },
+      }),
+    )
+
+    renderPage()
+
+    expect(await screen.findByText("该时间范围内暂无可分析记录")).toBeTruthy()
+    expect(screen.queryByLabelText("数据可用性")).toBeNull()
+  })
+
+  it("窗口内没有新判读但仍有复核活动时，复核分区照常显示", async () => {
+    const base = analyticsOf(30)
     vi.mocked(getAdminAnalytics).mockResolvedValue(
       analyticsOf(30, {
         rejection: {
+          ...base.rejection,
           total: 0,
           rejected: 0,
           rate: null,
@@ -174,10 +237,34 @@ describe("AdminDataAnalysisPage 窗口与缓存", () => {
       }),
     )
 
-    renderPage()
+    renderPage("/admin/data-analysis?section=review")
 
-    expect(await screen.findByText("该时间范围内暂无可分析记录")).toBeTruthy()
-    expect(screen.queryByLabelText("数据可用性")).toBeNull()
+    expect(await screen.findByText("历史数据")).toBeTruthy()
+    expect(screen.queryByText("该时间范围内暂无可分析记录")).toBeNull()
+    expect(screen.getByText("AI 未出结论原因")).toBeTruthy()
+    expect(screen.getByText("触发复核原因")).toBeTruthy()
+  })
+
+  it("选中的分区没有样本时给分区空态，不把整页判空", async () => {
+    const base = analyticsOf(30)
+    vi.mocked(getAdminAnalytics).mockResolvedValue(
+      analyticsOf(30, {
+        rejection: {
+          ...base.rejection,
+          total: 0,
+          rejected: 0,
+          rate: null,
+          reasons: [],
+          unclassifiedReasonCount: 0,
+          unknownReasonCount: 0,
+        },
+      }),
+    )
+
+    renderPage("/admin/data-analysis?section=model")
+
+    expect(await screen.findByText("该分区在当前窗口没有可统计样本")).toBeTruthy()
+    expect(screen.queryByText("该时间范围内暂无可分析记录")).toBeNull()
   })
 
   it("接口失败时给故障提示与重试，不显示 0", async () => {

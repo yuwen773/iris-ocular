@@ -166,6 +166,15 @@ describe("getAdminAnalytics", () => {
       message: "统计响应缺少 model 领域",
     })
   })
+
+  it("data 为 null 时给本地载荷错误，不让原生 TypeError 漏出去", async () => {
+    stubJson({ ...payload, data: null })
+
+    await expect(getAdminAnalytics(30)).rejects.toMatchObject({
+      code: -2,
+      message: "统计响应为空",
+    })
+  })
 })
 
 describe("getAdminStats 计数口径", () => {

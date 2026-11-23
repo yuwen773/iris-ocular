@@ -100,7 +100,10 @@
   显示「无法确认复核数据状态」，**不当作当前运营**。
 - 其他领域后端未提供 `dataStatus`：页面只写「当前窗口统计」，不编造 `LIVE` 徽标。
 - OOD：只看 `oodStatuses` 的原始值；只有 `NOT_EVALUATED` 时显示能力说明卡。
-- 空窗口：`rejection.total === 0` → 专属空态；有记录但某指标样本为 0 → 说明「无符合口径的有效样本」。
+- 空窗口：四个领域（判读拒识、复核活动、模型版本、数据质量异常）全部为空 → 专属整页空态；
+  只是 `rejection.total === 0` 时**不**判整页空——复核按复核完成时间统计，窗口内没有新判读
+  仍可能有复核活动，此时复核分区照常显示，其余分区各自给分区空态。
+  有记录但某指标样本为 0 → 说明「无符合口径的有效样本」。
 
 ## 8. 页面实现（B2，2026-11-22）
 
@@ -114,7 +117,7 @@
 | 页面 | `web/src/pages/admin/AdminDataAnalysisPage.tsx`（四个分区 + 指标抽屉） |
 | 组件 | `web/src/components/admin/analytics/`（Availability / StatusBadge / MetricDefinitionDrawer / Charts / Tables） |
 | 样式 | `web/src/styles/admin-analytics.css`（零字面色；旧的 `admin-polish-analysis.css` 已删除） |
-| 测试 | `AdminDataAnalysisPage.test.tsx`（11 例）、`analyticsDomain.test.ts`（18 例） |
+| 测试 | `AdminDataAnalysisPage.test.tsx`（15 例）、`analyticsDomain.test.ts`（18 例） |
 
 页面不做的（与 §6 一致）：导出、下钻、实时刷新、自定义区间、准确率、时延直方图、趋势。
 

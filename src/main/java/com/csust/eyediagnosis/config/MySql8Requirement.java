@@ -28,6 +28,13 @@ import java.util.regex.Pattern;
  * {@code eye-diagnosis.database.require-mysql8=false} 承担后果。
  *
  * <p>非 MySQL 数据库（测试替身）不参与判定，避免把单元测试挡在门外。
+ *
+ * <p>为什么是 {@link ApplicationRunner} 而不是更早的 bean 初始化：门禁必须拿到
+ * 已建好的 {@link DataSource}，而数据源与 Flyway 的创建顺序由自动配置决定，
+ * 用 {@code InitializingBean} 并不能稳定抢在 Flyway 之前。选择 runner 的代价是
+ * 检查发生在 Web 端口绑定之后、{@code ApplicationReadyEvent} 之前——runner 抛异常
+ * 会让 Spring 关闭上下文并以非零码退出，端口随即释放，不会进入就绪状态被流量打到。
+ * 连 MySQL 5.7 的实测见 {@code docs/design/iris22-admin-analytics-b2-field-mapping.md} §9.4。
  */
 @Slf4j
 @Component

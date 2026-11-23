@@ -101,6 +101,26 @@ export function AdminDataAnalysisPage(): ReactElement {
   const availability = useMemo(() => (data ? buildAvailability(data) : []), [data])
   const issues = useMemo(() => (data ? buildQualityIssues(data) : []), [data])
 
+  // 各分区各有自己的样本前提：复核按复核完成时间统计，窗口内没有新判读时
+  // 仍可能有历史复核活动。用 `rejection.total` 一个数把整页判空，会把复核分区
+  // 连同数据质量一起藏掉；因此逐分区判空，只有四域全空才给整页空态。
+  const hasWindowDiagnoses = data ? data.rejection.total > 0 : false
+  const hasReviewActivity = data
+    ? data.review.awaitingTotal + data.review.queuedInWindow + data.review.reviewedInWindow > 0
+    : false
+  const hasModelData = data ? data.model.versions.length > 0 : false
+  const hasQualityIssues = issues.length > 0
+  const hasAnyAnalysis =
+    hasWindowDiagnoses || hasReviewActivity || hasModelData || hasQualityIssues
+  const sectionAvailable =
+    section === "overview"
+      ? hasAnyAnalysis
+      : section === "review"
+        ? hasReviewActivity
+        : section === "model"
+          ? hasWindowDiagnoses
+          : hasWindowDiagnoses || hasQualityIssues
+
   return (
     <div className="admin-analytics">
       <AdminPageHead
@@ -176,7 +196,7 @@ export function AdminDataAnalysisPage(): ReactElement {
         </div>
       ) : null}
 
-      {data && data.rejection.total === 0 ? (
+      {data && !hasAnyAnalysis ? (
         <section className="panel admin-analytics__empty-panel" aria-label="空窗口说明">
           <div className="panel__head">
             <h2 className="panel__title">该时间范围内暂无可分析记录</h2>
@@ -186,8 +206,8 @@ export function AdminDataAnalysisPage(): ReactElement {
           </div>
           <div className="panel__body">
             <p className="admin-analytics__empty-copy">
-              窗口内没有判读记录，因此拒识归因、模型版本、置信度与图像质量都没有可统计的样本。
-              把统计窗口拉长，或到诊断管理查看全量记录。
+              窗口内没有判读记录，也没有复核或数据质量异常，因此拒识归因、模型版本、
+              置信度与图像质量都没有可统计的样本。把统计窗口拉长，或到诊断管理查看全量记录。
             </p>
             <div className="admin-analytics__empty-actions">
               <Link className="action-row__link" to="/admin/diagnosis">
@@ -205,7 +225,7 @@ export function AdminDataAnalysisPage(): ReactElement {
         </section>
       ) : null}
 
-      {data && data.rejection.total > 0 ? (
+      {data && hasAnyAnalysis ? (
         <>
           {section === "overview" ? (
             <OverviewSection
@@ -216,7 +236,7 @@ export function AdminDataAnalysisPage(): ReactElement {
             />
           ) : null}
 
-          {section === "review" ? (
+          {section === "review" && hasReviewActivity ? (
             <ReviewSection
               data={data}
               reviewStatus={reviewStatus}
@@ -224,10 +244,34 @@ export function AdminDataAnalysisPage(): ReactElement {
             />
           ) : null}
 
-          {section === "model" ? <ModelSection data={data} onInspect={setMetricId} /> : null}
+          {section === "model" && hasWindowDiagnoses ? (
+            <ModelSection data={data} onInspect={setMetricId} />
+          ) : null}
 
-          {section === "quality" ? (
+          {section === "quality" && (hasWindowDiagnoses || hasQualityIssues) ? (
             <QualitySection issues={issues} onInspect={setMetricId} />
+          ) : null}
+
+          {!sectionAvailable ? (
+            <section
+              className="panel admin-analytics__empty-panel"
+              aria-label="分区空态"
+              data-empty-section={section}
+            >
+              <div className="panel__head">
+                <h2 className="panel__title">该分区在当前窗口没有可统计样本</h2>
+                <span className="panel__note num">
+                  {data.rangeStart} ~ {data.rangeEnd}
+                </span>
+              </div>
+              <div className="panel__body">
+                <p className="admin-analytics__empty-copy">
+                  {section === "review"
+                    ? "窗口内没有入队、完成或待复核的记录；历史复核数据仍以复核完成时间为准，换个窗口或到诊断管理核对。"
+                    : "窗口内没有判读记录，模型版本与图像质量暂无样本。"}
+                </p>
+              </div>
+            </section>
           ) : null}
 
           <p className="admin-analytics__scope num" aria-label="统计口径">

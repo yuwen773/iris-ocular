@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { MemoryRouter } from "react-router-dom"
 
@@ -126,10 +126,13 @@ describe("AdminDashboardPage B3 运营语义", () => {
 
     renderPage()
 
-    const link = await screen.findByRole("link", { name: "查看记录" })
+    // 必须落在 AI 拒识这一行上：「去处理」是知识库行的正常操作，全页断言会把它当成拒识行违规。
+    const row = (await screen.findByText("AI 拒识记录")).closest(".action-row")
+    expect(row).toBeTruthy()
+    const link = within(row as HTMLElement).getByRole("link", { name: "查看记录" })
     expect(link.getAttribute("href")).toBe("/admin/diagnosis?review=aiRejected")
-    expect(screen.queryByRole("link", { name: "去处理" })).toBeTruthy()
-    expect(screen.queryByText("立即处理")).toBeNull()
+    expect(within(row as HTMLElement).queryByRole("link", { name: "去处理" })).toBeNull()
+    expect(within(row as HTMLElement).queryByText("立即处理")).toBeNull()
   })
 
   it("字段缺失显示「—」，不把未知补成 0", async () => {
