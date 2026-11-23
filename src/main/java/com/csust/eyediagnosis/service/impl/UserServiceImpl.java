@@ -20,6 +20,7 @@ import com.csust.eyediagnosis.model.dto.diagnosis.DiagnosisReexamineDTO;
 import com.csust.eyediagnosis.model.dto.file.UploadPictureDetail;
 import com.csust.eyediagnosis.model.dto.user.UserEditDTO;
 import com.csust.eyediagnosis.model.dto.user.UserQueryDTO;
+import com.csust.eyediagnosis.model.dto.user.UserUpdateDTO;
 import com.csust.eyediagnosis.model.entity.Diagnosis;
 import com.csust.eyediagnosis.model.entity.User;
 import com.csust.eyediagnosis.model.vo.user.LoginUserVO;
@@ -515,7 +516,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
     }
 
     @Override
-    public boolean updateUser(com.csust.eyediagnosis.model.dto.user.UserUpdateDTO input) {
+    public boolean updateUser(UserUpdateDTO input) {
         ThrowUtils.throwIf(input == null || input.getId() == null, ErrorCode.PARAMS_ERROR);
         User target = this.getById(input.getId());
         ThrowUtils.throwIf(target == null, ErrorCode.NOT_FOUND_ERROR);

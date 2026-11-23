@@ -150,6 +150,11 @@ public interface AdminAnalyticsMapper {
      *
      * <p>置信度均值只取 {@code 1 < confidence <= 100} 的样本；其余按量纲未知计数，
      * 不猜测、不自动乘 100。
+     *
+     * <p>这一列的写入方只有一个：{@code DiagnosisEvidence.applyTo(Diagnosis)} 把
+     * {@code top1 × 100} 落库（口径见 {@code docs/design/iris22-admin-metric-registry.md}
+     * B-03/B-04）。它是「模型自评概率百分数」，不是校准置信度——界面上只在
+     * {@code calibrationStatus = CALIBRATED} 时才称其为置信度。
      */
     @Select("SELECT modelVersion, COUNT(*) AS count, "
             + "SUM(CASE WHEN aiRejected = 1 THEN 1 ELSE 0 END) AS rejected, "

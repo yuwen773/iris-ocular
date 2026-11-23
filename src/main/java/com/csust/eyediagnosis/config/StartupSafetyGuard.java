@@ -1,5 +1,6 @@
 package com.csust.eyediagnosis.config;
 
+import com.csust.eyediagnosis.grpc.GrpcHosts;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -61,7 +62,7 @@ public class StartupSafetyGuard {
         boolean grpcTls = environment.getProperty("diagnosis.grpc.tls-enabled", Boolean.class, false);
         boolean plaintextAllowed = environment.getProperty(
                 "diagnosis.grpc.plaintext-allowed", Boolean.class, false);
-        if (!isLoopback(grpcHost) && !grpcTls && !plaintextAllowed) {
+        if (!GrpcHosts.isLoopback(grpcHost) && !grpcTls && !plaintextAllowed) {
             violations.add("diagnosis.grpc.host=" + grpcHost + " 且 tls-enabled=false"
                     + "（跨主机明文 gRPC：开 TLS，或确认链路已被网络隔离覆盖后设"
                     + " DIAGNOSIS_GRPC_PLAINTEXT_ALLOWED=true）");
@@ -74,10 +75,5 @@ public class StartupSafetyGuard {
                 "部署安全基线未满足，拒绝启动（profiles=" + active + "）：\n  - "
                         + String.join("\n  - ", violations)
                         + "\n参考 src/main/resources/application-server.example.yml 的「生产安全基线」一节。");
-    }
-
-    private static boolean isLoopback(String host) {
-        return host == null || host.isBlank()
-                || "127.0.0.1".equals(host) || "::1".equals(host) || "localhost".equalsIgnoreCase(host);
     }
 }

@@ -22,7 +22,7 @@ public class DiagnosisGrpcClient {
 
     private final GrpcConfig grpcConfig;
     private ManagedChannel channel;
-    private com.csust.eyediagnosis.grpc.DiagnosisServiceGrpc.DiagnosisServiceBlockingStub blockingStub;
+    private DiagnosisServiceGrpc.DiagnosisServiceBlockingStub blockingStub;
 
     public DiagnosisGrpcClient(GrpcConfig grpcConfig) {
         this.grpcConfig = grpcConfig;
@@ -31,15 +31,13 @@ public class DiagnosisGrpcClient {
     @PostConstruct
     public void init() {
         channel = buildChannel();
-        blockingStub = com.csust.eyediagnosis.grpc.DiagnosisServiceGrpc.newBlockingStub(channel);
+        blockingStub = DiagnosisServiceGrpc.newBlockingStub(channel);
     }
 
     private ManagedChannel buildChannel() {
         String host = grpcConfig.getHost();
         if (!grpcConfig.isTlsEnabled()) {
-            boolean loopback = host == null || host.isBlank()
-                    || "127.0.0.1".equals(host) || "::1".equals(host) || "localhost".equalsIgnoreCase(host);
-            if (!loopback) {
+            if (!GrpcHosts.isLoopback(host)) {
                 // 明文 gRPC 到非本机地址：影像字节与诊断结果既不过加密，也不校验对端身份。
                 // 部署 profile 下由 StartupSafetyGuard 直接拒绝启动；这里再记一条，
                 // 让本地/联调环境也看得见这条链路没有保护。

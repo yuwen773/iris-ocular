@@ -4,6 +4,7 @@ import com.csust.eyediagnosis.agent.rag.DocumentParser;
 import com.csust.eyediagnosis.agent.rag.EmbeddingBatchWriter;
 import com.csust.eyediagnosis.agent.rag.SourceTypePolicy;
 import com.csust.eyediagnosis.agent.rag.TextChunkerService;
+import com.csust.eyediagnosis.manager.CosManager;
 import com.csust.eyediagnosis.mapper.KnowledgeDocumentMapper;
 import com.csust.eyediagnosis.model.entity.KnowledgeDocument;
 import jakarta.annotation.Resource;
@@ -44,7 +45,7 @@ public class DocumentProcessingService {
 
     /** 候选作废时清理对象存储；测试未注入时退化为只记日志。 */
     @Autowired(required = false)
-    private com.csust.eyediagnosis.manager.CosManager cosManager;
+    private CosManager cosManager;
 
     public VectorStore getVectorStore() {
         return vectorStore;

@@ -162,6 +162,13 @@ public final class DiagnosisEvidence {
 
     /** 写入诊断记录：历史证据自带，不引用共享缓存。 */
     public void applyTo(Diagnosis diagnosis) {
+        // t_diagnosis.confidence 的口径是「模型自评概率百分数」（top1 × 100，
+        // 见 docs/design/iris22-admin-metric-registry.md B-03/B-04），**不是**校准置信度，
+        // 也不能当医学可靠性读。分析工作台的置信度均值与分布只读这一列：这里不写，
+        // 面板就永远是空的。
+        // 对外的 VO 仍然只在真正校准过时透出 confidence（见 buildDiagnosisResult），
+        // 两个口径分开：库里留模型自评，界面只在校准时叫它置信度。
+        diagnosis.setConfidence(resp.getProbability() > 0 ? resp.getProbability() : null);
         diagnosis.setAiRejected(rejected);
         diagnosis.setAbstainReason(abstainReason);
         diagnosis.setModelVersion(modelVersion);

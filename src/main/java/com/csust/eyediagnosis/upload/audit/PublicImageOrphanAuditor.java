@@ -13,7 +13,9 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -26,7 +28,9 @@ import java.util.Set;
  * 把这个判定变成一条可核对的记录，由人决定怎么处置，比让定时任务替人承担删除风险更诚实。
  *
  * <p>引用值在库里既可能是对象 key（{@code public/7/xxx.png}），也可能是带签名参数的
- * 完整 URL；这里统一归一化成 key 再比对（去 scheme/host、去查询串、URL 解码）。
+ * 完整 URL；这里统一归一化成 key 再比对（去 scheme/host、去查询串、去前导斜杠、URL 解码）。
+ * <b>对象 key 也要过同一套归一</b>：上传原语生成的 key 带前导斜杠（{@code /public/7/xxx.png}），
+ * 与库里的 {@code public/7/xxx.png} 不是同一个字符串，却是同一张图。
  * 归一化认不出来的一律按「已引用」处理：宁可少报一个孤儿，不可多报一个正在用的对象。
  *
  * <p>日志口径：默认只报<b>条数</b>。对象 key 里嵌着用户名下的原始文件名，属于患者侧内容，
@@ -36,8 +40,18 @@ import java.util.Set;
 @Component
 public class PublicImageOrphanAuditor {
 
-    /** 判读原图与头像在 COS 上的前缀。 */
+    /** 判读原图与头像在 COS 上的前缀（不带前导斜杠的业务口径）。 */
     public static final String PUBLIC_PREFIX = "public/";
+
+    /**
+     * 实际要列的前缀。
+     *
+     * <p>{@code FileManager} 拼 key 时是 {@code "/" + prefix + "/" + fileName}，所以 COS 上的
+     * 对象 key 以 {@code /public/} 开头；历史对象或别的写入路径也可能是不带前导斜杠的
+     * {@code public/}。只列其中一种，另一种就一个都扫不到——审计会「通过」，代价是它
+     * 从来没看见过任何对象。两种都列，合并时按原始 key 去重。
+     */
+    static final List<String> LIST_PREFIXES = List.of("/" + PUBLIC_PREFIX, PUBLIC_PREFIX);
 
     private final CosManager cosManager;
     private final JdbcTemplate jdbc;
@@ -57,10 +71,10 @@ public class PublicImageOrphanAuditor {
     /**
      * 审计一次。
      *
-     * @return 扫描数、判定为无引用的对象数与样例 key（最多 10 个）
+     * @return 扫描数、判定为无引用的对象数与样例 key（最多 10 个，原始 key 形式）
      */
     public AuditReport audit() {
-        List<CosManager.CosObjectInfo> objects = cosManager.listObjects(PUBLIC_PREFIX);
+        Map<String, CosManager.CosObjectInfo> objects = listAll();
         if (objects.isEmpty()) {
             return new AuditReport(0, 0, List.of());
         }
@@ -68,13 +82,15 @@ public class PublicImageOrphanAuditor {
         Date cutoff = Date.from(Instant.now().minus(Duration.ofMinutes(minAgeMinutes)));
         int scanned = 0;
         List<String> unreferenced = new ArrayList<>();
-        for (CosManager.CosObjectInfo object : objects) {
+        for (Map.Entry<String, CosManager.CosObjectInfo> entry : objects.entrySet()) {
+            CosManager.CosObjectInfo object = entry.getValue();
             if (object.lastModified() != null && object.lastModified().after(cutoff)) {
                 continue;
             }
             scanned++;
-            if (!referenced.contains(object.key())) {
-                unreferenced.add(object.key());
+            if (!referenced.contains(toObjectKey(entry.getKey()))) {
+                // 报原始 key：人工清理时要照着它删
+                unreferenced.add(entry.getKey());
             }
         }
         List<String> samples = unreferenced.stream().limit(10).toList();
@@ -90,6 +106,17 @@ public class PublicImageOrphanAuditor {
             }
         }
         return new AuditReport(scanned, unreferenced.size(), samples);
+    }
+
+    /** 两种前缀各列一次，按原始 key 去重（重叠时以先列到的为准）。 */
+    private Map<String, CosManager.CosObjectInfo> listAll() {
+        Map<String, CosManager.CosObjectInfo> objects = new LinkedHashMap<>();
+        for (String prefix : LIST_PREFIXES) {
+            for (CosManager.CosObjectInfo object : cosManager.listObjects(prefix)) {
+                objects.putIfAbsent(object.key(), object);
+            }
+        }
+        return objects;
     }
 
     /**
@@ -122,7 +149,14 @@ public class PublicImageOrphanAuditor {
         }
     }
 
-    /** URL / key → 对象 key；认不出来时返回 {@code null}（调用方按「已引用」处理）。 */
+    /**
+     * URL / 对象 key → 比对用的规范 key（去 scheme/host、去查询串、去前导斜杠、URL 解码）。
+     *
+     * <p>COS 上的 key 与库里的引用都要过这一步，否则 {@code /public/7/x.png} 与
+     * {@code public/7/x.png} 会被当成两个对象，正在用的图全部报成孤儿。
+     *
+     * @return 规范 key；认不出来（空白、解码失败）时返回 {@code null}
+     */
     static String toObjectKey(String value) {
         if (value == null) {
             return null;
@@ -156,7 +190,7 @@ public class PublicImageOrphanAuditor {
      *
      * @param scanned      参与判定的对象数（已排除宽限期内的对象）
      * @param unreferenced 判定为「没有任何记录引用」的对象数
-     * @param samples      样例 key，便于人工核对
+     * @param samples      样例 key（原始形式，便于人工核对）
      */
     public record AuditReport(int scanned, int unreferenced, List<String> samples) {
     }

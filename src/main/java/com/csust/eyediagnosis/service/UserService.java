@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.service.IService;
 import com.csust.eyediagnosis.common.BatchResultVO;
 import com.csust.eyediagnosis.model.dto.diagnosis.DiagnosisReexamineDTO;
 import com.csust.eyediagnosis.model.dto.user.UserEditDTO;
+import com.csust.eyediagnosis.model.dto.user.UserUpdateDTO;
 import com.csust.eyediagnosis.model.dto.user.UserQueryDTO;
 import com.csust.eyediagnosis.model.entity.User;
 import com.csust.eyediagnosis.model.vo.user.LoginUserVO;
@@ -160,5 +161,5 @@ public interface UserService extends IService<User> {
     /**
      * 单条更新用户。角色字段与批量改角色共用白名单，且管理员账号不可单条降级。
      */
-    boolean updateUser(com.csust.eyediagnosis.model.dto.user.UserUpdateDTO input);
+    boolean updateUser(UserUpdateDTO input);
 }

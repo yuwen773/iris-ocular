@@ -101,6 +101,25 @@ class DiagnosisEvidenceTest {
         assertTrue(diagnosis.getPatientConclusionAllowed());
     }
 
+    /**
+     * 落库的 confidence 与分析工作台的口径一致：写的是「模型自评概率百分数」。
+     *
+     * <p>分析页 B-03/B-04 只读这一列；不写就是面板永远空着。同时它**不是**校准置信度：
+     * 未校准时 VO 的 confidence 仍为 null，界面据此标注「模型输出概率（未标定）」。
+     * 两个口径分开，不能为了填满面板把 VO 也填上。
+     */
+    @Test
+    void storedRecordKeepsTheModelSelfAssessmentWhileTheViewStaysHonest() {
+        Diagnosis diagnosis = new Diagnosis();
+        DiagnosisResultVO vo = new DiagnosisResultVO();
+        DiagnosisEvidence evidence = DiagnosisEvidence.fromResponse(response());
+        evidence.applyTo(vo);
+        evidence.applyTo(diagnosis);
+
+        assertEquals(82.0, diagnosis.getConfidence(), "落库口径：模型自评概率百分数（top1 × 100）");
+        assertNull(vo.getConfidence(), "未标定时不向界面透出置信度");
+    }
+
     @Test
     void uncalibratedProbabilityIsNotExposedAsConfidence() {
         // 未标定时不给出「置信度」：那等于让界面把原始 softmax 读成临床可靠性。
