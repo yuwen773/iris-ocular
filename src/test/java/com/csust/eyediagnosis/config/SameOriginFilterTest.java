@@ -1,5 +1,6 @@
 package com.csust.eyediagnosis.config;
 
+import com.csust.eyediagnosis.constant.MiniAppConstant;
 import jakarta.servlet.FilterChain;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -136,8 +137,7 @@ class SameOriginFilterTest {
     void tokenAuthenticatedRequestSkipsOriginCheck() throws Exception {
         // 令牌由调用方显式携带，不依赖浏览器自动附带的 Cookie，CSRF 前提不成立。
         MockHttpServletRequest tokenRequest = request("POST", null, null);
-        tokenRequest.setAttribute(com.csust.eyediagnosis.constant.MiniAppConstant.REQUEST_ATTR_TOKEN_AUTH,
-                Boolean.TRUE);
+        tokenRequest.setAttribute(MiniAppConstant.REQUEST_ATTR_TOKEN_AUTH, Boolean.TRUE);
         filter.doFilter(tokenRequest, response, chain);
         verify(chain).doFilter(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
     }

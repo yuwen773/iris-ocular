@@ -20,4 +20,14 @@ public class AuthConstant {
      * 封禁角色（账号保留但禁止登录与访问）
      */
     public static final String BAN_ROLE = "ban";
+
+    /**
+     * 封禁判据的唯一实现。
+     *
+     * <p>密码登录、会话回查、小程序换令牌必须用同一条判据：各处自己写一遍
+     * {@code BAN_ROLE.equals(...)}，将来多一个停用档位就会只改一处。
+     */
+    public static boolean isBanned(String userRole) {
+        return BAN_ROLE.equals(userRole);
+    }
 }

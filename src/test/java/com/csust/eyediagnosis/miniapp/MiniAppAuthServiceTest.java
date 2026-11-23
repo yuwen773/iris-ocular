@@ -10,6 +10,7 @@ import com.csust.eyediagnosis.security.PasswordService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.SimpleTransactionStatus;
 
@@ -154,12 +155,14 @@ class MiniAppAuthServiceTest {
         when(bindingMapper.selectOne(any(Wrapper.class))).thenReturn(null, winnerBinding);
         when(userMapper.selectById(99L)).thenReturn(user(99L, "user"));
         when(bindingMapper.insert(any(UserWechat.class)))
-                .thenThrow(new org.springframework.dao.DuplicateKeyException("uk_appid_openid"));
+                .thenThrow(new DuplicateKeyException("uk_appid_openid"));
 
         MiniAppAuthService.LoginResult result = authService.login("code");
 
         assertEquals(99L, result.user().getId());
-        // 落败请求只写过一次绑定；它新建的账号随事务回滚，不留在库里。
+        // 落败请求只写过一次绑定，且异常逸出事务回调——真实事务下这次建号整体回滚。
+        // 「库里没留下孤儿账号」由 L2 的真实 MySQL 用例保证；这里的事务是 no-op，
+        // 只能验证异常没有被吞掉。
         verify(bindingMapper).insert(any(UserWechat.class));
     }
 

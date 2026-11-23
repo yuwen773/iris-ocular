@@ -46,34 +46,17 @@ public class MiniAppTokenFilter extends OncePerRequestFilter {
         Long userId = tokenService.resolve(rawToken);
         if (userId == null) {
             // 换令牌的入口不能被一枚过期令牌堵死：客户端带着旧令牌来登录，照样放行。
-            if (isLoginEntry(request)) {
+            if (MiniAppPaths.isLoginEntry(request)) {
                 log.debug("登录入口收到无效令牌，按无令牌处理, path={}", request.getRequestURI());
                 chain.doFilter(request, response);
                 return;
             }
             log.debug("小程序令牌无效或已过期, path={}", request.getRequestURI());
-            reject(response);
+            MiniAppErrorResponse.write(response, ErrorCode.NOT_LOGIN_ERROR, "登录状态已失效，请重新进入小程序");
             return;
         }
         request.setAttribute(MiniAppConstant.REQUEST_ATTR_USER_ID, userId);
         request.setAttribute(MiniAppConstant.REQUEST_ATTR_TOKEN_AUTH, Boolean.TRUE);
         chain.doFilter(request, response);
-    }
-
-    private boolean isLoginEntry(HttpServletRequest request) {
-        String uri = request.getRequestURI();
-        String context = request.getContextPath();
-        String path = context != null && !context.isEmpty() && uri.startsWith(context)
-                ? uri.substring(context.length())
-                : uri;
-        return MiniAppConstant.LOGIN_PATH.equals(path);
-    }
-
-    private void reject(HttpServletResponse response) throws IOException {
-        // 与 GlobalExceptionHandler 的错误信封保持一致：HTTP 200 + 业务码。
-        response.setStatus(HttpServletResponse.SC_OK);
-        response.setContentType("application/json;charset=UTF-8");
-        response.getWriter().write("{\"code\":" + ErrorCode.NOT_LOGIN_ERROR.getCode()
-                + ",\"data\":null,\"msg\":\"登录状态已失效，请重新进入小程序\"}");
     }
 }

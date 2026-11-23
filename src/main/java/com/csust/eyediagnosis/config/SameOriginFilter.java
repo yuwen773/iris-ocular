@@ -1,6 +1,7 @@
 package com.csust.eyediagnosis.config;
 
 import com.csust.eyediagnosis.constant.MiniAppConstant;
+import com.csust.eyediagnosis.miniapp.MiniAppPaths;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -52,7 +53,7 @@ public class SameOriginFilter extends OncePerRequestFilter {
         }
         // 小程序令牌通道：凭证由调用方显式携带，不走浏览器自动附带的 Cookie，CSRF 不成立。
         if (Boolean.TRUE.equals(request.getAttribute(MiniAppConstant.REQUEST_ATTR_TOKEN_AUTH))
-                || EXEMPT_PATHS.contains(pathWithinApp(request))) {
+                || EXEMPT_PATHS.contains(MiniAppPaths.withinApp(request))) {
             chain.doFilter(request, response);
             return;
         }
@@ -70,16 +71,6 @@ public class SameOriginFilter extends OncePerRequestFilter {
             return;
         }
         chain.doFilter(request, response);
-    }
-
-    /** 去掉 context-path 后的请求路径，豁免名单按这个口径比对。 */
-    private String pathWithinApp(HttpServletRequest request) {
-        String uri = request.getRequestURI();
-        String contextPath = request.getContextPath();
-        if (contextPath != null && !contextPath.isEmpty() && uri.startsWith(contextPath)) {
-            return uri.substring(contextPath.length());
-        }
-        return uri;
     }
 
     private void reject(HttpServletResponse response) throws IOException {

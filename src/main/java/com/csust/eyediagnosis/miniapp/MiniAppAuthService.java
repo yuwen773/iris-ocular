@@ -60,7 +60,7 @@ public class MiniAppAuthService {
     public LoginResult login(String code) {
         WeChatCode2SessionClient.WeChatSession session = weChatClient.exchange(code);
         User user = resolveOrRaceBack(session);
-        if (AuthConstant.BAN_ROLE.equals(user.getUserRole())) {
+        if (AuthConstant.isBanned(user.getUserRole())) {
             throw new BusinessException(ErrorCode.FORBIDDEN_ERROR, "账号已被封禁");
         }
         MiniAppTokenService.IssuedToken issued = tokenService.issue(user.getId());

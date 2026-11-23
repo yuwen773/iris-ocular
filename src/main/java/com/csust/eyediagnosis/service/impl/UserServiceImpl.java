@@ -147,7 +147,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
             throw new BusinessException(ErrorCode.PARAMS_ERROR, FAIL_LOGIN);
         }
         // 封禁账号禁止登录（账号保留但不允许建立会话）
-        if (AuthConstant.BAN_ROLE.equals(user.getUserRole())) {
+        if (AuthConstant.isBanned(user.getUserRole())) {
             throw new BusinessException(ErrorCode.FORBIDDEN_ERROR, "账号已被封禁");
         }
         // legacy MD5 命中后即时升级为 BCrypt
@@ -217,14 +217,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         return user != null && !isBanned(user);
     }
 
-    /**
-     * 封禁判据的唯一实现。
-     *
-     * <p>登录入口与长连接回查必须用同一条判据：两处各写一遍
-     * {@code BAN_ROLE.equals(...)}，将来多一个停用档位就会只改一处。
-     */
+    /** 封禁判据在 {@link AuthConstant#isBanned(String)}，这里只补 null 判断。 */
     private static boolean isBanned(User user) {
-        return user != null && AuthConstant.BAN_ROLE.equals(user.getUserRole());
+        return user != null && AuthConstant.isBanned(user.getUserRole());
     }
 
     /**

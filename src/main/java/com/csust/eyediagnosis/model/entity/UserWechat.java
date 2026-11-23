@@ -20,7 +20,8 @@ public class UserWechat implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
-    @TableId(type = IdType.ASSIGN_ID)
+    /** 与 V35 的 {@code BIGINT AUTO_INCREMENT} 对齐：插入时由数据库发号。 */
+    @TableId(type = IdType.AUTO)
     private Long id;
 
     /** t_user.id */
