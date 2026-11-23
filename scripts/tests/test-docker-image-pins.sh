@@ -54,6 +54,14 @@ check_contains "verify.sh initializes a run id" "eye_docker_init" "$VERIFY"
 check_contains "verify.sh installs teardown traps" "eye_docker_trap_teardown" "$VERIFY"
 check_contains "verify.sh asserts cleanliness" "eye_docker_assert_clean" "$VERIFY"
 
+# verify-fast L2/--db was the leak source: bare `docker run` + `docker rm -f` (no -v)
+# leaked one ~210MB anonymous MySQL volume per run. Pin it to the harness too.
+FAST="$ROOT/scripts/verify-fast.sh"
+check_contains "verify-fast sources the harness" "scripts/lib/docker-test-harness.sh" "$FAST"
+check_contains "verify-fast initializes a run id" "eye_docker_init" "$FAST"
+check_contains "verify-fast tears resources down" "eye_docker_teardown" "$FAST"
+check_contains "verify-fast asserts cleanliness" "eye_docker_assert_clean" "$FAST"
+
 # ---- CI actually runs the resource gates --------------------------------
 check_contains "CI runs the lifecycle gate" "test-docker-lifecycle.sh" "$CI"
 check_contains "CI runs the reaper safety gate" "test-docker-reaper.sh" "$CI"
