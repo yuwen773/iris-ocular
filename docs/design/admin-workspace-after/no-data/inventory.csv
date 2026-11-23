@@ -1,0 +1,12 @@
+file,bytes,md5,action,reason,retrieve_from
+dashboard-390-dark.png,109783,6e3b5f882add48aa6b41d7ce305e12cc,deleted,scene-pruned:admin-workspace-after,280f45c9:docs/design/admin-workspace-after/no-data/dashboard-390-dark.png
+dashboard-390-light.png,114451,076fe93ae8620317430225f40a3864ec,deleted,scene-pruned:admin-workspace-after,280f45c9:docs/design/admin-workspace-after/no-data/dashboard-390-light.png
+nav-drawer-390-dark.png,29867,1a40809b35e74af7d21de116e6241147,deleted,scene-pruned:admin-workspace-after,280f45c9:docs/design/admin-workspace-after/no-data/nav-drawer-390-dark.png
+nav-drawer-390-light.png,32006,589c577f3cc6a89085a8885b520e7267,deleted,scene-pruned:admin-workspace-after,280f45c9:docs/design/admin-workspace-after/no-data/nav-drawer-390-light.png
+page-data-analysis.png,171979,af564af84e4fa7c09a25b533f30d3ab5,deleted,topic-pruned:admin-workspace-after,280f45c9:docs/design/admin-workspace-after/no-data/page-data-analysis.png
+page-diagnosis.png,209872,4640eead1b46b29a3642907a1a7249fc,deleted,topic-pruned:admin-workspace-after,280f45c9:docs/design/admin-workspace-after/no-data/page-diagnosis.png
+page-knowledge.png,190409,bc1bb9210cebefaf8ee71d49a3ebb7a5,deleted,topic-pruned:admin-workspace-after,280f45c9:docs/design/admin-workspace-after/no-data/page-knowledge.png
+page-news.png,212934,2234c445bcd02d90816b407d2d36cc6b,deleted,topic-pruned:admin-workspace-after,280f45c9:docs/design/admin-workspace-after/no-data/page-news.png
+page-users.png,147731,972f119592d444dca0b090d21255ca76,deleted,topic-pruned:admin-workspace-after,280f45c9:docs/design/admin-workspace-after/no-data/page-users.png
+shell-1440-dark.png,59247,831368ca2a234195b141faba9f03f651,deleted,scene-pruned:admin-workspace-after,280f45c9:docs/design/admin-workspace-after/no-data/shell-1440-dark.png
+shell-1440-light.png,63251,355777a51025cda769a6afbbb3fe0fdc,deleted,scene-pruned:admin-workspace-after,280f45c9:docs/design/admin-workspace-after/no-data/shell-1440-light.png

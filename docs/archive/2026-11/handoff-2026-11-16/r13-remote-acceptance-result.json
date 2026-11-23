@@ -1,0 +1,67 @@
+{
+  "taskId": "iris21-multiagent-r13-remote-acceptance",
+  "result": "MERGE_READY",
+  "completedAt": "2026-11-16T10:15:00+08:00",
+  "push": {
+    "branch": "feat/iris21-multiagent-integration",
+    "from": "01098ccb8d89afa464904489b6d2b1c268d56e83",
+    "to": "6ba65478b8c88d2ef1a019044bbd2232e1842961",
+    "fastForward": true,
+    "forced": false,
+    "rebased": false,
+    "commitsAdded": 6
+  },
+  "pr87": {
+    "number": 87,
+    "state": "OPEN",
+    "isDraft": true,
+    "baseRefName": "ui",
+    "baseSha": "b5f37e5cbbe66b440b2f907746735174ff817533",
+    "headSha": "6ba65478b8c88d2ef1a019044bbd2232e1842961",
+    "titleUpdatedToR13": true,
+    "bodyUpdatedToR13": true,
+    "mergeable": "MERGEABLE",
+    "mergeMethodRequired": "merge commit (no squash)"
+  },
+  "hostedCi": {
+    "runId": 43790216246,
+    "sha": "6ba65478b8c88d2ef1a019044bbd2232e1842961",
+    "conclusion": "success",
+    "jobsPassed": 20,
+    "jobsTotal": 20,
+    "evidence": {
+      "backend-unit": "619 run / 0 failures / 0 errors / 310 opt-in skipped; skip gate passed",
+      "collaboration-mysql": "33/33, 0 skipped",
+      "graph-execution-mysql": "53/53, 0 skipped",
+      "web": "Vitest 637/637 (66 files), build ok, fixme 0/0, gate-tests 6/6",
+      "flyway-mysql": "alphabetical + reversealphabetical both success"
+    },
+    "oldShaEvidenceReused": false
+  },
+  "uiFreeze": {
+    "agentPageBlob": "df36b2deaebb553f53af2e30fa3b1a8e925c7d6b",
+    "tokensCssBlob": "d5de71e4ff251bcdaad7c9595de751439c7dae45",
+    "frozenPagesIdentical": true,
+    "adminPlaneDiff": "empty",
+    "pr86NotReverted": true,
+    "issue81FixmeBudget": "0/0"
+  },
+  "unresolvedMinor": 9,
+  "mergeBlockers": [],
+  "notRun": {
+    "realProviderOrClinical": "NOT_RUN",
+    "backendMavenLocalThisSession": "NOT_RUN (reused; source tree identical to accepted tree)"
+  },
+  "boundariesRespected": {
+    "forcePush": false,
+    "merged": false,
+    "deployed": false,
+    "productionCollaborationEnabled": false,
+    "freezeTagModified": false,
+    "pr68Touched": false,
+    "realPatientDataUsed": false,
+    "prStaysDraft": true
+  },
+  "productionMedicalCollaboration": "BLOCKED",
+  "reportPath": "D:/Work/code/iris-integration-handoff/r13-remote-acceptance-report.md"
+}

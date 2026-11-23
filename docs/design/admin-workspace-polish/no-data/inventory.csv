@@ -1,0 +1,5 @@
+file,bytes,md5,action,reason,retrieve_from
+dashboard-1440-dark.png,226882,d6dc7774c173995afe8b5aa69ebbd0ae,deleted,duplicate-of:docs/design/admin-pages-polish/after-nodata/dashboard-1440-dark.png,280f45c9:docs/design/admin-workspace-polish/no-data/dashboard-1440-dark.png
+dashboard-1440-light.png,241748,edbd12b3d99ed78cc64776504c6bd36d,deleted,duplicate-of:docs/design/admin-pages-polish/after-nodata/dashboard-1440-light.png,280f45c9:docs/design/admin-workspace-polish/no-data/dashboard-1440-light.png
+dashboard-390-dark.png,138120,a465a99b75f81f912945d5fce60ec8fc,deleted,duplicate-of:docs/design/admin-pages-polish/after-nodata/dashboard-390-dark.png,280f45c9:docs/design/admin-workspace-polish/no-data/dashboard-390-dark.png
+dashboard-390-light.png,140764,a0ca144e8a5a7b3034f34f7902a7fe0d,deleted,duplicate-of:docs/design/admin-pages-polish/after-nodata/dashboard-390-light.png,280f45c9:docs/design/admin-workspace-polish/no-data/dashboard-390-light.png

@@ -12,7 +12,7 @@
 | 数据可安全恢复 | 可验证备份在新库真实恢复，逐表核对停写源库与恢复库的新增/更新/删除 | 未核对的增量可以丢弃或重放 |
 
 第二轮独立审查真实执行旧 `a0efaf46` JAR：V17 启动、RC 升 V28、旧 JAR 在 V28 启动及账户读写、备份恢复至新 V17 库均成功。
-原日志：`D:/Work/code/iris-codex-audit-round2/spec-old-artifact.log`；JAR SHA-256：
+原日志：`docs/archive/2026-11/codex-audit-2026-11-19/round2/spec-old-artifact.log`；JAR SHA-256：
 `E3DC71B8B33018C6799C5B70BE2F3DC7D04FB03103868FEF7423FBB3C7A62529`。
 **该旧产物恢复了不安全的正式复核写入与推理输出，禁止向用户切流。** 上述证据仅证明启动及基本账户路径。
 仓库 Flyway 用例加载截取的旧迁移集合，属于迁移解析兼容性测试，不是旧 JAR 启动测试。

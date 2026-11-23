@@ -190,7 +190,7 @@ target: process.env.COLLABORATION_TEST_BACKEND ?? "http://localhost:8081",
 - 分支 `feat/iris2-collaboration-workspace`，HEAD 仍为视觉基线 **`a1758c86add936d81690b0802fee26e2f20fe1d6`**，**新增 commit 为 0**。
 - 交付内容 **74 个文件全部未暂存、未提交**：6 个已跟踪文件修改 + 68 个新增；0 删除。清单见 `files.md`。
 - 本会话的 worktree guard **禁止对另一工作树执行 git 写操作**（`git -C`、`cd … && git`、`--git-dir/--work-tree`、`GIT_DIR/GIT_WORK_TREE`、`git add <跨树绝对路径>`、`EnterWorktree` 均被拒绝），因此**未能创建本地交接提交**。上述 Git 状态由「分支 tree blob 哈希 vs 工作树文件」只读比对（CRLF 归一化）得出，未在目标工作树执行 `git status`。
-- 未提交 / 未推送 / 未合并 / 未部署；**不得把该工作树当作可直接 merge 或 cherry-pick 的提交**。交接信号 `agent-ready.json` 因此为 `ready=false`，详见 `D:/Work/code/iris-integration-handoff/`。
+- 未提交 / 未推送 / 未合并 / 未部署；**不得把该工作树当作可直接 merge 或 cherry-pick 的提交**。交接信号 `agent-ready.json` 因此为 `ready=false`，详见 `docs/archive/2026-11/handoff-2026-11-16/`。
 - 工作树内无临时数据、凭据、合成数据库或构建产物混入：本次生成的 `web/dist`、`web/node_modules/.vite`、`web/test-results`、临时 `integration*.spec.mjs` / `integration.config.mjs` / `.write-probe` 均已删除；忽略目录 `target/` 仅保留 11-14 的日志与本轮联调证据；:18085 与 :5180 均已停止、无遗留监听；隔离库仅合成账号 42–45。
 
 ### 生产医疗协作仍 BLOCKED

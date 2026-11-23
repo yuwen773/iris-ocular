@@ -1,0 +1,8 @@
+file,bytes,md5,action,reason,retrieve_from
+dashboard.png,306173,e1c309085bb77958143fd0ba74d3fcd8,deleted,duplicate-of:docs/design/admin-redesign-after/r1/w1920/dashboard.png,280f45c9:docs/design/admin-redesign-after/r2/w1920/dashboard.png
+data-analysis.png,169861,1a15f57657770215a7ddd917c235bc13,deleted,scene-pruned:admin-redesign-after,280f45c9:docs/design/admin-redesign-after/r2/w1920/data-analysis.png
+diagnosis.png,223237,7855d7f8830d12949363d6165195e2f1,deleted,duplicate-of:docs/design/admin-redesign-after/r1/w1920/diagnosis.png,280f45c9:docs/design/admin-redesign-after/r2/w1920/diagnosis.png
+knowledge.png,214631,91b680e36e3c7035944d736d66e24cc5,deleted,duplicate-of:docs/design/admin-redesign-after/r1/w1920/knowledge.png,280f45c9:docs/design/admin-redesign-after/r2/w1920/knowledge.png
+news-edit.png,140713,343ceaf1d0a169fe9a1afeb5a515341c,deleted,scene-pruned:admin-redesign-after,280f45c9:docs/design/admin-redesign-after/r2/w1920/news-edit.png
+news.png,231997,34c3573bdea2e108a70164318b67d025,deleted,duplicate-of:docs/design/admin-redesign-after/r1/w1920/news.png,280f45c9:docs/design/admin-redesign-after/r2/w1920/news.png
+users.png,165110,c0401027eeccdd610ded2b076ccadb53,deleted,duplicate-of:docs/design/admin-redesign-after/r1/w1920/users.png,280f45c9:docs/design/admin-redesign-after/r2/w1920/users.png

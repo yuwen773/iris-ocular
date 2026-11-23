@@ -1,0 +1,111 @@
+{
+  "ready": true,
+  "branch": "ui",
+  "sha": "6629940d151afb7f525b6984cd6f53fdcdb80e80",
+  "worktree": "D:/Work/code/eye-diagnosis",
+  "reportPath": "D:/Work/code/eye-diagnosis/docs/design/admin-pages-polish/README.md",
+  "tests": {
+    "typecheck": {
+      "cmd": "npx tsc -b",
+      "result": "pass",
+      "count": "1/1"
+    },
+    "lint": {
+      "cmd": "npx eslint .",
+      "result": "pass",
+      "count": "1/1"
+    },
+    "unit": {
+      "cmd": "npx vitest run",
+      "result": "pass",
+      "files": 51,
+      "tests": 434,
+      "failed": 0,
+      "skipped": 0
+    },
+    "build": {
+      "cmd": "npm run build",
+      "result": "pass",
+      "note": "已知警告 AdminNewsEditPage chunk 1,092 kB（未处理，见报告 §6）"
+    },
+    "e2e": {
+      "cmd": "npx playwright test e2e/smoke.spec.ts",
+      "result": "1 passed / 3 failed",
+      "note": "3 条为基线既有失败（选择器漂移 / 依赖账号数据 / 依赖外网 LLM）；已拆成独立测试维护任务 #81，不挂在合并路径上。本 PR 未修改任何测试期望，也未把带失败的运行描述成全量通过"
+    },
+    "acceptance": {
+      "cmd": "node web/scripts/evidence/admin-pages-acceptance.mjs",
+      "result": "pass",
+      "checks": 56,
+      "findings": 0,
+      "note": "合并后在 ui 树上复跑：夹具按 modelVersion='fixture-iris21' 种下、跑完按该标记整段删除（库中残留 0 行）。结果与本 PR 提交的 acceptance/acceptance.json 逐条一致。注：本地库窗口内无判读时仪表盘走空窗口分支、不渲染趋势图，探针会记一条「图/表切换」缺失——那是数据状态不是代码回归"
+    },
+    "ci": {
+      "workflow": "verify",
+      "result": "success (7/7)",
+      "pr80_run": {
+        "run": 43674391122,
+        "sha": "27102da2",
+        "result": "success (7/7)",
+        "url": "https://github.com/yuwen773/eyes-diagnosis/actions/runs/43674391122"
+      },
+      "pr82_run": {
+        "run": 43676237529,
+        "sha": "0600e997",
+        "result": "success (7/7)",
+        "url": "https://github.com/yuwen773/eyes-diagnosis/actions/runs/43676237529"
+      },
+      "final_sha": "6629940d151afb7f525b6984cd6f53fdcdb80e80",
+      "final_sha_status": "ui 合并后 web/ 与被 CI 验证过的 27102da2 逐字节相同（PR #82 只改一份 Markdown）；verify 工作流只在 pull_request 与 master push 上触发，合入 ui 不额外起跑",
+      "jobs": [
+        "backend-compile",
+        "backend-unit",
+        "flyway-mysql",
+        "frontend",
+        "python",
+        "watchdog",
+        "web"
+      ]
+    }
+  },
+  "changedFiles": [
+    "docs/design/admin-pages-polish/README.md",
+    "docs/design/admin-pages-polish/acceptance/acceptance.json",
+    "docs/design/admin-pages-polish/pr-body.md",
+    "web/scripts/evidence/admin-pages-acceptance.mjs",
+    "web/scripts/evidence/admin-pages-polish.mjs",
+    "web/scripts/evidence/compare.mjs",
+    "web/scripts/evidence/fixture-diagnosis.mjs",
+    "web/scripts/evidence/publish-handoff.mjs",
+    "web/src/components/admin/DocumentReader.tsx",
+    "web/src/components/admin/InsightEmpty.tsx",
+    "web/src/components/admin/KnowledgeWorkspace.tsx",
+    "web/src/components/admin/MetricCell.tsx",
+    "web/src/components/admin/charts/ChartFrame.tsx",
+    "web/src/components/admin/charts/RankedBars.tsx",
+    "web/src/components/admin/charts/ShareBar.tsx",
+    "web/src/components/admin/charts/SmallMultipleTrend.tsx",
+    "web/src/components/admin/charts/TrendAreaChart.tsx",
+    "web/src/components/admin/charts/WeekBars.tsx",
+    "web/src/lib/adminApi.ts",
+    "web/src/lib/adminDomain.test.ts",
+    "web/src/lib/adminDomain.ts",
+    "web/src/lib/api.ts",
+    "web/src/lib/domain.test.ts",
+    "web/src/lib/domain.ts",
+    "web/src/lib/records.ts",
+    "web/src/pages/admin/AdminDashboardPage.tsx",
+    "web/src/pages/admin/AdminDataAnalysisPage.tsx",
+    "web/src/pages/admin/AdminDiagnosisPage.tsx",
+    "web/src/pages/admin/AdminKnowledgePage.tsx",
+    "web/src/pages/admin/AdminNewsEditPage.tsx",
+    "web/src/pages/admin/AdminNewsPage.tsx",
+    "web/src/pages/admin/AdminUsersPage.tsx",
+    "web/src/styles/admin-polish-analysis.css",
+    "web/src/styles/admin-polish-cms.css",
+    "web/src/styles/admin-polish-ledger.css",
+    "web/src/styles/admin.css"
+  ],
+  "blockers": [],
+  "updatedAt": "2026-11-15T04:23:23.067Z"
+}

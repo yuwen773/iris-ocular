@@ -1,6 +1,28 @@
 # docs/ 索引
 
-按用途分组。新增文档时归到对应分组；过期文档就地删除，不要在别处复述。
+`docs/` 只放**文档**。按用途分组；新增文档归到对应分组，过期文档就地删除，不要在别处复述。
+
+## 目录分层（先看这个）
+
+| 层 | 位置 | 是什么 | 判断标准 |
+|---|---|---|---|
+| **活文档** | `docs/` 各分组（见下） | 当前事实、当前契约、操作手册 | 与代码/迁移不一致时，以代码为准并**改文档** |
+| **一次性证据** | `docs/archive/<YYYY-MM>/` | 某批次 / 某 PR 的评审报告、审计材料、状态快照 | 记录当时的结论，**不是**现行契约；只增不改 |
+| **视觉证据矩阵** | `docs/design/admin-*`、`docs/assets/iris2/r2\|r25` | before/after 截图矩阵 | 已按「每主题 ≤12 张代表图」裁剪，清单在同级 `inventory.csv` |
+| **非文档交付物** | 仓库根 `delivery/`（gitignore） | 软著 / 专利 / 竞赛材料 | 不进 `docs/`，不进 git |
+
+### 视觉证据裁剪规则（2026-11-22 起）
+
+对比截图为一次性取证：每个主题保留 **≤12 张代表图**（优先 1440 宽，light / dark 各一），
+其余文件删除，并在**所在目录**写 `inventory.csv`（文件名、字节、md5、理由、取回路径）。
+
+原始字节仍在 git 历史里，按下列方式取回：
+
+```
+git show <commit>:<path> > <file>
+```
+
+详见 `archive/2026-11/README.md`。
 
 ## 约定与真源
 
@@ -22,76 +44,75 @@
 | `design/IRIS_2_DESIGN_REFERENCE_BRIEF.md` | 查 Iris 2.0 的视觉参考来源与取舍（A/B/F/G/H/I 代号定义、原始链接） |
 | `design/iris-2-rule-change-matrix.md` | 查旧「白色仪器」规则改成了什么、为什么改、落地到哪一步 |
 | `design/iris-2-implementation-roadmap.md` | 查首页 / 管理端 / 协作台各自的实施顺序、范围与验收门禁 |
-| `design/iris-2-r2-5-product-shell-audit.md` | 查 R2.5 全站视觉审计（逐路由现状/目标/复用/风险）与 Shared Product Shell 的 PR 拆分 |
-| `design/iris-r3-user-experience-inventory.md` | 查 R3 用户端体验重设计的**现状盘点**：保留清单、不改的契约、要删的旧样式、资讯字段真实读数、React Bits 许可结论、已知后端缺口 |
-| `design/iris2-r2-5-release-integration.md` | 查 R2/R2.5 的 13 步合并序列与三条绕行规则（跳过 #53、关闭 #60、逐级 retarget）——**已执行完毕的归档记录**，文中的 SHA 是当时快照 |
-| `design-system.md` | 仅 `frontend/`（Vue **已弃用**线）青绿 `--iris-*` 的旧规则，不再是产品前端真源 |
-| `architecture/codebase-archaeology-2026-11-17.md` | 查架构演变时间线、有意设计 vs 历史包袱的归因、可安全移除清单（基线 `3c302504`） |
-| `architecture/css-architecture-contract.md` | 查 Tailwind / Iris CSS 的职责边界、混用三档与 `@layer` 迁移路径（提案，基线 `origin/ui@b805377f`） |
+| `design/iris-2-r2-5-product-shell-audit.md` | 查 R2.5 全站视觉审计与 Shared Product Shell 的 PR 拆分 |
+| `design/iris-r3-user-experience-inventory.md` | 查 R3 用户端体验重设计的现状盘点 |
+| `design-system.md` | 仅 `frontend/`（Vue **已弃用**线）青绿 `--iris-*` 的旧规则，不是产品前端真源 |
+| `architecture/codebase-archaeology-2026-11-17.md` | 查架构演变时间线、有意设计 vs 历史包袱的归因、可安全移除清单 |
+| `architecture/css-architecture-contract.md` | 查 Tailwind / Iris CSS 的职责边界与 `@layer` 迁移路径 |
+| `architecture/migration-matrix.md` | 查各目标库的迁移升级路径 |
+| `architecture/multi-agent-adr.md` | 查多 Agent 架构决策记录 |
 | `testing/2026-10-19-test-audit.md` | 质疑某个测试是否真的调用了被测实现 |
 | `testing/verification-levels.md` | 决定这次改动该跑 L0/L1/L2/L3 的哪一级，以及各模块至少跑什么（`scripts/verify-fast.sh`） |
 | `testing/pr153-visual-20261123/README.md` | 查 PR #153 rebase 后 Dashboard / Analytics 的视觉回归证据、夹具边界与复现说明 |
 | `reproducibility/p1_f01_fold_repair.md` | 追溯 P1-F01 冻结折修复的来历 |
-| `reviews/repo-wide-code-review-2026-11-23-consolidated.md` | 追查本仓库 2026-11-23 全仓库审查的 22 条 P1（S/M/D/A/G/P 六组）与 §8 验收矩阵；PR #156 逐条关闭它 |
-| `security-governance-plan-2026-11-18.md` | 判断 MD5→BCrypt 存量迁移的退出条件、配置中心三条上线门禁、CSRF 该按什么载体判定——写安全相关结论前先读，避免把「缺注解」直接当漏洞 |
-| `cleanup-ledger-2026-11-18.md` | 接手「考古报告逐项清理」前先读：哪些已交付成 PR、报告哪几条结论被实测修正、哪些还等 owner 拍板 |
+| `security-governance-plan-2026-11-18.md` | 判断 MD5→BCrypt 存量迁移的退出条件、配置中心三条上线门禁、CSRF 判定口径 |
+| `cleanup-ledger-2026-11-18.md` | 接手「考古报告逐项清理」前先读 |
 
-## 发版集成（本轮 RC）
+## 领域能力说明
 
 | 文档 | 何时读 |
 |---|---|
-| `release/v1.1.0-release-notes.md` | **v1.1.0 正式发布说明（中英文，随版本维护）**：本版本内容、升级注意、默认关闭开关、已知限制与产物 SHA-256 |
-| `release/integration-ledger.md` | 查本轮集成的批次进度、契约裁定与已关闭阻断（想知道「为什么是这个实现」先读它） |
-| `release/pr-disposition.md` | 查每个 PR 的去向（INCLUDE / ABSORB / DEFER / SUPERSEDED / HOLD）与依据 |
-| `release/conflict-resolution.md` | 查冲突文件的语义裁定——哪一侧为何被否决、哪些断言调整不是放水 |
+| `diagnosis-task.md` / `doctor-review.md` / `patient-draft.md` | 影像任务、医生复核、草稿校验的语义边界 |
+| `patient-authorization.md` / `patient-authorization-clinical-semantics.md` | 患者授权与临床语义 |
+| `patient-explanation.md` / `patient-follow-up.md` | 分层解释与随访 |
+| `controlled-references.md` | 受控参考资料的治理与检索 |
+| `collaboration-runs.md` / `collaboration-client.md` / `collaboration-release-runbook.md` | 多 Agent 协作运行的协议、客户端与发布手册 |
+| `graph-execution.md` / `subagent-delegation.md` | 图执行与子代理委派 |
+| `system-states-inventory.md` / `system-states-governance-report.md` | 状态清单与治理结论 |
+
+## 发版集成（RC v1.1.0）
+
+| 文档 | 何时读 |
+|---|---|
+| `release/v1.1.0-release-notes.md` | **v1.1.0 正式发布说明（中英文，随版本维护）** |
+| `release/integration-ledger.md` | 查本轮集成的批次进度、契约裁定与已关闭阻断 |
+| `release/pr-disposition.md` | 查每个 PR 的去向（INCLUDE / ABSORB / DEFER / SUPERSEDED / HOLD） |
+| `release/conflict-resolution.md` | 查冲突文件的语义裁定 |
 | `release/verification-matrix.md` | 查每条结论绑定的 SHA、命令与未执行的门禁 |
-| `release/release-notes-rc.md` | 查本版本内容、默认关闭能力与已知限制 |
 | `release/upgrade-rollback-manual.md` | 部署前核对、升级步骤与回滚路径（**不授权部署**） |
-| `release/codex-no-go-remediation.md` | 查 Codex NO_GO（2 P0 + 5 P1）逐条整改的根因、提交与回归证据 |
-| `release/release-candidate-readiness.md` | 查终态判定与仍未关闭的阻断 |
-| `release/merge-readiness-report.md` | 查本轮接管的整改、门禁结果与「现在能不能合并」的逐项判定 |
+| `release/codex-no-go-remediation.md` | 查 Codex NO_GO 逐条整改的根因、提交与回归证据；原始审查报告在 `archive/2026-11/codex-audit-2026-11-19/` |
+| `release/release-candidate-readiness.md` / `release/merge-readiness-report.md` | 查终态判定与「现在能不能合并」 |
 
 ## 知识库
 
 - `眼科疾病知识库.md` — 领域语料说明
 - `知识库使用指南.md` — RAG 文档上传 / 检索的使用说明
 
-## 计划与规格（按时间倒序，检出时以文件名为准）
+## 计划与规格（历史快照，按时间倒序）
 
-- `product/iris-control-center-1.0-mvp-prd.md` — 系统配置中心 MVP PRD（V0.1，**待评审，未进入开发**；WP-00 源码审计是开发前置）
-- `product/wp-00/` — WP-00 源代码审计交付物（配置项清单、模型调用清单、配置边界、ADR、API 契约、审计结论）；基线 `f42065e4`
+- `product/iris-control-center-1.0-mvp-prd.md` — 系统配置中心 MVP PRD（V0.1，待评审）
+- `product/wp-00/` — WP-00 源代码审计交付物
 - `plans/` — 2026-04 的移植、Admin UI、gRPC、MCP、find-lock、用户中心、会话管理设计/实施计划
-- `superpowers/specs/` — 设计规格：GitHub 门面、仓库深度整理、P2 系列基线 / watchdog / GPU matrix / epoch loop / fold0 smoke、React 管理后台移植
-- `superpowers/plans/` — 对应实施计划：P2 系列、React 管理后台 / Agent 对话页移植、Java 管理后台缺陷修复
+- `superpowers/specs/`、`superpowers/plans/` — P2 系列与 React 管理后台的设计规格与实施计划
 
-> `specs/` 与 `plans/` 是分批归档的历史快照，只描述当时的决策；**当前真源永远是代码与迁移**，
-> 不要在 implement 时把它们当作现行契约。冻结的算法侧契约见 `algorithm/p1/`（只读）。
->
-> 另有一份同类归档在 `design/iris2-r2-5-release-integration.md`（R2/R2.5 合并序列与绕行规则，
-> **已执行完毕**）——同样只作审计用途，不代表任何待办。
+> `plans/`、`superpowers/` 是分批归档的历史快照，只描述当时的决策；
+> **当前真源永远是代码与迁移**。冻结的算法侧契约见 `algorithm/p1/`（只读）。
 
-## 前端代码评审报告（入库）
+## 评审报告
 
 | 文档 | 何时读 |
 |---|---|
-| `2026-11-16-web-react-code-review.md` | 查 `web/` 的性能 / 包体 / 设计系统层技术债与改进清单（基线 `9d3c5317`；含 P0/P1/P2、已核实无问题清单、UI 冻结边界分流） |
-| `2026-11-17-fix-batches-review-report.md` | 查四条修复分支（后端 A/B/C8 + 前端 PR #92）的 `/code-review` 发现汇总、前端整改过程与验证读数、后端遗留项 |
-| `iris-hero-optic-prism-comparison.md` | 查 E-09 三方案（OpticFlow / Prism / 融合）真实浏览器对照的选型依据与判据表；§6.1/§7.2 有 2026-11-18 的增量修复 |
-| `iris-hero-fusion-r2-review.md` | 查 E-09 R2（C 方案定向精修）的四档构图实测、定格生命周期读数、性能与降级证据；**当前状态 `APPROVED`（2026-11-18 放行 Fusion R2-b，已接入 `LandingHero`）** |
-| `iris-roundtable-final-integration.md` | 查 Roundtable 3.0（#87 × #100 × R5 × E-09）最终集成的改造点、验证读数、三条评审线与合并门槛判定 |
+| `2026-11-16-web-react-code-review.md` | 查 `web/` 的性能 / 包体 / 设计系统技术债与改进清单（基线 `9d3c5317`） |
+| `2026-11-17-fix-batches-review-report.md` | 查四条修复分支的 `/code-review` 发现汇总与验证读数 |
+| `archive/2026-11/reviews/repo-wide-code-review-2026-11-23-consolidated.md` | 追查 2026-11-23 全仓库审查的 22 条 P1（S/M/D/A/G/P 六组）与 §8 验收矩阵；PR #156 逐条关闭它 |
 
-> 这两份是**按用户要求入库**的例外；其余一次性评审报告仍走下面的临时目录约定。
-> 报告里的行号与包体数字是各自基线当时的快照，代码改动后以源码为准。
-
-## 架构评审报告
-
-`/improve-codebase-architecture` 的报告写到系统临时目录（`%TEMP%` / `$TMPDIR`），
-文件名 `architecture-review-<timestamp>.html`，**不入库**。需要回看时用
-`ls "$TMPDIR"/architecture-review-*.html` 或 `%TEMP%` 下同名模式查找。
+一次性评审报告（E-09 选型、R3 Roundtable、R5、Roundtable 3.0、2026-11-23 全仓库审查）已归档到 `archive/2026-11/reviews/`。
+新的一次性评审请写到 `archive/<YYYY-MM>/`，不要放在 `docs/` 根目录。
 
 ## 不在这里的东西
 
 - 领域词汇表与模块边界 → 仓库根 `GLOSSARY.md`
 - 代码风格与判断类约定 → 仓库根 `CODING_STANDARDS.md`
 - 后端验证命令 → `scripts/verify.sh`
-- 本机环境事实（MySQL 端口/账号）→ 主检出目录的 `CLAUDE.local.md`（不入库，工作树不自动继承）；Codex 侧在 `~/.codex/AGENTS.md`。
+- 软著 / 专利 / 竞赛材料 → 仓库根 `delivery/`（gitignore，不进 git）
+- 本机环境事实（MySQL 端口 / 账号）→ 主检出目录的 `CLAUDE.local.md`（不入库）

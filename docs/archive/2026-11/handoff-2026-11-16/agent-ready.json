@@ -1,0 +1,161 @@
+{
+  "ready": false,
+  "status": "BLOCKED",
+  "reason": "本会话的 worktree guard 禁止对另一工作树执行任何 git 写操作，无法在 feat/iris2-collaboration-workspace 上创建本地交接提交；74 个交付文件仍全部未暂存/未提交，故不满足「所有待集成源码均包含在稳定本地提交中」。",
+  "branch": "feat/iris2-collaboration-workspace",
+  "sha": "a1758c86add936d81690b0802fee26e2f20fe1d6",
+  "shaMeaning": "视觉基线 HEAD，不是交接提交；本轮新增 commit 数为 0，不存在可直接 merge/cherry-pick 的交接提交。",
+  "worktree": "D:/Work/code/eye-diagnosis/.worktrees/iris2-collaboration",
+  "reportPath": "D:/Work/code/eye-diagnosis/.worktrees/iris2-collaboration/docs/testing/iris2-collaboration-20261114/report.md",
+  "filesManifestPath": "D:/Work/code/eye-diagnosis/.worktrees/iris2-collaboration/docs/testing/iris2-collaboration-20261114/files.md",
+  "evidencePath": "D:/Work/code/eye-diagnosis/.claude/worktrees/realtime-product-acceptance/target/iris2-real-java-integration-2026-11-15.json",
+  "updatedAt": "2026-11-14T17:04:26.439592+00:00",
+  "delivery": {
+    "filesArchived": true,
+    "archiveNote": "report.md 已补「2026-11-15 Java 合成 Harness 联调补验」章节，files.md 已同步 74 文件清单；二者本身仍是未提交的工作树文件。",
+    "committed": false,
+    "pendingSourceFiles": {
+      "modified": 6,
+      "new": 68,
+      "deleted": 0,
+      "total": 74
+    },
+    "inventoryMethod": "分支 ls-tree blob SHA-256 无关；用 git ls-tree -r -z 的 blob SHA-1 与工作树文件逐字节比对（CRLF 归一化），只读，未在目标工作树执行 git status。",
+    "cleanOfTempData": true,
+    "cleanNote": "web/dist、web/node_modules/.vite、web/test-results、临时 integration*.spec.mjs/integration.config.mjs/.write-probe 已删除；未发现凭据或合成数据库混入交付文件；target/ 仅保留 11-14 日志与本轮联调证据（gitignored）。",
+    "servicesStopped": [
+      ":18085",
+      ":5180"
+    ]
+  },
+  "tests": {
+    "vitest": {
+      "files": 53,
+      "passed": 512,
+      "skipped": 0,
+      "failed": 0,
+      "status": "PASS",
+      "evidence": "target/iris2-vitest-final.log + 本轮代理改动后复跑"
+    },
+    "playwright_collaboration_mock_api": {
+      "passed": 29,
+      "skipped": 0,
+      "failed": 0,
+      "status": "PASS",
+      "evidence": "target/iris2-e2e-final.log + 本轮 29 复跑"
+    },
+    "playwright_default_off": {
+      "passed": 1,
+      "skipped": 0,
+      "failed": 0,
+      "status": "PASS",
+      "evidence": "target/iris2-default-off.log"
+    },
+    "playwright_total_note": "常见表述「30/30」= 29（协作）+ 1（默认关闭）两个套件之和，不是单一 30 用例套件。",
+    "real_java_synthetic_harness_integration": {
+      "tests": 6,
+      "passed": 6,
+      "skipped": 0,
+      "failed": 0,
+      "status": "PASS",
+      "note": "证据中的 STEP1…STEP9 是 6 个用例内的子断言/场景标签，不是 9 个独立测试；不得记作 9 通过。",
+      "evidence": "D:/Work/code/eye-diagnosis/.claude/worktrees/realtime-product-acceptance/target/iris2-real-java-integration-2026-11-15.json"
+    },
+    "protocol_contract": {
+      "eventTypes": 16,
+      "snapshotFields": 12,
+      "status": "PASS",
+      "evidence": "target/iris2-collaboration-contract.json"
+    },
+    "typecheck": {
+      "status": "PASS"
+    },
+    "build_collaboration_off": {
+      "status": "PASS"
+    },
+    "lint": {
+      "status": "PASS (2026-11-14)",
+      "note": "本轮未重跑；无影响 lint 的代码改动"
+    },
+    "code_review_high": {
+      "status": "STANDARDS_PASS / SPEC_PASS",
+      "note": "仅前端 + 模拟接口范围；静态只读，未重跑测试"
+    },
+    "notRun": [
+      "完整 Spring Boot 应用级端到端（main 启动、全套 bean、Flyway 迁移链、Redis、COS、真实 gRPC）",
+      "Java 全量测试 scripts/verify.sh / mvn test",
+      "Hosted CI（本任务不提交/不推送）",
+      "真实模型、真实患者、医疗生产启用、工具审计、B2"
+    ]
+  },
+  "knownIssues": [
+    {
+      "id": "P2-1",
+      "severity": "P2",
+      "title": "取消请求复用可中止的流 AbortSignal",
+      "location": "web/src/hooks/useCollaborationRun.ts:240",
+      "detail": "cancel() 把流 signal 传给 POST /cancel；重连/流中止与取消并发时可能 abort 取消请求，UI 显示 CANCELLATION_UNCONFIRMED 而任务仍在跑。真实 Harness 单次取消与活动流中取消均未复现，属防御性缺口；本轮未修复。"
+    },
+    {
+      "id": "P2-2",
+      "severity": "P2",
+      "title": "异常 SSE 响应处理",
+      "location": "web/src/lib/collaborationApi.ts:129-144",
+      "detail": "onopen 对 application/json 响应先 envelope() 消费 body；code:0 的 JSON 成功响应会在 body 读空后报协议错误而非干净拒绝；本轮未修复。"
+    },
+    {
+      "id": "P2-3",
+      "severity": "P2",
+      "title": "任务状态枚举兼容",
+      "location": "web/src/components/agent/collaboration/CollaborationTaskForm.tsx:117, web/src/lib/diagnosisTaskApi.ts:35",
+      "detail": "status 是封闭三值白名单；后端新增枚举会抛 INVALID_TASK_RESPONSE，使「受限/安全停止」引导丢失并残留旧选择；本轮未修复。"
+    },
+    {
+      "id": "INFO-refs",
+      "severity": "INFO",
+      "title": "远端 refs 已漂移",
+      "detail": "PR #75 已 CLOSED，由 #78 合并进 ui（aa9764e4）；origin/feat/admin-visual-redesign 已删除；a1758c86 是 origin/ui(86332427) 的祖先。原报告「推荐 base=feat/admin-visual-redesign」已失效，后续 PR 目标应看 ui/master。PR #68 仍 OPEN/Draft/CLEAN @ 10173ae9。"
+    },
+    {
+      "id": "INFO-8081",
+      "severity": "INFO",
+      "title": ":8081 不是协作运行时",
+      "detail": "本机 :8081 是普通开发后端，POST /collaboration-runs 返回 50000；联调必须用隔离 harness 或含 #68 后端的组合候选。"
+    }
+  ],
+  "blockers": [
+    {
+      "id": "B1",
+      "severity": "BLOCKING",
+      "title": "无法创建本地交接提交（worktree guard）",
+      "detail": "目标工作树不在本会话目录内；已逐一实测并被拒绝的合法形式：git -C <other-worktree>、cd <other-worktree> && git ...、--git-dir/--work-tree、GIT_DIR/GIT_WORK_TREE 环境变量、git add <跨工作树绝对路径>（fatal: outside repository）、EnterWorktree（仅限 .claude/worktrees/ 下托管的工作树）。不绕过 guard，也不使用低层 commit-tree/update-ref 伪装提交。"
+    },
+    {
+      "id": "B2",
+      "severity": "BLOCKING",
+      "title": "交付源码未包含在稳定本地提交中",
+      "detail": "HEAD 仍为 a1758c86，新增 commit 0；74 个文件全部未暂存/未提交。该工作树不得被当作可直接 merge 或 cherry-pick 的提交来源。"
+    },
+    {
+      "id": "B3",
+      "severity": "BLOCKING",
+      "title": "生产医疗协作仍 BLOCKED",
+      "detail": "合成 Harness 联调 ≠ 完整 Spring Boot 应用验收，更 ≠ 临床/生产放行。R5 正常可复核候选 0/2、医学有效性 NOT_EVALUATED、缺持久 256-bit cursor-key、多实例滚动/入口阻断/旧二进制回退/容量 SLO 未演练。合并代码 ≠ 启用功能。"
+    },
+    {
+      "id": "B4",
+      "severity": "NOT_RUN",
+      "title": "完整 Spring Boot 应用端到端与 Hosted CI 未执行",
+      "detail": "见 tests.notRun；本轮停止扩展，未再启动任何服务或长测试。"
+    }
+  ],
+  "integrationScope": {
+    "harness": "真实 Java Controller + 真实事务/Spring Session/SSE + MySQL 8.0.26@3307 隔离库 collaboration_test；合成模型/影像/账号（42-45）。",
+    "productionFlagsUntouched": true,
+    "migrationsUntouched": true,
+    "realModelOrPatientData": false,
+    "fullSpringBootAppVerified": false,
+    "explicitDistinction": "合成 Harness 联调只证明契约连通；完整 Spring Boot 应用验收 NOT_RUN，两者不得互相替代。"
+  },
+  "nextAction": "在可进入该工作树的会话中，先 git status 核对 74 文件，再按用户授权创建本地交接提交并记录新 SHA；随后重发 ready=true 的 agent-ready.json。在此之前不要 merge/cherry-pick/push。"
+}

@@ -1,0 +1,6 @@
+sha=03b14efd8f9bcc8d6326a104396d8b68a30d5e8b
+script_blob=f6e7701ab59796b15179e5a1e66b2a33b94a0a7a
+valid_bundle_restore_exit=0 valid_bundle_restored_HEAD=commit
+untracked_restore_byte_match=True
+invalid_bundle_restore=exit1 index-pack early EOF
+actual removals=0

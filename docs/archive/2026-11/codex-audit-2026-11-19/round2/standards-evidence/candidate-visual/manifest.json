@@ -1,0 +1,288 @@
+{
+  "sha": "03b14efd8f9bcc8d6326a104396d8b68a30d5e8b",
+  "base": "http://127.0.0.1:45299",
+  "mode": "Vite dev with fixture API",
+  "chromium": "158.0.8127.18",
+  "shots": [
+    {
+      "file": "home-light-390.png",
+      "shellFile": "home-hero-light-390.png",
+      "visual": {
+        "width": 390,
+        "height": 900,
+        "dpr": 1,
+        "dark": false,
+        "overflow": 0,
+        "viteDevClient": true
+      },
+      "hero": {
+        "breakpoint": "phone",
+        "canvas": true,
+        "staticWash": false,
+        "hints": [
+          "探索影像分析",
+          "探索 AI 协作"
+        ]
+      },
+      "route": "/"
+    },
+    {
+      "file": "home-light-820.png",
+      "shellFile": "home-hero-light-820.png",
+      "visual": {
+        "width": 820,
+        "height": 900,
+        "dpr": 1,
+        "dark": false,
+        "overflow": 0,
+        "viteDevClient": true
+      },
+      "hero": {
+        "breakpoint": "tablet",
+        "canvas": true,
+        "staticWash": false,
+        "hints": [
+          "探索影像分析",
+          "探索 AI 协作"
+        ]
+      },
+      "route": "/"
+    },
+    {
+      "file": "home-light-1440.png",
+      "shellFile": "home-hero-light-1440.png",
+      "visual": {
+        "width": 1440,
+        "height": 900,
+        "dpr": 1,
+        "dark": false,
+        "overflow": 0,
+        "viteDevClient": true
+      },
+      "hero": {
+        "breakpoint": "wide",
+        "canvas": true,
+        "staticWash": false,
+        "hints": [
+          "探索影像分析",
+          "探索 AI 协作"
+        ]
+      },
+      "route": "/"
+    },
+    {
+      "file": "home-light-1920.png",
+      "shellFile": "home-hero-light-1920.png",
+      "visual": {
+        "width": 1920,
+        "height": 900,
+        "dpr": 1,
+        "dark": false,
+        "overflow": 0,
+        "viteDevClient": true
+      },
+      "hero": {
+        "breakpoint": "wide",
+        "canvas": true,
+        "staticWash": false,
+        "hints": [
+          "探索影像分析",
+          "探索 AI 协作"
+        ]
+      },
+      "route": "/"
+    },
+    {
+      "file": "admin-provenance-light-390.png",
+      "visual": {
+        "width": 390,
+        "height": 900,
+        "dpr": 1,
+        "dark": false,
+        "overflow": 0,
+        "viteDevClient": true
+      },
+      "route": "/admin/diagnosis",
+      "fixture": "approved authorization without receipt details"
+    },
+    {
+      "file": "admin-provenance-light-768.png",
+      "visual": {
+        "width": 768,
+        "height": 900,
+        "dpr": 1,
+        "dark": false,
+        "overflow": 0,
+        "viteDevClient": true
+      },
+      "route": "/admin/diagnosis",
+      "fixture": "approved authorization without receipt details"
+    },
+    {
+      "file": "admin-provenance-light-1440.png",
+      "visual": {
+        "width": 1440,
+        "height": 900,
+        "dpr": 1,
+        "dark": false,
+        "overflow": 0,
+        "viteDevClient": true
+      },
+      "route": "/admin/diagnosis",
+      "fixture": "approved authorization without receipt details"
+    },
+    {
+      "file": "admin-provenance-light-1920.png",
+      "visual": {
+        "width": 1920,
+        "height": 900,
+        "dpr": 1,
+        "dark": false,
+        "overflow": 0,
+        "viteDevClient": true
+      },
+      "route": "/admin/diagnosis",
+      "fixture": "approved authorization without receipt details"
+    },
+    {
+      "file": "home-dark-390.png",
+      "shellFile": "home-hero-dark-390.png",
+      "visual": {
+        "width": 390,
+        "height": 900,
+        "dpr": 1,
+        "dark": true,
+        "overflow": 0,
+        "viteDevClient": true
+      },
+      "hero": {
+        "breakpoint": "phone",
+        "canvas": true,
+        "staticWash": false,
+        "hints": [
+          "探索影像分析",
+          "探索 AI 协作"
+        ]
+      },
+      "route": "/"
+    },
+    {
+      "file": "home-dark-820.png",
+      "shellFile": "home-hero-dark-820.png",
+      "visual": {
+        "width": 820,
+        "height": 900,
+        "dpr": 1,
+        "dark": true,
+        "overflow": 0,
+        "viteDevClient": true
+      },
+      "hero": {
+        "breakpoint": "tablet",
+        "canvas": true,
+        "staticWash": false,
+        "hints": [
+          "探索影像分析",
+          "探索 AI 协作"
+        ]
+      },
+      "route": "/"
+    },
+    {
+      "file": "home-dark-1440.png",
+      "shellFile": "home-hero-dark-1440.png",
+      "visual": {
+        "width": 1440,
+        "height": 900,
+        "dpr": 1,
+        "dark": true,
+        "overflow": 0,
+        "viteDevClient": true
+      },
+      "hero": {
+        "breakpoint": "wide",
+        "canvas": true,
+        "staticWash": false,
+        "hints": [
+          "探索影像分析",
+          "探索 AI 协作"
+        ]
+      },
+      "route": "/"
+    },
+    {
+      "file": "home-dark-1920.png",
+      "shellFile": "home-hero-dark-1920.png",
+      "visual": {
+        "width": 1920,
+        "height": 900,
+        "dpr": 1,
+        "dark": true,
+        "overflow": 0,
+        "viteDevClient": true
+      },
+      "hero": {
+        "breakpoint": "wide",
+        "canvas": true,
+        "staticWash": false,
+        "hints": [
+          "探索影像分析",
+          "探索 AI 协作"
+        ]
+      },
+      "route": "/"
+    },
+    {
+      "file": "admin-provenance-dark-390.png",
+      "visual": {
+        "width": 390,
+        "height": 900,
+        "dpr": 1,
+        "dark": true,
+        "overflow": 0,
+        "viteDevClient": true
+      },
+      "route": "/admin/diagnosis",
+      "fixture": "approved authorization without receipt details"
+    },
+    {
+      "file": "admin-provenance-dark-768.png",
+      "visual": {
+        "width": 768,
+        "height": 900,
+        "dpr": 1,
+        "dark": true,
+        "overflow": 0,
+        "viteDevClient": true
+      },
+      "route": "/admin/diagnosis",
+      "fixture": "approved authorization without receipt details"
+    },
+    {
+      "file": "admin-provenance-dark-1440.png",
+      "visual": {
+        "width": 1440,
+        "height": 900,
+        "dpr": 1,
+        "dark": true,
+        "overflow": 0,
+        "viteDevClient": true
+      },
+      "route": "/admin/diagnosis",
+      "fixture": "approved authorization without receipt details"
+    },
+    {
+      "file": "admin-provenance-dark-1920.png",
+      "visual": {
+        "width": 1920,
+        "height": 900,
+        "dpr": 1,
+        "dark": true,
+        "overflow": 0,
+        "viteDevClient": true
+      },
+      "route": "/admin/diagnosis",
+      "fixture": "approved authorization without receipt details"
+    }
+  ]
+}
