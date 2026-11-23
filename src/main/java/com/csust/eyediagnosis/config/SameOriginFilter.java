@@ -1,5 +1,6 @@
 package com.csust.eyediagnosis.config;
 
+import com.csust.eyediagnosis.constant.MiniAppConstant;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -13,6 +14,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import java.io.IOException;
 import java.net.URI;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 评审 P1-06：Cookie 会话应用的状态变更请求必须校验 Origin。
@@ -30,6 +32,14 @@ public class SameOriginFilter extends OncePerRequestFilter {
 
     private static final List<String> SAFE_METHODS = List.of("GET", "HEAD", "OPTIONS");
 
+    /**
+     * 无需 Origin/Referer 的路径（相对 context-path）。
+     *
+     * <p>目前只有小程序登录：它本身就是「换令牌」的入口，此刻还没有令牌可携带；它也不写
+     * Cookie、只把令牌放在响应体里，跨站请求读不到响应，构不成登录 CSRF 的收益。
+     */
+    private static final Set<String> EXEMPT_PATHS = Set.of("/mp/auth/login");
+
     @Value("${security.same-origin.additional-hosts:}")
     private List<String> additionalHosts;
 
@@ -37,6 +47,12 @@ public class SameOriginFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                     FilterChain chain) throws ServletException, IOException {
         if (SAFE_METHODS.contains(request.getMethod())) {
+            chain.doFilter(request, response);
+            return;
+        }
+        // 小程序令牌通道：凭证由调用方显式携带，不走浏览器自动附带的 Cookie，CSRF 不成立。
+        if (Boolean.TRUE.equals(request.getAttribute(MiniAppConstant.REQUEST_ATTR_TOKEN_AUTH))
+                || EXEMPT_PATHS.contains(pathWithinApp(request))) {
             chain.doFilter(request, response);
             return;
         }
@@ -54,6 +70,16 @@ public class SameOriginFilter extends OncePerRequestFilter {
             return;
         }
         chain.doFilter(request, response);
+    }
+
+    /** 去掉 context-path 后的请求路径，豁免名单按这个口径比对。 */
+    private String pathWithinApp(HttpServletRequest request) {
+        String uri = request.getRequestURI();
+        String contextPath = request.getContextPath();
+        if (contextPath != null && !contextPath.isEmpty() && uri.startsWith(contextPath)) {
+            return uri.substring(contextPath.length());
+        }
+        return uri;
     }
 
     private void reject(HttpServletResponse response) throws IOException {

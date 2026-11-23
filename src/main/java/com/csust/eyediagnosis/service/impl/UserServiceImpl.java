@@ -8,6 +8,7 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.csust.eyediagnosis.common.BatchResultVO;
 import com.csust.eyediagnosis.constant.AuthConstant;
+import com.csust.eyediagnosis.constant.MiniAppConstant;
 import com.csust.eyediagnosis.constant.UserConstant;
 import com.csust.eyediagnosis.exception.BusinessException;
 import com.csust.eyediagnosis.exception.ErrorCode;
@@ -170,6 +171,19 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
      */
     @Override
     public User getLoginUser(HttpServletRequest request) {
+        // 小程序通道：令牌过滤器已把 t_user.id 放进请求属性。属性不存在时行为与原来完全一致，
+        // web/ 端仍走下面的 Cookie 会话分支。
+        Object tokenUserId = request.getAttribute(MiniAppConstant.REQUEST_ATTR_USER_ID);
+        if (tokenUserId instanceof Long userId) {
+            User tokenUser = this.getById(userId);
+            if (tokenUser == null) {
+                throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR);
+            }
+            if (isBanned(tokenUser)) {
+                throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR, "账号已被封禁");
+            }
+            return tokenUser;
+        }
         // 先判断是否登录：匿名请求不创建新会话
         jakarta.servlet.http.HttpSession session = request.getSession(false);
         if (session == null) {
