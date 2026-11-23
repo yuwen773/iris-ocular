@@ -128,7 +128,7 @@ export function ReasonBreakdown(props: {
   )
 }
 
-/** 置信度十档直方图；空桶保留，横轴连续。 */
+/** 模型自评置信度十档直方图；空桶保留，横轴连续。 */
 export function ConfidenceHistogram(props: {
   rows: { bucket: string; count: number }[]
   emptyText: string
@@ -145,8 +145,8 @@ export function ConfidenceHistogram(props: {
 
   return (
     <ChartView
-      title="置信度分布"
-      ariaLabel="置信度十档直方图"
+      title="模型自评置信度分布"
+      ariaLabel="模型自评置信度十档直方图"
       labelHeader="置信度区间"
       headExtra={headExtra("0–100 量纲 · 10 桶", onInspect)}
       emptyText={emptyText}

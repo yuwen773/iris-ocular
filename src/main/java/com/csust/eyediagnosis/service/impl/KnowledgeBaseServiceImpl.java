@@ -110,6 +110,7 @@ public class KnowledgeBaseServiceImpl extends ServiceImpl<KnowledgeDocumentMappe
             try {
                 CompletableFuture<UploadResult> future = CompletableFuture.supplyAsync(() -> {
                     File tempFile = null;
+                    String storedFileName = null;
                     boolean handedOff = false;
                     try {
                         // 后缀只取白名单扩展名，不把未清洗的原始文件名交给 createTempFile。
@@ -129,7 +130,7 @@ public class KnowledgeBaseServiceImpl extends ServiceImpl<KnowledgeDocumentMappe
                             return new UploadResult(null, originalFilename, "文档已存在");
                         }
 
-                        String storedFileName = UUID.randomUUID() + "_" + originalFilename;
+                        storedFileName = UUID.randomUUID() + "_" + originalFilename;
                         cosManager.putObject(storedFileName, tempFile);
 
                         KnowledgeDocument doc = new KnowledgeDocument();
@@ -149,9 +150,12 @@ public class KnowledgeBaseServiceImpl extends ServiceImpl<KnowledgeDocumentMappe
                         return new UploadResult(doc.getId(), originalFilename, null);
                     } catch (IOException e) {
                         log.error("文件上传失败: filename={}", originalFilename, e);
+                        discardUnreferencedObject(storedFileName);
                         return new UploadResult(null, originalFilename, "上传失败");
                     } catch (RuntimeException e) {
                         log.error("文件上传异常: filename={}", originalFilename, e);
+                        // 对象已写、行没落成：删掉，别留一个无人认领的孤儿对象。
+                        discardUnreferencedObject(storedFileName);
                         return new UploadResult(null, originalFilename, "上传失败");
                     } finally {
                         // 异步 ETL 接管后由它删除；失败/重复路径自己兜底。
@@ -328,12 +332,13 @@ public class KnowledgeBaseServiceImpl extends ServiceImpl<KnowledgeDocumentMappe
         }
 
         File tempFile = null;
+        String storedFileName = null;
         boolean handedOff = false;
         try {
             tempFile = File.createTempFile("update_", "." + fileType);
             file.transferTo(tempFile);
 
-            String storedFileName = UUID.randomUUID() + "_" + originalFilename;
+            storedFileName = UUID.randomUUID() + "_" + originalFilename;
             cosManager.putObject(storedFileName, tempFile);
             String resolvedTitle = title != null ? title : originalFilename;
 
@@ -363,7 +368,14 @@ public class KnowledgeBaseServiceImpl extends ServiceImpl<KnowledgeDocumentMappe
             }
             handedOff = true;
         } catch (IOException e) {
+            discardUnreferencedObject(storedFileName);
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "文件更新失败");
+        } catch (RuntimeException e) {
+            // 对象已经写进 COS 却没有落成引用（DB 更新 / 候选登记失败）：删掉它，
+            // 否则就是一个无人认领的孤儿对象。是否「没人认领」靠回读数据库判断，
+            // 不是靠「刚才失败了」——见 discardUnreferencedObject。
+            discardUnreferencedObject(storedFileName);
+            throw e;
         } finally {
             // 异步 ETL 接管后由它删除；失败路径自己兜底，避免临时文件堆积。
             if (!handedOff && tempFile != null && tempFile.exists() && !tempFile.delete()) {
@@ -390,6 +402,33 @@ public class KnowledgeBaseServiceImpl extends ServiceImpl<KnowledgeDocumentMappe
         boolean admin = AuthConstant.ADMIN_ROLE.equals(actor.getUserRole());
         ThrowUtils.throwIf(!admin && !actor.getId().equals(doc.getUserId()),
                 ErrorCode.NO_AUTH_ERROR, "只能操作自己的文档");
+    }
+
+    /**
+     * 失败路径上清掉「刚写进对象存储、却没有落成任何文档引用」的那一份。
+     *
+     * <p>判据是<b>回读数据库</b>，不是「刚才失败了」：{@code updateById} 成功、随后
+     * 提交异步 ETL 抛错时，新对象已经被文档行引用，删它等于删掉正在用的文件。
+     * 反过来，行没落成时这里删掉对象，孤儿窗口就只剩「进程在 putObject 与 rollback
+     * 之间被 kill」这种没有代码能覆盖的一瞬。
+     */
+    private void discardUnreferencedObject(String storedFileName) {
+        if (storedFileName == null || cosManager == null) {
+            return;
+        }
+        try {
+            Long referenced = baseMapper.selectCount(
+                    new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<KnowledgeDocument>()
+                            .eq(KnowledgeDocument::getFileUrl, storedFileName));
+            if (referenced != null && referenced > 0) {
+                return;
+            }
+            cosManager.deleteObject(storedFileName);
+            log.info("已清理未被引用的上传对象: key={}", storedFileName);
+        } catch (Exception e) {
+            // 清理是尽力而为：删不掉也不能把原始失败替换成清理异常。
+            log.warn("清理未被引用的上传对象失败: key={}", storedFileName, e);
+        }
     }
 
     /** 删除文档本体：向量 + 对象存储 + 数据库行。 */

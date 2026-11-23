@@ -12,9 +12,14 @@ from mcp_server.image_handler import resolve_image
 class _FakeStream:
     """httpx 流式响应的替身：实现 ``async with`` 与 ``aiter_bytes``。"""
 
-    def __init__(self, content: bytes, headers: dict | None = None):
+    def __init__(self, content: bytes, headers: dict | None = None, status_code: int = 200):
         self._content = content
         self.headers = headers or {}
+        self.status_code = status_code
+
+    @property
+    def is_redirect(self) -> bool:
+        return 300 <= self.status_code < 400
 
     def raise_for_status(self) -> None:
         return None
@@ -198,6 +203,22 @@ async def test_streaming_download_stops_at_the_size_cap(monkeypatch):
     with patch("mcp_server.image_handler._get_client", return_value=mock_client):
         with pytest.raises(ValueError, match="50MB"):
             await resolve_image("https://example.com/huge.png")
+
+
+@pytest.mark.asyncio
+async def test_redirect_response_is_refused_instead_of_downloaded(monkeypatch):
+    # 不跟随重定向是安全策略；3xx 的正文也不是图片，收下来只会在解码阶段炸，
+    # 或者更糟——写下一个「看起来成功」却不是图的对象。要明确拒绝。
+    monkeypatch.setenv("MCP_ALLOW_REMOTE_URLS", "true")
+    monkeypatch.setattr(
+        "mcp_server.image_handler._resolve_host_ips",
+        lambda host, port: {"93.184.216.34"},
+    )
+    mock_client = AsyncMock()
+    mock_client.stream = MagicMock(return_value=_FakeStream(b"<html>", status_code=302))
+    with patch("mcp_server.image_handler._get_client", return_value=mock_client):
+        with pytest.raises(ValueError, match="重定向"):
+            await resolve_image("https://example.com/eye.png")
 
 
 @pytest.mark.asyncio

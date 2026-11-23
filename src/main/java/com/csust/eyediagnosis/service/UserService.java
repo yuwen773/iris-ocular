@@ -46,6 +46,17 @@ public interface UserService extends IService<User> {
      */
     User getLoginUser(HttpServletRequest request);
 
+    /**
+     * 账号当前是否仍可用于访问（存在且未被封禁）。
+     *
+     * <p>{@link #getLoginUser} 只能在请求开始时回答这个问题。流式响应会持续数分钟，
+     * 期间发生的封禁需要长连接自己回查——用这个方法，不要另写一份判据。
+     *
+     * @param userId 用户 id
+     * @return 存在且未封禁时为 {@code true}
+     */
+    boolean isAccountActive(Long userId);
+
 
     /**
      * 获取脱敏的已登录用户信息

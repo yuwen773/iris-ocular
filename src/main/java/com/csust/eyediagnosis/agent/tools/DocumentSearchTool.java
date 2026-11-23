@@ -531,7 +531,9 @@ public class DocumentSearchTool {
                 log.warn("词法语料缓存总量 {} 超过预算 {}，已驱逐至 {} 分块（剩 {} 份语料）",
                         before, maxTotalCorpusChunks, total, documentCaches.size());
             }
-            // 缓存被驱逐的用户的锁一并回收，免得锁表只增不减。
+            // 缓存被驱逐的用户的锁一并回收，免得锁表只增不减。极小概率下（正持有锁的
+            // 线程所在用户恰好被驱逐）同一用户会出现两份锁、并发重建一次语料：结果幂等，
+            // 只是多读一遍，比让锁表无界增长划算。
             refreshLocks.keySet().retainAll(documentCaches.keySet());
         }
     }

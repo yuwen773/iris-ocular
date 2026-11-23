@@ -103,6 +103,8 @@ public class DiagnosisTaskService {
     /** 任务影像不可读（未归档或对象存储失败），与"任务不存在"区分。 */
     public static class ImageUnavailable extends RuntimeException {
         public ImageUnavailable(String message) { super(message); }
+
+        public ImageUnavailable(String message, Throwable cause) { super(message, cause); }
     }
 
     /**
@@ -126,7 +128,10 @@ public class DiagnosisTaskService {
             }
             return new TaskImage(bytes, row[3]);
         } catch (Exception e) {
-            throw new ImageUnavailable("IMAGE_UNAVAILABLE");
+            // 对外只回一个「影像不可用」：存储异常、格式/大小/摘要不符，客户端能做的
+            // 事都一样。但原因必须挂在异常链上——丢掉它，线上就只剩一句
+            // IMAGE_UNAVAILABLE，既分不清是对象没了还是摘要对不上，也没有堆栈可查。
+            throw new ImageUnavailable("IMAGE_UNAVAILABLE", e);
         }
     }
 

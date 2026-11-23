@@ -606,15 +606,15 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisMapper, Diagnosis
                 .setPreprocessVersion(cache.getPreprocessVersion())
                 .setInferencePolicyVersion(cache.getInferencePolicyVersion())
                 .setPredictedLabel(cache.getPredictedLabel())
-                .setProbability(cache.getProbability())
-                .setCalibratedProbability(cache.getCalibratedProbability())
+                .setProbability(orZero(cache.getProbability()))
+                .setCalibratedProbability(orZero(cache.getCalibratedProbability()))
                 .setCalibrationStatus(cache.getCalibrationStatus() == null ? "NOT_CALIBRATED" : cache.getCalibrationStatus())
                 .setDescription(cache.getDescription() == null ? "" : cache.getDescription())
-                .setReliabilityScore(cache.getReliabilityScore())
-                .setQualityScore(cache.getQualityScore())
+                .setReliabilityScore(orZero(cache.getReliabilityScore()))
+                .setQualityScore(orZero(cache.getQualityScore()))
                 .setQualityReasons(cache.getQualityReasons() == null ? "" : cache.getQualityReasons())
                 .setIsOod(Boolean.TRUE.equals(cache.getIsOod()))
-                .setOodScore(cache.getOodScore())
+                .setOodScore(orZero(cache.getOodScore()))
                 .setOodStatus(parseOodStatus(cache.getOodStatus()))
                 .setRejected(Boolean.TRUE.equals(cache.getRejected()))
                 .setAbstainReason(cache.getAbstainReason() == null ? "" : cache.getAbstainReason())
@@ -622,7 +622,7 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisMapper, Diagnosis
                 // 缓存命中也必须带回完整证据：少了这些字段，命中缓存的那次判读
                 // 就会比没命中的那次少一截证据（例如质量门版本变成空）。
                 .setCalibrationVersion(cache.getCalibrationVersion() == null ? "" : cache.getCalibrationVersion())
-                .setImageQualityState(parseImageQualityState(cache.getImageQualityState()))
+                .setImageQualityState(DiagnosisEvidence.protoImageQualityState(cache.getImageQualityState()))
                 .setImageQualityVersion(cache.getImageQualityVersion() == null ? "" : cache.getImageQualityVersion())
                 .setImageQualityCalibrationState(cache.getImageQualityCalibrationState() == null
                         ? "" : cache.getImageQualityCalibrationState());
@@ -649,22 +649,18 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisMapper, Diagnosis
     }
 
     /**
-     * 缓存里的质量门结论字符串 → proto 枚举。
+     * 缓存行的可空数值 → proto 的标量字段。
      *
-     * <p>缓存存的是对外契约值（{@code PASSED / FAILED / NOT_EVALUATED}），不是 proto
-     * 枚举名：这一列同时要进 API 和前端，名字得是产品语言。认不出或为空时返回
-     * UNSPECIFIED（「算法没给」），不要猜成别的取值。
+     * <p>proto3 的普通 {@code double} / {@code int32} 没有 presence，顺手拆箱一个
+     * {@code null} 会直接 NPE；写 0 与「字段不写」在线上是同一个值，语义信息由
+     * {@code calibrationStatus} 之类的状态字段表达，不靠这个 0 去猜。
      */
-    private static DiagnosisProto.ImageQualityState parseImageQualityState(String value) {
-        if (value == null) {
-            return DiagnosisProto.ImageQualityState.QUALITY_UNSPECIFIED;
-        }
-        return switch (value) {
-            case "PASSED" -> DiagnosisProto.ImageQualityState.QUALITY_PASSED;
-            case "FAILED" -> DiagnosisProto.ImageQualityState.QUALITY_FAILED;
-            case "NOT_EVALUATED" -> DiagnosisProto.ImageQualityState.QUALITY_NOT_EVALUATED;
-            default -> DiagnosisProto.ImageQualityState.QUALITY_UNSPECIFIED;
-        };
+    private static double orZero(Double value) {
+        return value == null ? 0.0 : value;
+    }
+
+    private static int orZero(Integer value) {
+        return value == null ? 0 : value;
     }
 
     private static DiagnosisProto.OodStatus parseOodStatus(String value) {

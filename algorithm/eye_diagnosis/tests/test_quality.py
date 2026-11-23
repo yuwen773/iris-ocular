@@ -2,7 +2,12 @@ import io
 from PIL import Image, ImageFilter
 import numpy as np
 
-from eye_diagnosis.quality import laplacian_variance, evaluate_quality, QualityVerdict
+from eye_diagnosis.quality import (
+    QualityState,
+    QualityVerdict,
+    evaluate_quality,
+    laplacian_variance,
+)
 
 
 def _to_png(arr: np.ndarray) -> bytes:
@@ -60,3 +65,13 @@ def test_gaussian_blur_collapseslaplacian_variance():
     )
     assert sharp > 1000
     assert blurred < sharp / 20
+
+
+def test_state_is_the_single_verdict_field():
+    # 「判了失败」与「为什么失败」只能有一个来源：线上协议读 state，不读 reasons。
+    # 这两者一旦分叉，就会出现「state=PASSED 但 reasons 非空」这种自相矛盾的响应。
+    for value in (80, 8):
+        report = evaluate_quality(_make_image(380, 380, value=value))
+        expected = QualityState.FAILED if report.reasons else QualityState.PASSED
+        assert report.state is expected
+        assert (report.state is QualityState.PASSED) == (report.verdict is QualityVerdict.ACCEPTED)

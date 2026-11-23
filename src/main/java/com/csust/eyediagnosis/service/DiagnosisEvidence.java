@@ -118,6 +118,25 @@ public final class DiagnosisEvidence {
     }
 
     /**
+     * 产品契约值（{@code PASSED / FAILED / NOT_EVALUATED}）→ proto 枚举。
+     *
+     * <p>{@link #imageQualityStateOf} 的反向映射，和它成对放在一个类里：一进一出两条
+     * 映射必须一起看见，才不会一边加了取值、另一边留在 {@code default} 分支。
+     * 认不出或为空时返回 UNSPECIFIED（「算法没给」），不要猜成别的取值。
+     */
+    public static DiagnosisProto.ImageQualityState protoImageQualityState(String value) {
+        if (value == null) {
+            return DiagnosisProto.ImageQualityState.QUALITY_UNSPECIFIED;
+        }
+        return switch (value) {
+            case "PASSED" -> DiagnosisProto.ImageQualityState.QUALITY_PASSED;
+            case "FAILED" -> DiagnosisProto.ImageQualityState.QUALITY_FAILED;
+            case "NOT_EVALUATED" -> DiagnosisProto.ImageQualityState.QUALITY_NOT_EVALUATED;
+            default -> DiagnosisProto.ImageQualityState.QUALITY_UNSPECIFIED;
+        };
+    }
+
+    /**
      * 仅从响应构造快照（无部署配置可用时，例如纯函数式的结果 VO 映射）。
      */
     public static DiagnosisEvidence fromResponse(DiagnosisProto.DiagnosisResponse resp) {

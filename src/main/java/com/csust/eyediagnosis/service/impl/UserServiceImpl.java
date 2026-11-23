@@ -193,6 +193,15 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         return currentUser;
     }
 
+    @Override
+    public boolean isAccountActive(Long userId) {
+        if (userId == null) {
+            return false;
+        }
+        User user = this.getById(userId);
+        return user != null && !AuthConstant.BAN_ROLE.equals(user.getUserRole());
+    }
+
     /**
      * 获取脱敏的已登录用户信息
      * @param user 用户

@@ -275,6 +275,11 @@ public class DocumentProcessingService {
         }
     }
 
+    /** 清掉某个文档某一代的向量分块（调度器回收超时候选版本时用）。 */
+    public void purgeIndexVersion(Long docId, String version) {
+        purgeVectors(docId, version);
+    }
+
     /**
      * 按 documentId 和 indexVersion 删除本次失败处理的分块。
      *
@@ -282,11 +287,6 @@ public class DocumentProcessingService {
      * 会一个也删不掉。这里按元数据删除，重试一次；仍失败也不抛——正确性由
      * 检索侧的「就绪且版本匹配」校验保证，这里的清理只是为了不留垃圾。
      */
-    /** 清掉某个文档某一代的向量分块（调度器回收超时候选版本时用）。 */
-    public void purgeIndexVersion(Long docId, String version) {
-        purgeVectors(docId, version);
-    }
-
     void purgeVectors(Long docId, String version) {
         if (vectorStore == null || docId == null) return;
         for (int attempt = 1; attempt <= 2; attempt++) {

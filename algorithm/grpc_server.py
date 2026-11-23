@@ -17,12 +17,28 @@ from eye_diagnosis.ood import OodDecision
 from eye_diagnosis.quality import (
     QUALITY_CALIBRATION_STATE,
     QUALITY_VERSION,
+    QualityState,
     evaluate_quality,
 )
 from eye_diagnosis.registry import ModelRegistry
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def _proto_quality_state(state) -> int:
+    """质量判定 → proto 枚举的唯一映射点。
+
+    判定本身由 ``QualityReport.state`` 给出（在 ``eye_diagnosis.quality`` 里算好），
+    这里只做「产品状态 → 线协议枚举」的翻译。认不出的状态返回 UNSPECIFIED
+    （「算法没给」），不要猜成 PASSED。
+    """
+    mapping = {
+        QualityState.PASSED: diagnosis_pb2.QUALITY_PASSED,
+        QualityState.FAILED: diagnosis_pb2.QUALITY_FAILED,
+    }
+    return mapping.get(state, diagnosis_pb2.QUALITY_UNSPECIFIED)
+
 
 DISEASE_DESCRIPTIONS = {
     "normal": "正常眼底图像，未发现明显异常。视网膜血管走行正常，视盘边界清晰，黄斑区结构正常。",
@@ -139,11 +155,10 @@ class DiagnosisServicer(diagnosis_pb2_grpc.DiagnosisServiceServicer):
                 # 分类概率：0–1 的原始 softmax。它不是校准概率，也不是医学可靠性；
                 # 校准状态、图像质量、OOD、能否面向患者呈现，各走各的字段，
                 # 各自带版本，避免一个数字被当成所有结论。
-                image_quality_state = (
-                    diagnosis_pb2.QUALITY_FAILED
-                    if quality.reasons
-                    else diagnosis_pb2.QUALITY_PASSED
-                )
+                # 质量判定只认 QualityReport.state（eye_diagnosis.quality 里算好的那一份），
+                # 这里只做「产品状态 → 线协议枚举」的翻译。再从 reasons 二次推导会多出
+                # 第二个判据来源：将来某个 reason 加进来却没改 state，两个字段就会各说各话。
+                image_quality_state = _proto_quality_state(quality.state)
                 # 「能否面向患者呈现结论」= 质量门通过且模型没有拒识。
                 # 注意它与「任务准入是否放行」是两道门：准入还额外要求版本绑定的
                 # OOD 证据（见 DiagnosisTaskRunner），这里不放宽那一道。

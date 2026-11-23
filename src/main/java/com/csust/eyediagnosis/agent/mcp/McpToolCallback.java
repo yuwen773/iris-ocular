@@ -99,6 +99,13 @@ public class McpToolCallback implements ToolCallback {
      *
      * <p>算法侧的图片工具只接受签发过的引用；模型手里只有服务端路径，翻译
      * 放在这一跳完成，模型与算法侧都不需要知道对象存储地址。
+     *
+     * <p>信任边界要说清：这是 <b>任何</b> MCP 工具都会走的一跳，不只是内置影像工具。
+     * 命中取图路径的参数会被换成几分钟有效的预签名地址，等于把「这张图本次可读」
+     * 授予该工具所指向的 MCP 服务。这条服务是用户自己启用的、并且在这一轮被选中的，
+     * 与把图片 ID 交给它同属一个授权范围——但它不是「只有内置工具能看图」的隔离，
+     * 第三方 MCP 服务确实能拿到可下载地址。归属校验仍在签发时逐张做：只有本人且
+     * 未删除的图片才签发。
      */
     private Map<String, Object> translateImageReferences(Map<String, Object> params) {
         if (imageReferenceResolver == null || params == null || params.isEmpty()) {
