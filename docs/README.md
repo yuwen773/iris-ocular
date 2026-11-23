@@ -29,6 +29,7 @@ git show <commit>:<path> > <file>
 | 文档 | 何时读 |
 |---|---|
 | `agent-worktree-conventions.md` | 在多个工作树里跑 git、杀 Windows 进程、清理临时验证产物、工作树与服务收尾（`scripts/worktree-hygiene.sh` / `scripts/dev-servers.sh`） |
+| `product/wechat-miniapp/README.md` | 改 `miniapp/` 或后端小程序令牌通道前读：范围、同名/同源约束、V35 绑定表、本地联调与未决风险 |
 | `docker-test-resources.md` | 跑 / 改任何 Docker 测试入口、回收遗留容器与卷、判断某资源能不能删之前读 |
 | `backend-image-storage-failure-semantics.md` | 改判读影像上传 / 对象存储失败处理前读：影像存储失败为何终止而不是落「无原图记录」、补偿删除边界、已知限制 |
 | `backend-split.md` | 改动 `frontend/` 或 `algorithm/` 共享目录，判断是否需要人工搬运到另一条后端线 |
