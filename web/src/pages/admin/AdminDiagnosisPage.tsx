@@ -1,12 +1,13 @@
 import { useMemo, useState, type FormEvent, type ReactElement, type ReactNode } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useSearchParams } from "react-router-dom"
-import { ChevronDown, ChevronUp, Eye, FileText, ScanEye, Trash2 } from "lucide-react"
+import { Eye, FileText, ScanEye, Trash2 } from "lucide-react"
 
 import { useMediaQuery } from "@/lib/useMediaQuery"
 
 import { AdminEmpty } from "@/components/admin/AdminEmpty"
 import { AdminPageHead } from "@/components/admin/AdminPageHead"
+import { FilterActions } from "@/components/admin/FilterActions"
 import { ConfidenceCell } from "@/components/admin/ConfidenceCell"
 import { RowMenu } from "@/components/admin/RowMenu"
 import { DataTable, type Column } from "@/components/admin/DataTable"
@@ -740,6 +741,13 @@ export function AdminDiagnosisPage(): ReactElement {
     (query.startDate ? 1 : 0) +
     (query.endDate ? 1 : 0)
 
+  // 草稿里有几项还没按「查询」提交：复核状态 chip 即时生效，病种与日期不即时。
+  const pendingFilterCount = [
+    resultDraft.trim() !== query.result,
+    startDraft !== query.startDate,
+    endDraft !== query.endDate,
+  ].filter(Boolean).length
+
   // 390px 档：筛选面板默认收进一条紧凑工具栏，字段区折叠；
   // 已应用筛选数常驻可见，折叠态也不会骗用户「没有条件在生效」。
   const compact = useMediaQuery("(max-width: 640px)")
@@ -767,29 +775,14 @@ export function AdminDiagnosisPage(): ReactElement {
             {activeFilters > 0 ? (
               <span className="admin-filter__count num">已应用 {activeFilters} 项</span>
             ) : null}
-            <div className="admin-filter__actions">
-              {compact ? (
-                <button
-                  type="button"
-                  className="admin-btn admin-btn--ghost admin-btn--sm"
-                  aria-expanded={filtersOpen}
-                  onClick={() => setFiltersOpen((open) => !open)}
-                >
-                  {filtersOpen ? (
-                    <ChevronUp size={14} strokeWidth={2} aria-hidden="true" />
-                  ) : (
-                    <ChevronDown size={14} strokeWidth={2} aria-hidden="true" />
-                  )}
-                  {filtersOpen ? "收起筛选" : "展开筛选"}
-                </button>
-              ) : null}
-              <button className="admin-btn admin-btn--primary" type="submit">
-                查询
-              </button>
-              <button className="admin-btn admin-btn--ghost" type="button" onClick={onReset}>
-                重置
-              </button>
-            </div>
+            <FilterActions
+              compact={compact}
+              filtersOpen={filtersOpen}
+              activeFilters={activeFilters}
+              pendingCount={pendingFilterCount}
+              onToggle={() => setFiltersOpen((open) => !open)}
+              onReset={onReset}
+            />
           </div>
           {/* 复核状态：枚举筛选用段控件，点一下即生效，少一次「查询」。
               常驻不折叠：最常用的筛选不该藏在「展开筛选」后面
@@ -815,10 +808,13 @@ export function AdminDiagnosisPage(): ReactElement {
                 </button>
               ))}
             </div>
-            {/* 复审状态字段的口径写在脸上：库里没有 1 这个值，
-                「未复审」筛的是落库值 0；后端单值等值匹配覆盖不到历史值 1。 */}
-            <span className="admin-diagnosis__fieldhint num">
-              「未复审」按 reexamineStatus = 0 检索（判读落库不写复审状态，落库值 0）· 历史值 1 同样算未复审，后端等值匹配覆盖不到 0 与 1 两档
+            {/* 筛选栏只说运营需要知道的；库字段与后端匹配限制收进 title，
+                不把 schema 摊在最高危的筛选上。 */}
+            <span
+              className="admin-diagnosis__fieldhint num"
+              title="实现细节：判读落库不写复审状态（落库值 0）；历史值 1 同样按未复审处理，当前后端只做单值等值匹配。"
+            >
+              「未复审」包含尚未复核的全部记录，历史数据同样计入。
             </span>
           </div>
           {showFields ? (
@@ -910,7 +906,7 @@ export function AdminDiagnosisPage(): ReactElement {
               description={
                 activeFilters > 0
                   ? query.review === "notReviewed"
-                    ? "没有 reexamineStatus = 0 的记录。判读落库不写复审状态，落库值是 0；若这一档为空，说明库里都是历史值 1——后端当前只支持单值等值匹配，覆盖不到 0 与 1 两档（已记后端工单）。"
+                    ? "当前没有未复审的记录。历史数据同样计入这一档；若这里为空，说明确实没有待复看的数据。"
                     : query.result
                     ? `当前筛选条件下没有记录。疾病名按库内原始标签「${query.result}」模糊匹配，库里也可能写成另一种写法（例：近视 / myopia）。`
                     : "当前筛选条件下没有记录。放宽复核状态或时间范围后再看。"

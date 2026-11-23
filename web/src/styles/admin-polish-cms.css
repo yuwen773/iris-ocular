@@ -37,13 +37,6 @@
   min-width: 0;
 }
 
-.admin-cms__titlecell:not(:has(.admin-cms__titlethumb)) {
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-areas:
-    "main"
-    "sub";
-}
-
 .admin-cms__titlethumb {
   grid-area: thumb;
   display: block;
@@ -53,6 +46,14 @@
   border: 1px solid var(--admin-line);
   object-fit: cover;
   background: var(--admin-surface-deep);
+}
+
+/* 没有封面的行留同尺寸空槽：标题左边缘逐行对齐，不再参差。
+   空槽只是发丝线，不填色也不放图标，读作「这里没有图」而不是缺失。 */
+.admin-cms__titlethumb--empty {
+  border-style: dashed;
+  border-color: var(--admin-line-soft);
+  background: transparent;
 }
 
 .admin-cms__titlecell__main {

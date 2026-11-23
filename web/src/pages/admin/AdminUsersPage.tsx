@@ -1,5 +1,4 @@
 import { useMemo, useState, type FormEvent, type ReactElement } from "react"
-import { ChevronDown, ChevronUp } from "lucide-react"
 
 import { useMediaQuery } from "@/lib/useMediaQuery"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
@@ -7,6 +6,7 @@ import { Pencil, Trash2, UserPlus, Users as UsersIcon } from "lucide-react"
 
 import { AdminEmpty } from "@/components/admin/AdminEmpty"
 import { AdminPageHead } from "@/components/admin/AdminPageHead"
+import { FilterActions } from "@/components/admin/FilterActions"
 import { RowMenu } from "@/components/admin/RowMenu"
 import { DataTable, type Column } from "@/components/admin/DataTable"
 import { useListWorkspace } from "@/hooks/useListWorkspace"
@@ -144,6 +144,13 @@ export function AdminUsersPage(): ReactElement {
 
   /** 已应用的筛选 + 分页：同时是查询键和请求体。 */
   const { current, pageSize } = page
+  /** 草稿里有几项还没按「查询」提交：chip 即时生效，文本/日期不即时。 */
+  const pendingFilterCount = [
+    accountDraft.trim() !== query.userAccount,
+    nameDraft.trim() !== query.userName,
+    startDraft !== query.startDate,
+    endDraft !== query.endDate,
+  ].filter(Boolean).length
   const params = useMemo<Params>(
     () => ({
       current,
@@ -502,29 +509,14 @@ export function AdminUsersPage(): ReactElement {
             {activeFilters > 0 ? (
               <span className="admin-filter__count num">已应用 {activeFilters} 项</span>
             ) : null}
-            <div className="admin-filter__actions">
-              {compact ? (
-                <button
-                  type="button"
-                  className="admin-btn admin-btn--ghost admin-btn--sm"
-                  aria-expanded={filtersOpen}
-                  onClick={() => setFiltersOpen((open) => !open)}
-                >
-                  {filtersOpen ? (
-                    <ChevronUp size={14} strokeWidth={2} aria-hidden="true" />
-                  ) : (
-                    <ChevronDown size={14} strokeWidth={2} aria-hidden="true" />
-                  )}
-                  {filtersOpen ? "收起筛选" : "展开筛选"}
-                </button>
-              ) : null}
-              <button className="admin-btn admin-btn--primary" type="submit">
-                查询
-              </button>
-              <button className="admin-btn admin-btn--ghost" type="button" onClick={onReset}>
-                重置
-              </button>
-            </div>
+            <FilterActions
+              compact={compact}
+              filtersOpen={filtersOpen}
+              activeFilters={activeFilters}
+              pendingCount={pendingFilterCount}
+              onToggle={() => setFiltersOpen((open) => !open)}
+              onReset={onReset}
+            />
           </div>
           {/* 角色：枚举筛选用段控件，点一下即生效，少一次「查询」。
               常驻不折叠：最常用的筛选不该藏在「展开筛选」后面

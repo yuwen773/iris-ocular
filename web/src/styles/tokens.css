@@ -59,6 +59,12 @@
   --risk-normal: var(--paper-risk-normal);
   --risk-attention: var(--paper-risk-attention);
   --risk-critical: var(--paper-risk-critical);
+  /* 承载文字的风险标记（chip 文字与圆点）用压深一档的 ink：
+     8% 同色底上，normal/attention 原色在浅色主题只有 4.5 / 4.4:1，
+     落在紫画布上更低。ink 只改标记内的文字，不动 --risk-* 的语义值。 */
+  --risk-normal-ink: #296e4b;
+  --risk-attention-ink: #845c0d;
+  --risk-critical-ink: var(--paper-risk-critical);
   --risk-normal-lit: #58b183;
   --risk-attention-lit: #cf9a37;
   --risk-critical-lit: #d96153;
@@ -359,6 +365,10 @@
   --risk-normal: var(--risk-normal-lit);
   --risk-attention: var(--risk-attention-lit);
   --risk-critical: var(--risk-critical-lit);
+  /* 暗底上 lit 变体本身就是承载文字的那一档，ink 直接跟随。 */
+  --risk-normal-ink: var(--risk-normal-lit);
+  --risk-attention-ink: var(--risk-attention-lit);
+  --risk-critical-ink: var(--risk-critical-lit);
 }
 
 /* 上下文：反相带 */
@@ -517,6 +527,10 @@ html.dark {
   --risk-normal: var(--risk-normal-lit);
   --risk-attention: var(--risk-attention-lit);
   --risk-critical: var(--risk-critical-lit);
+  /* 暗底上 lit 变体本身就是承载文字的那一档，ink 直接跟随。 */
+  --risk-normal-ink: var(--risk-normal-lit);
+  --risk-attention-ink: var(--risk-attention-lit);
+  --risk-critical-ink: var(--risk-critical-lit);
 
   --danger: var(--danger-lit);
   --danger-soft: rgba(255, 154, 166, 0.14);
