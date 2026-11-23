@@ -321,7 +321,7 @@ describe("summaryProbabilityReading", () => {
       classificationProbability: 0.82,
       calibrationStatus: "NOT_CALIBRATED",
     })
-    expect(reading.label).toBe("模型输出概率")
+    expect(reading.label).toBe("模型输出概率（未标定）")
     expect(reading.label).not.toContain("置信度")
     expect(reading.value).toBe(0.82)
   })

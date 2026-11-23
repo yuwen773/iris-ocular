@@ -156,6 +156,24 @@ public final class DiagnosisEvidence {
                 configuredPreprocessVersion, configuredPolicyVersion);
     }
 
+    /** 是否真的做过概率校准。缺字段、大小写不符都按「没校准」。 */
+    public static boolean isCalibrated(String calibrationStatus) {
+        return CALIBRATED.equals(calibrationStatus);
+    }
+
+    /**
+     * 对外透出的「置信度」：只有校准过才有值，否则 {@code null}。
+     *
+     * <p>这条规则出现在三处 VO 映射和一处落库语句里；各写一遍就会漂移
+     * （其中一处改了、另一处没改，同一张图在两个页面读法不同）。
+     *
+     * <p>注意与库里的 {@code confidence} 列区分：那一列存的是「模型自评概率百分数」，
+     * 分析工作台要用，**不能**套这条规则。（见 {@code applyTo(Diagnosis)}）
+     */
+    public static Double exposedConfidence(String calibrationStatus, Double calibratedProbability) {
+        return isCalibrated(calibrationStatus) ? calibratedProbability : null;
+    }
+
     public static String normalizeWeightSha256(String weightSha256) {
         return StrUtil.isBlank(weightSha256) ? "" : weightSha256.trim().toLowerCase(Locale.ROOT);
     }

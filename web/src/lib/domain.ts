@@ -422,6 +422,9 @@ export function confidenceBand(confidence?: number | null): ConfidenceBand {
  * 已标定时才按校准后概率呈现，并保留风险分档；未标定时不给风险分档——
  * 一个撑不起分档的数值不该借颜色说 severity。
  */
+/** 未标定读数的标签：全站同一句，记录纸面与列表不许各写各的。 */
+export const UNVERIFIED_PROBABILITY_LABEL = "模型输出概率（未标定）"
+
 export type ProbabilityReading = {
   /** 读数旁的标签 */
   label: string
@@ -455,7 +458,7 @@ export function probabilityReading(result: {
     return { label: "校准后概率", calibrated: true, note: null }
   }
   return {
-    label: "模型输出概率（未标定）",
+    label: UNVERIFIED_PROBABILITY_LABEL,
     calibrated: false,
     note: "该数值未经真实数据标定，不能当作诊断可靠性。",
   }
@@ -471,8 +474,11 @@ export function probabilityReading(result: {
 export function summaryProbabilityReading(record: {
   confidence?: number | null
   classificationProbability?: number | null
+  probability?: number | null
   calibrationStatus?: string | null
 }): { label: string; value: number | null } {
+  // confidence 有值即可当校准后概率：后端三个 VO 都按 CALIBRATED 门控过
+  // （DiagnosisEvidence.exposedConfidence），未标定不会给值。
   if (typeof record.confidence === "number" && !Number.isNaN(record.confidence)) {
     return { label: "校准后概率", value: record.confidence }
   }
@@ -480,10 +486,15 @@ export function summaryProbabilityReading(record: {
     typeof record.classificationProbability === "number" &&
     !Number.isNaN(record.classificationProbability)
   ) {
-    return { label: "模型输出概率", value: record.classificationProbability }
+    return { label: UNVERIFIED_PROBABILITY_LABEL, value: record.classificationProbability }
+  }
+  // V34 之前的老记录没有分类概率列，但 probability 里就是当时的 softmax 百分数：
+  // 读数仍然立得住，只是要按「未标定」标注，不能因为少一列就退化成「无读数」。
+  if (typeof record.probability === "number" && !Number.isNaN(record.probability)) {
+    return { label: UNVERIFIED_PROBABILITY_LABEL, value: record.probability }
   }
   const calibrated = (record.calibrationStatus ?? "").trim().toUpperCase() === "CALIBRATED"
-  return { label: calibrated ? "校准后概率" : "模型输出概率", value: null }
+  return { label: calibrated ? "校准后概率" : UNVERIFIED_PROBABILITY_LABEL, value: null }
 }
 
 /**

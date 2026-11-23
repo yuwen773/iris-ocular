@@ -32,7 +32,8 @@ async def eye_disease_diagnosis(image_input: str) -> str:
 
     Returns:
         JSON格式的诊断结果，包含 predicted_label、predicted_label_cn、probability、
-        reliability_score、description 和 top_predictions 字段。
+        top2_margin（top-1 与 top-2 的概率差，实测值）、description 和
+        top_predictions 字段。不提供「可靠性」评分：模型自评与可靠性是两回事。
     """
     return await diagnose(image_input)
 

@@ -1,5 +1,6 @@
 package com.csust.eyediagnosis.model.vo.diagnosis;
 
+import com.csust.eyediagnosis.service.DiagnosisEvidence;
 import com.csust.eyediagnosis.model.entity.Diagnosis;
 import lombok.Data;
 import org.springframework.beans.BeanUtils;
@@ -151,8 +152,8 @@ public class DiagnosisResultVO  implements Serializable {
         // 与写入路径同一口径（见 DiagnosisServiceImpl.buildDiagnosisResult）：
         // 库里 confidence 存的是「模型自评概率百分数」，分析工作台要用；但对外只有
         // 真正校准过才叫置信度，否则界面会把未标定的 softmax 读成临床可靠性。
-        diagnosisResultVO.setConfidence("CALIBRATED".equals(diagnosis.getCalibrationStatus())
-                ? diagnosis.getCalibratedProbability() : null);
+        diagnosisResultVO.setConfidence(DiagnosisEvidence.exposedConfidence(
+                diagnosis.getCalibrationStatus(), diagnosis.getCalibratedProbability()));
         diagnosisResultVO.setRequiresReview("AWAITING_REVIEW".equals(diagnosis.getHumanReviewStatus()));
         if (Boolean.TRUE.equals(diagnosis.getAiRejected())) {
             diagnosisResultVO.clearAiConclusion();

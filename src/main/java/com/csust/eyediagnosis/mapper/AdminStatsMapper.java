@@ -64,7 +64,12 @@ public interface AdminStatsMapper {
             + "AND humanReviewStatus IN ('REVIEWED', 'OVERRIDDEN')")
     long countReviewedSince(@Param("from") Date from);
 
-    /** 平均置信度：没有结论的记录（NULL）不参与平均，无样本时返回 null。 */
+    /**
+     * 平均「模型自评概率」：没有结论的记录（NULL）不参与平均，无样本时返回 null。
+     *
+     * <p>列名沿用 {@code confidence}（历史命名），语义是 top1 × 100 的自评概率，
+     * 不是校准后的置信度、也不是诊断准确率——对外展示时必须带上「模型自评」的说明。
+     */
     @Select("SELECT AVG(confidence) FROM t_diagnosis "
             + "WHERE isDelete = 0 AND createTime >= #{from} AND confidence IS NOT NULL")
     Double avgConfidenceSince(@Param("from") Date from);

@@ -143,7 +143,7 @@ describe("ProfilePage 最近判读", () => {
     } as never)
     renderProfile()
     await screen.findByText("近视")
-    expect(screen.getByText("模型输出概率")).toBeTruthy()
+    expect(screen.getByText("模型输出概率（未标定）")).toBeTruthy()
     expect(screen.getByText("82.0%")).toBeTruthy()
     expect(screen.queryByText("置信度")).toBeNull()
   })

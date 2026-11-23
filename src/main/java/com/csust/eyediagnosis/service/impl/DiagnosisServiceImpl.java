@@ -703,8 +703,8 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisMapper, Diagnosis
         // 「置信度」只有在真正校准过时才是置信度。未标定时把原始 softmax 填进
         // 这个字段，等于让界面把未标定的模型输出读成临床可靠性——界面据此标注
         // 「模型输出概率（未标定）」，数值本身仍由 probability 提供。
-        vo.setConfidence("CALIBRATED".equals(grpcResponse.getCalibrationStatus())
-                ? grpcResponse.getCalibratedProbability() : null);
+        vo.setConfidence(DiagnosisEvidence.exposedConfidence(
+                grpcResponse.getCalibrationStatus(), grpcResponse.getCalibratedProbability()));
         vo.setRecommendations(DiagnosisRecommendationEnum.getRecommendationByEnglishLabel(predictedLabel));
         vo.setSeverity("NOT_ASSESSED");
         List<Disease> diseases = grpcResponse.getTopPredictionsList().stream()

@@ -82,7 +82,7 @@ const RESTRICT_REASONS: Record<string, string> = {
 const ABSTAIN_REASONS: Record<string, string> = {
   QUALITY_FAIL: "影像质量不合格",
   OOD: "影像被判定为分布外",
-  LOW_CONFIDENCE: "模型置信度不足",
+  LOW_CONFIDENCE: "模型输出概率低于阈值",
   NOT_ASSESSED: "评估未完成",
   MODEL_NOT_LOADED: "模型未加载",
 }

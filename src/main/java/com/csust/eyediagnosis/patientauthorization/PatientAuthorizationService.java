@@ -1,6 +1,7 @@
 package com.csust.eyediagnosis.patientauthorization;
 
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
+import com.csust.eyediagnosis.service.DiagnosisEvidence;
 import com.csust.eyediagnosis.doctorreview.DoctorReviewService;
 import com.csust.eyediagnosis.exception.BusinessException;
 import com.csust.eyediagnosis.exception.ErrorCode;
@@ -84,7 +85,7 @@ public class PatientAuthorizationService {
                     diagnosisId, owner, checked.content().modelPrediction(), checked.content().modelProbability(), checked.content().modelProbability(),
                     "模型预测并非确诊；患者已授权保存本次辅助说明，完整冻结内容可追溯至任务回执。",
                     inference.getModelVersion(), inference.getWeightSha256(), inference.getPreprocessVersion(), inference.getInferencePolicyVersion(),
-                    inference.getCalibrationStatus(), "CALIBRATED".equals(inference.getCalibrationStatus()) ? inference.getCalibratedProbability() : null,
+                    inference.getCalibrationStatus(), DiagnosisEvidence.exposedConfidence(inference.getCalibrationStatus(), inference.getCalibratedProbability()),
                     inference.getQualityScore(), inference.getOodStatus().name(), inference.getOodScore(), id);
             jdbc.update("UPDATE t_patient_authorization SET status='APPROVED',diagnosisId=?,receiptId=?,authorizedAt=UTC_TIMESTAMP(6) WHERE taskId=?",
                     diagnosisId, UUID.randomUUID().toString(), id);

@@ -1,6 +1,7 @@
 package com.csust.eyediagnosis.model.vo.diagnosis;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
+import com.csust.eyediagnosis.service.DiagnosisEvidence;
 import com.csust.eyediagnosis.model.entity.Diagnosis;
 import lombok.Data;
 import org.springframework.beans.BeanUtils;
@@ -108,8 +109,8 @@ public class DiagnosisManageVO implements Serializable{
         BeanUtils.copyProperties(diagnosis, diagnosisVO);
         // 与写入路径同一口径（见 DiagnosisResultVO / DiagnosisServiceImpl.buildDiagnosisResult）：
         // 未标定时不把模型自评概率挂在 confidence 上。
-        diagnosisVO.setConfidence("CALIBRATED".equals(diagnosis.getCalibrationStatus())
-                ? diagnosis.getCalibratedProbability() : null);
+        diagnosisVO.setConfidence(DiagnosisEvidence.exposedConfidence(
+                diagnosis.getCalibrationStatus(), diagnosis.getCalibratedProbability()));
         diagnosisVO.setRequiresReview("AWAITING_REVIEW".equals(diagnosis.getHumanReviewStatus()));
         if (Boolean.TRUE.equals(diagnosis.getAiRejected())) {
             diagnosisVO.clearAiConclusion();
@@ -117,10 +118,16 @@ public class DiagnosisManageVO implements Serializable{
         return diagnosisVO;
     }
 
+    /**
+     * 拒识时清掉「结论」，但保留概率证据。
+     *
+     * <p>与 {@link DiagnosisResultVO#clearAiConclusion()} 同一口径：模型输出概率是
+     * 「模型说了什么」的原始记录，不是诊断结论；一边清一边留，会让同一条记录
+     * 在列表里没有读数、在详情里却有。
+     */
     public void clearAiConclusion() {
         result = null;
         confidence = null;
-        classificationProbability = null;
         severity = null;
     }
 

@@ -122,12 +122,6 @@ class DiagnosisEvidenceTest {
     }
 
     /**
-     * 读回路径与写入路径同一口径：库里存自评概率供分析，接口未标定就不叫置信度。
-     *
-     * <p>界面（RecordsPage / ProfilePage / 管理端）读的就是 {@code objToVo} 的结果；
-     * 这里不挡，同一张图在记录页被写「置信度」、在 RecordSheet 被写「模型输出概率」。
-     */
-    /**
      * 列表 VO 走的是另一条读回路径（{@code /diagnosis/list/page/*}），门控也必须同款：
      * 记录列表 / 个人中心 / 管理端最近判读都读它，漏掉这处等于把自评概率继续叫置信度。
      */
@@ -149,6 +143,9 @@ class DiagnosisEvidenceTest {
         assertEquals(91.0, DiagnosisManageVO.objToVo(calibrated).getConfidence());
     }
 
+    /**
+     * 详情读回路径与写入路径同一口径：库里存自评概率供分析，接口未标定就不叫置信度。
+     */
     @Test
     void readBackHidesSelfAssessmentUnlessCalibrated() {
         Diagnosis uncalibrated = new Diagnosis();
