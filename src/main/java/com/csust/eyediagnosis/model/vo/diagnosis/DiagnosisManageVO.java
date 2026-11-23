@@ -67,6 +67,15 @@ public class DiagnosisManageVO implements Serializable{
     private Double probability;
 
     /**
+     * 本次判读能否对患者呈现结论（V34 的证据列，老记录为 null）。
+     *
+     * <p>列表必须带上它：概率读数的标签由校准状态与这一道门共同决定，缺字段就会
+     * 让「校准过但不许作患者结论」的记录在列表里叫「校准后概率」、在记录纸上叫
+     * 「模型输出概率（不作患者结论）」。
+     */
+    private Boolean patientConclusionAllowed;
+
+    /**
      * 严重程度
      */
     private String severity;

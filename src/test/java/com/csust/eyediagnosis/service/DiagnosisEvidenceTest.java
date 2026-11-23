@@ -172,6 +172,27 @@ class DiagnosisEvidenceTest {
                 "已校准：读回的是校准后概率，不是原始 softmax");
     }
 
+    /**
+     * 落库的 {@code probability} 走的是 VO → 实体复制（{@code DiagnosisResultVO.voToObj}），
+     * 证据回写不得把它抹掉。
+     *
+     * <p>V34 之前写入的行只有这一列；列表读数的兜底依赖它，所以写入链要钉住——
+     * 只在 {@code applyTo(Diagnosis)} 里找 {@code setProbability} 会得出「从没写过」的
+     * 错误结论，真正的写入口在 VO 复制那一步。
+     */
+    @Test
+    void legacyProbabilityColumnSurvivesTheEvidenceWriteBack() {
+        DiagnosisProto.DiagnosisResponse response = response();
+        DiagnosisResultVO vo = new DiagnosisResultVO();
+        vo.setProbability(response.getProbability());
+
+        Diagnosis diagnosis = DiagnosisResultVO.voToObj(vo);
+        DiagnosisEvidence.fromResponse(response).applyTo(diagnosis);
+
+        assertEquals(82.0, diagnosis.getProbability(), "VO→实体带上概率，随后证据回写不得清掉");
+        assertEquals(82.0, diagnosis.getConfidence(), "同一份自评概率也进 confidence 列（分析工作台口径）");
+    }
+
     @Test
     void uncalibratedProbabilityIsNotExposedAsConfidence() {
         // 未标定时不给出「置信度」：那等于让界面把原始 softmax 读成临床可靠性。

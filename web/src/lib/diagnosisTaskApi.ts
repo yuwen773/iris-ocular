@@ -1,4 +1,5 @@
 import { collaborationFailure } from "./collaborationApi"
+import { QUALITY_GATE_REASON_LABELS } from "@/lib/domain"
 
 export type ImageTaskStatus =
   | "PROCESSING"
@@ -79,13 +80,8 @@ const RESTRICT_REASONS: Record<string, string> = {
   STORAGE_VERSION_MISSING: "影像归档未成功",
 }
 
-const ABSTAIN_REASONS: Record<string, string> = {
-  QUALITY_FAIL: "影像质量不合格",
-  OOD: "影像被判定为分布外",
-  LOW_CONFIDENCE: "模型输出概率低于阈值",
-  NOT_ASSESSED: "评估未完成",
-  MODEL_NOT_LOADED: "模型未加载",
-}
+// `ABSTAIN_` 后面的码与服务端 / 管理端分析共用一份措辞：见 domain.QUALITY_GATE_REASON_LABELS。
+const ABSTAIN_REASONS: Record<string, string> = QUALITY_GATE_REASON_LABELS
 
 /**
  * 受限原因 → 一句人话。服务端枚举之外的值原样说明，不猜：

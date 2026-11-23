@@ -431,16 +431,20 @@ export function uploadAvatar(file: File) {
  * 人工复核结论等完整字段要点开走 /diagnosis/get/{id}。
  * AI 拒识的行 result/confidence/severity 是 null，不是 0。
  */
-export type DiagnosisManage = {
-  /** 雪花 id，线上是字符串。 */
-  id: string
-  url?: string
-  username?: string
-  result?: string | null
-  /**
-   * 只有真正校准过才有值（后端按 CALIBRATED 门控）。
-   * 未标定时为 null，读数请改用 {@link classificationProbability} 并改标签。
-   */
+/**
+ * 判读概率证据：列表 `DiagnosisManageVO` 与详情 `DiagnosisResultVO` 的公共投影。
+ *
+ * <p>口径（写入与读回同一处规则，见后端 `DiagnosisEvidence`）：
+ * - `confidence` 只有真正校准过才有值，是唯一可以叫「置信度」的字段；
+ * - `classificationProbability` 是原始 softmax（0–1），只是模型输出强度；
+ * - `probability` 是同一件事的百分数刻度，V34 之前写入的行只有这一列；
+ * - `calibrationStatus` 与 `patientConclusionAllowed` 是两道各自独立的门，
+ *   后者为 false 时即使校准过也只作参考。
+ *
+ * <p>收成一个类型而不是在每个 TS 接口里各写一遍：下一个证据字段不会只落在一处。
+ */
+export type ProbabilityEvidence = {
+  /** 只有真正校准过才有值（后端按 CALIBRATED 门控）。未标定时为 null。 */
   confidence?: number | null
   /** 校准状态：CALIBRATED / NOT_CALIBRATED；老记录为 null，按「未标定」处理。 */
   calibrationStatus?: string | null
@@ -451,6 +455,16 @@ export type DiagnosisManage = {
    * 列表读数在没有分类概率时退到它，仍标「模型输出概率（未标定）」。
    */
   probability?: number | null
+  /** 能否对患者呈现结论；与 calibrationStatus 是两道独立的门。 */
+  patientConclusionAllowed?: boolean | null
+}
+
+export type DiagnosisManage = ProbabilityEvidence & {
+  /** 雪花 id，线上是字符串。 */
+  id: string
+  url?: string
+  username?: string
+  result?: string | null
   severity?: string | null
   /** 复诊状态：0 未复审（历史值 1 同义）/ 2 复审中 / 3 已复审 */
   reexamineStatus?: number

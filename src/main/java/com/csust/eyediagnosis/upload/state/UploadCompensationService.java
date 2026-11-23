@@ -1,5 +1,6 @@
 package com.csust.eyediagnosis.upload.state;
 
+import com.csust.eyediagnosis.common.LogAnonymizer;
 import com.csust.eyediagnosis.manager.CosManager;
 import com.csust.eyediagnosis.mapper.UploadTaskMapper;
 import com.csust.eyediagnosis.model.entity.UploadTask;
@@ -148,7 +149,8 @@ public class UploadCompensationService {
             }
         }
         if (removed > 0) {
-            log.info("用户 {} 的补偿对账清理了 {} 个孤儿对象", userId, removed);
+            log.info("用户 userIdHash={} 的补偿对账清理了 {} 个孤儿对象",
+                    LogAnonymizer.userId(userId), removed);
         }
         return removed;
     }

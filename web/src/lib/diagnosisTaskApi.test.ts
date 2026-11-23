@@ -83,7 +83,7 @@ it("受限原因翻译成一句人话；未登记的原因码原样说明，不�
   expect(restrictReasonLabel("OOD_NOT_EVALUATED")).toBe(
     "分布外检测尚未评估，暂不形成患者结论"
   )
-  expect(restrictReasonLabel("ABSTAIN_QUALITY_FAIL")).toBe("影像质量不合格")
+  expect(restrictReasonLabel("ABSTAIN_QUALITY_FAIL")).toBe("图像质量不合格")
   expect(restrictReasonLabel("SOMETHING_NEW")).toBe(
     "准入条件未满足（SOMETHING_NEW）"
   )

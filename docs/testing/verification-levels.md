@@ -64,6 +64,11 @@ scripts/verify-fast.sh --level L3
 | Flyway 迁移 `src/main/resources/db/migration/V*.sql` | —— | **一律 L2**：`migration/FlywayMySqlIntegrationTest`（空库 migrate）。已应用过的迁移不可改，只能加新的 |
 | 患者权限 / 医生复核 | `service/DiagnosisOwnershipTest`、`DiagnosisHumanReviewTest`、`DiagnosisHumanReviewAuditTest`、`DiagnosisEvidenceTest`、`DiagnosisAuthorFallbackTest` | 真实角色矩阵与跨用户可见性 → L2 |
 | 认证与账号 | `security/PasswordServiceTest`、`controller/UserControllerOwnershipTest` | 会话存储、Redis → L2 |
+| 会话与流式鉴权 | `service/UserSessionLifecycleTest`、`service/UserAdminProtectionTest`、`agent/service/AccountStreamGuardTest` | 改 `@AuthCheck` 语义、SSE 终态或封禁联动 → L2 |
+| 启动基线与 gRPC 链路 | `config/StartupSafetyGuardTest`、`grpc/GrpcHostsTest` | 改 TLS/明文策略、回环判定或 `server`/`prod` 默认值 → 加 `application-server.example.yml` 对照 |
+| MCP 准入与影像引用 | `agent/service/ImageReferenceSignerTest`、`AgentImageReferenceResolverTest`、`AgentAttachmentTrustTest` | 改密钥、有效期或 URL 白名单 → 同步算法侧 `mcp_server` 用例 |
+| 判读证据 / 概率口径 | `service/DiagnosisEvidenceTest`、`service/InferenceCacheTest` | 改 proto 字段、落库列或校准门控 → L2 + 前端 `web/src/lib/domain.test.ts` |
+| 公开影像孤儿审计 | `upload/audit/PublicImageOrphanAuditorTest` | 改前缀或归一规则 → 用例必须用**真实写入形态**的 key（`/public/…`，带前导斜杠） |
 | 新闻 / 管理端可见性 | `controller/News*Test`、`service/News*Test`、`AdminScopeVisibilityTest` | 发布生命周期涉及真实状态列 → L2 |
 | 上传状态机 | `upload/state/UploadStateMachineTest`、`UploadStatusTest`、`UploadCompensationServiceTest` | 真实表 + 补偿任务 → L2 |
 | 应用装配 / 配置 | `EyeDiagnosisApplicationTests`（`contextLoads`）——**它需要 DB + Redis + Chroma** | 直接 L2 |

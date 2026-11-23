@@ -339,6 +339,16 @@ describe("summaryProbabilityReading", () => {
     })
     expect(reading).toEqual({ label: "模型输出概率（未标定）", value: 82 })
   })
+
+  it("标签与记录纸同一处规则：校准过但不作患者结论时，列表也不叫「校准后概率」", () => {
+    const reading = summaryProbabilityReading({
+      confidence: 91,
+      calibrationStatus: "CALIBRATED",
+      patientConclusionAllowed: false,
+    })
+    expect(reading.label).toBe("模型输出概率（不作患者结论）")
+    expect(reading.value).toBe(91)
+  })
 })
 
 describe("probabilityReading", () => {

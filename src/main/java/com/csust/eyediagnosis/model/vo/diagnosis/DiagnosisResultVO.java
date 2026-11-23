@@ -1,7 +1,7 @@
 package com.csust.eyediagnosis.model.vo.diagnosis;
 
-import com.csust.eyediagnosis.service.DiagnosisEvidence;
 import com.csust.eyediagnosis.model.entity.Diagnosis;
+import com.csust.eyediagnosis.service.DiagnosisEvidence;
 import lombok.Data;
 import org.springframework.beans.BeanUtils;
 

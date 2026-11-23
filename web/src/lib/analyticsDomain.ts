@@ -18,6 +18,7 @@ import type {
   AnalyticsStatusStat,
 } from "@/lib/adminApi"
 import { humanReviewStatusLabel } from "@/lib/adminDomain"
+import { QUALITY_GATE_REASON_LABELS } from "@/lib/domain"
 
 /* ── 窗口与分区 ───────────────────────────────────────────── */
 
@@ -71,11 +72,9 @@ export function formatMinutes(value: number | null): string {
 /* ── 枚举文案 ─────────────────────────────────────────────── */
 
 const REASON_LABELS: Record<string, string> = {
-  QUALITY_FAIL: "图像质量不合格",
-  OOD: "分布外影像（OOD）",
-  LOW_CONFIDENCE: "模型自评置信度偏低",
-  NOT_ASSESSED: "未评估",
-  MODEL_NOT_LOADED: "模型未加载",
+  // 与服务端枚举共用的码只在这里登记一次（见 domain.QUALITY_GATE_REASON_LABELS）：
+  // 同一份 `abstainReason` 在患者任务页与管理端分析里必须是同一句人话。
+  ...QUALITY_GATE_REASON_LABELS,
   UNCLASSIFIED: "未归类原因",
   UNRECORDED: "未记录原因",
 }
