@@ -64,4 +64,4 @@ def test_calibration_flattens_the_reported_distribution_only(monkeypatch):
     assert np.isclose(raw.sum(), 1.0)
     assert np.isclose(reported.sum(), 1.0)
     # 报告的 top1 与校准后分布一致，而不是拿校准值冒充原始值
-    assert np.isclose(raw.max(), float(grpc_server._softmax(logits).max()))
+    assert np.isclose(raw.max(), float(grpc_server.softmax(logits).max()))

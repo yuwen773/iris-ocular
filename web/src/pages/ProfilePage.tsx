@@ -9,6 +9,7 @@ import { highRiskCell, loadServerStats, resolveScopedStats, statsLabels } from "
 import {
   confidencePercent,
   formatTimestamp,
+  summaryProbabilityReading,
   severityLabel,
   severityRisk,
 } from "@/lib/domain"
@@ -288,7 +289,10 @@ export function ProfilePage() {
               </p>
             ) : (
               <ul className="profile__recent">
-                {recent.map((item) => (
+                {recent.map((item) => {
+                  // 未标定时不叫置信度（与 RecordsPage 同一条读数口径）
+                  const reading = summaryProbabilityReading(item)
+                  return (
                   <li key={item.id} className="profile__recent-item">
                     <Link className="profile__recent-link" to={`/records/${item.id}`}>
                       <span className="profile__recent-name">
@@ -299,8 +303,8 @@ export function ProfilePage() {
                         {!item.aiRejected ? (
                           <>
                             <span className="profile__recent-conf">
-                              <span className="readout__label">置信度</span>
-                              <span className="num">{confidencePercent(item.confidence)}</span>
+                              <span className="readout__label">{reading.label}</span>
+                              <span className="num">{confidencePercent(reading.value)}</span>
                             </span>
                             <RiskTag risk={severityRisk(item.severity ?? undefined)}>
                               {severityLabel(item.severity ?? undefined)}
@@ -310,7 +314,8 @@ export function ProfilePage() {
                       </span>
                     </Link>
                   </li>
-                ))}
+                  )
+                })}
               </ul>
             )}
 

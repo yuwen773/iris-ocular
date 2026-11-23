@@ -14,7 +14,7 @@ import diagnosis_pb2
 import diagnosis_pb2_grpc
 from eye_disease_model import EyeDiseaseModel, disease_categories
 from eye_diagnosis.abstain import decide_abstain, should_reject_for_quality
-from eye_diagnosis.calibration import apply_temperature
+from eye_diagnosis.calibration import apply_temperature, softmax
 from eye_diagnosis.ood import OodDecision
 from eye_diagnosis.quality import (
     QUALITY_CALIBRATION_STATE,
@@ -28,19 +28,6 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def _softmax(logits):
-    """数值稳定的 softmax。
-
-    「原始输出」与「校准后输出」必须各自可算：温度缩放是校准动作，
-    不能拿缩放后的分布去冒充原始 softmax（proto 里
-    ``probability`` / ``classification_probability`` 的语义是原始分布）。
-    """
-    shifted = np.asarray(logits, dtype=np.float64)
-    shifted = shifted - shifted.max()
-    exp = np.exp(shifted)
-    return exp / exp.sum()
-
-
 def _probabilities(logits, calibration_status: str, temperature: float):
     """→ (原始分布, 报给调用方的分布)。
 
@@ -49,11 +36,11 @@ def _probabilities(logits, calibration_status: str, temperature: float):
     的语义都是「原始 softmax」，``calibrated_probability`` 才是校准后的值；
     未校准时两者相同，但计算上仍分开取，避免以后一开校准就把原始口径改掉。
     """
-    raw = _softmax(logits)
+    raw = softmax(logits)
     if calibration_status != "CALIBRATED":
         return raw, raw
     scaled = apply_temperature(np.asarray(logits, dtype=np.float32)[None, :], temperature)[0]
-    return raw, _softmax(scaled)
+    return raw, softmax(scaled)
 
 
 def _proto_quality_state(state) -> int:
@@ -208,10 +195,12 @@ class DiagnosisServicer(diagnosis_pb2_grpc.DiagnosisServiceServicer):
                     patient_conclusion_allowed=patient_conclusion_allowed,
                     reliability_score=round(raw_top1 * 100),
                     description=description,
+                    # top_predictions 与 predicted_label / probability 同一口径：
+                    # 都用**原始**分布，否则同一条响应里会出现两个不同的 top-1 数字。
                     top_predictions=[
                         diagnosis_pb2.DiseasePrediction(
                             label=disease_categories[int(index)],
-                            probability=float(probabilities[index]) * 100,
+                            probability=float(raw_probabilities[index]) * 100,
                         )
                         for index in ranked_indices[:3]
                     ],

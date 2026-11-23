@@ -462,6 +462,31 @@ export function probabilityReading(result: {
 }
 
 /**
+ * 列表 / 摘要里的概率读数：**只有校准过才叫置信度**。
+ *
+ * <p>记录列表一格数字最容易被读成「这条诊断有多可靠」。未标定时退到模型自评概率
+ * （{@code classificationProbability}）并如实改标签；连概率都没有才显示「—」。
+ * 与 {@link RecordSheet} 的 `probabilityReading` 同一条规则，只是这里只给标签与数值。
+ */
+export function summaryProbabilityReading(record: {
+  confidence?: number | null
+  classificationProbability?: number | null
+  calibrationStatus?: string | null
+}): { label: string; value: number | null } {
+  if (typeof record.confidence === "number" && !Number.isNaN(record.confidence)) {
+    return { label: "校准后概率", value: record.confidence }
+  }
+  if (
+    typeof record.classificationProbability === "number" &&
+    !Number.isNaN(record.classificationProbability)
+  ) {
+    return { label: "模型输出概率", value: record.classificationProbability }
+  }
+  const calibrated = (record.calibrationStatus ?? "").trim().toUpperCase() === "CALIBRATED"
+  return { label: calibrated ? "校准后概率" : "模型输出概率", value: null }
+}
+
+/**
  * 置信度 → 百分比读数（一位小数，带 %）。
  *
  * 全站唯一口径：后端给 0–1 概率或 0–100 百分数都先归一到 0–1 再乘 100。

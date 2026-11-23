@@ -88,26 +88,64 @@ function renderProfile() {
 }
 
 describe("ProfilePage 最近判读", () => {
-  it("乱序记录按时间倒序展示，AI 拒识行不出置信度", async () => {
+  it("乱序记录按时间倒序展示，AI 拒识行不出概率读数", async () => {
     stubMatchMedia()
     vi.mocked(listMyDiagnoses).mockResolvedValue({
       records: [
-        record({ id: "a", result: "青光眼", confidence: 70, severity: "moderate", createTime: "2026-11-13 09:00:00" }),
+        record({
+          id: "a",
+          result: "青光眼",
+          confidence: 70,
+          calibrationStatus: "CALIBRATED",
+          severity: "moderate",
+          createTime: "2026-11-13 09:00:00",
+        }),
         record({ id: "b", aiRejected: true, result: null, confidence: null, severity: null, createTime: "2026-11-13 10:30:00" }),
-        record({ id: "c", result: "白内障", confidence: 88.5, severity: "mild", createTime: "2026-11-13 08:00:00" }),
+        record({
+          id: "c",
+          result: "白内障",
+          confidence: 88.5,
+          calibrationStatus: "CALIBRATED",
+          severity: "mild",
+          createTime: "2026-11-13 08:00:00",
+        }),
       ],
       total: 3,
     } as never)
     renderProfile()
     const names = await screen.findAllByText(/青光眼|白内障/)
     expect(names).toHaveLength(2)
-    // 拒识行的名字在；整个最近判读卡里只有两条置信度读数（拒识行没有）
+    // 拒识行的名字在；整个最近判读卡里只有两条概率读数（拒识行没有）
     expect(screen.getByText("AI 拒识")).toBeTruthy()
     const recentCard = screen.getByText("AI 拒识").closest(".profile__card--recent")!
     expect(recentCard.querySelectorAll(".profile__recent-conf .num")).toHaveLength(2)
-    // 正常行有「置信度」口径标签与读数
+    // 已校准的行才叫「校准后概率」；未标定不出现「置信度」这个词
     expect(screen.getByText("88.5%")).toBeTruthy()
-    expect(screen.getAllByText("置信度").length).toBeGreaterThan(0)
+    expect(screen.getAllByText("校准后概率").length).toBeGreaterThan(0)
+    expect(screen.queryByText("置信度")).toBeNull()
+  })
+
+  it("未标定的行改叫「模型输出概率」，不冒充置信度", async () => {
+    stubMatchMedia()
+    vi.mocked(listMyDiagnoses).mockResolvedValue({
+      records: [
+        record({
+          id: "d",
+          result: "近视",
+          confidence: null,
+          classificationProbability: 0.82,
+          calibrationStatus: "NOT_CALIBRATED",
+          severity: "mild",
+          createTime: "2026-11-13 09:00:00",
+        }),
+      ],
+      total: 1,
+    } as never)
+    renderProfile()
+    await screen.findByText("近视")
+    expect(screen.getByText("模型输出概率")).toBeTruthy()
+    expect(screen.getByText("82.0%")).toBeTruthy()
+    expect(screen.queryByText("置信度")).toBeNull()
   })
 
   it("接口失败时不谎报「还没有判读记录」，给重试", async () => {

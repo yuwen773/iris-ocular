@@ -437,7 +437,15 @@ export type DiagnosisManage = {
   url?: string
   username?: string
   result?: string | null
+  /**
+   * 只有真正校准过才有值（后端按 CALIBRATED 门控）。
+   * 未标定时为 null，读数请改用 {@link classificationProbability} 并改标签。
+   */
   confidence?: number | null
+  /** 校准状态：CALIBRATED / NOT_CALIBRATED；老记录为 null，按「未标定」处理。 */
+  calibrationStatus?: string | null
+  /** 原始 softmax top-1（0–1）：模型输出强度，不是校准概率，也不是可靠性。 */
+  classificationProbability?: number | null
   severity?: string | null
   /** 复诊状态：0 未复审（历史值 1 同义）/ 2 复审中 / 3 已复审 */
   reexamineStatus?: number

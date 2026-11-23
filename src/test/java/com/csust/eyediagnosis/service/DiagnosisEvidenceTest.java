@@ -3,6 +3,7 @@ package com.csust.eyediagnosis.service;
 import com.csust.eyediagnosis.grpc.DiagnosisProto;
 import com.csust.eyediagnosis.model.entity.Diagnosis;
 import com.csust.eyediagnosis.model.entity.InferenceCache;
+import com.csust.eyediagnosis.model.vo.diagnosis.DiagnosisManageVO;
 import com.csust.eyediagnosis.model.vo.diagnosis.DiagnosisResultVO;
 import org.junit.jupiter.api.Test;
 
@@ -126,6 +127,28 @@ class DiagnosisEvidenceTest {
      * <p>界面（RecordsPage / ProfilePage / 管理端）读的就是 {@code objToVo} 的结果；
      * 这里不挡，同一张图在记录页被写「置信度」、在 RecordSheet 被写「模型输出概率」。
      */
+    /**
+     * 列表 VO 走的是另一条读回路径（{@code /diagnosis/list/page/*}），门控也必须同款：
+     * 记录列表 / 个人中心 / 管理端最近判读都读它，漏掉这处等于把自评概率继续叫置信度。
+     */
+    @Test
+    void listViewAlsoHidesTheSelfAssessmentUnlessCalibrated() {
+        Diagnosis uncalibrated = new Diagnosis();
+        uncalibrated.setCalibrationStatus("NOT_CALIBRATED");
+        uncalibrated.setConfidence(82.0);
+        uncalibrated.setClassificationProbability(0.82);
+        DiagnosisManageVO listRow = DiagnosisManageVO.objToVo(uncalibrated);
+        assertNull(listRow.getConfidence(), "未标定：列表里不得出现「置信度」");
+        assertEquals(0.82, listRow.getClassificationProbability(), "但不隐藏「模型输出概率」");
+        assertEquals("NOT_CALIBRATED", listRow.getCalibrationStatus());
+
+        Diagnosis calibrated = new Diagnosis();
+        calibrated.setCalibrationStatus("CALIBRATED");
+        calibrated.setConfidence(82.0);
+        calibrated.setCalibratedProbability(91.0);
+        assertEquals(91.0, DiagnosisManageVO.objToVo(calibrated).getConfidence());
+    }
+
     @Test
     void readBackHidesSelfAssessmentUnlessCalibrated() {
         Diagnosis uncalibrated = new Diagnosis();

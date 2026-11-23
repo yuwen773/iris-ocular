@@ -42,9 +42,19 @@ public class DiagnosisManageVO implements Serializable{
     private String result;
 
     /**
-     * 诊断置信度
+     * 诊断置信度：**只有真正校准过才有值**（{@code calibrationStatus = CALIBRATED}）。
+     *
+     * <p>库里的同名列存的是「模型自评概率百分数」（分析工作台口径），未标定时
+     * 把它当置信度展示，等于让列表里的一格数字冒充医学可靠性。未标定时这里为
+     * {@code null}，读数请改用 {@link #classificationProbability} 并如实改标签。
      */
     private Double confidence;
+
+    /** 校准状态（CALIBRATED / NOT_CALIBRATED）；老记录为 null，按「未标定」处理。 */
+    private String calibrationStatus;
+
+    /** 原始 softmax top-1（0–1）。模型输出强度，不是校准概率，也不是可靠性。 */
+    private Double classificationProbability;
 
     /**
      * 严重程度
@@ -96,6 +106,10 @@ public class DiagnosisManageVO implements Serializable{
         }
         DiagnosisManageVO diagnosisVO = new DiagnosisManageVO();
         BeanUtils.copyProperties(diagnosis, diagnosisVO);
+        // 与写入路径同一口径（见 DiagnosisResultVO / DiagnosisServiceImpl.buildDiagnosisResult）：
+        // 未标定时不把模型自评概率挂在 confidence 上。
+        diagnosisVO.setConfidence("CALIBRATED".equals(diagnosis.getCalibrationStatus())
+                ? diagnosis.getCalibratedProbability() : null);
         diagnosisVO.setRequiresReview("AWAITING_REVIEW".equals(diagnosis.getHumanReviewStatus()));
         if (Boolean.TRUE.equals(diagnosis.getAiRejected())) {
             diagnosisVO.clearAiConclusion();
@@ -106,6 +120,7 @@ public class DiagnosisManageVO implements Serializable{
     public void clearAiConclusion() {
         result = null;
         confidence = null;
+        classificationProbability = null;
         severity = null;
     }
 

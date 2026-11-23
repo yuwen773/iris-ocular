@@ -9,11 +9,11 @@ import com.csust.eyediagnosis.agent.rag.Bm25Segmenter;
 import com.csust.eyediagnosis.agent.rag.BuiltinCorpus;
 import com.csust.eyediagnosis.agent.rag.LexicalCorpusService;
 import com.csust.eyediagnosis.agent.rag.SourceTypePolicy;
+import com.csust.eyediagnosis.common.LogAnonymizer;
 import com.csust.eyediagnosis.mapper.KnowledgeDocumentMapper;
 import com.csust.eyediagnosis.model.dto.agent.ResourceRef;
 import com.csust.eyediagnosis.model.entity.KnowledgeDocument;
 import jakarta.annotation.PostConstruct;
-import com.csust.eyediagnosis.common.LogAnonymizer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.tool.annotation.Tool;
@@ -491,7 +491,7 @@ public class DocumentSearchTool {
                 documents = lexicalCorpusService.loadOwnerCorpus(userId, maxCorpusChunks);
             }
             storeCorpus(userId, new UserDocumentCache(documents, System.currentTimeMillis()));
-            log.debug("Document cache refreshed for user {}, size: {}",
+            log.debug("Document cache refreshed, userIdHash={}, size: {}",
                     LogAnonymizer.userId(userId), documents.size());
             return documents;
         }

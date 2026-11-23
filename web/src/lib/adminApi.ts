@@ -129,8 +129,15 @@ export function uploadNewsCover(id: string, file: File): Promise<string> {
 
 export type AdminDiagnosis = {
   id: string; url?: string; username?: string; result?: string | null
-  /** AI 拒识的记录后端把置信度置空（null），不是 0——读数要显示「—」。 */
+  /**
+   * 只有真正校准过才有值（后端按 CALIBRATED 门控）；AI 拒识的记录同样为 null——
+   * 读数要显示「—」，不能画成 0%。未标定时改用 {@link classificationProbability}。
+   */
   confidence?: number | null
+  /** 校准状态：CALIBRATED / NOT_CALIBRATED；老记录为 null，按「未标定」处理。 */
+  calibrationStatus?: string | null
+  /** 原始 softmax top-1（0–1）：模型输出强度，不是校准概率，也不是可靠性。 */
+  classificationProbability?: number | null
   severity?: string | null; reexamineStatus?: number; createTime?: string
   aiRejected?: boolean; abstainReason?: string; requiresReview?: boolean
 }

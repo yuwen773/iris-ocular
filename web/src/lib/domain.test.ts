@@ -10,6 +10,7 @@ import {
   isUrgentAdvice,
   normalizeConfidence,
   probabilityReading,
+  summaryProbabilityReading,
   rankClasses,
   severityLabel,
   severityRisk,
@@ -300,6 +301,33 @@ describe("formatAuthorizedAt", () => {
     expect(formatAuthorizedAt(null)).toBeNull()
     expect(formatAuthorizedAt("")).toBeNull()
     expect(formatAuthorizedAt(undefined)).toBeNull()
+  })
+})
+
+describe("summaryProbabilityReading", () => {
+  it("已标定时用的是校准后概率，不碰模型自评值", () => {
+    expect(
+      summaryProbabilityReading({
+        confidence: 91,
+        classificationProbability: 0.82,
+        calibrationStatus: "CALIBRATED",
+      }),
+    ).toEqual({ label: "校准后概率", value: 91 })
+  })
+
+  it("未标定时改标签并退到模型自评概率，不把它叫置信度", () => {
+    const reading = summaryProbabilityReading({
+      confidence: null,
+      classificationProbability: 0.82,
+      calibrationStatus: "NOT_CALIBRATED",
+    })
+    expect(reading.label).toBe("模型输出概率")
+    expect(reading.label).not.toContain("置信度")
+    expect(reading.value).toBe(0.82)
+  })
+
+  it("两个值都没有时不给读数，而不是画成 0", () => {
+    expect(summaryProbabilityReading({ confidence: null }).value).toBeNull()
   })
 })
 
