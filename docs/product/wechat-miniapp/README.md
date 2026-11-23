@@ -45,8 +45,11 @@ wx.login ──code──▶ POST /api/mp/auth/login ──▶ WeChatCode2Sessio
 ```
 
 - 迁移：`V35__miniapp_wechat_binding.sql`（新表 `t_user_wechat`，唯一键 `(appid, openid)`）。
-- 令牌：32 字节随机、30 天滑动续期、Redis 只存哈希；`session_key` 不落库、不返回。
-- 登录路径 `/mp/auth/login` 是同源校验的**唯一**豁免项（它本身就是换令牌的入口，且不写 Cookie）。
+- 令牌：32 字节随机、30 天滑动续期（`wechat.miniapp.token-ttl-days` 可调，默认 30）、Redis 只存哈希；
+  `session_key` 不落库、不返回。
+- 同源校验有两类放行：令牌认证通过的请求，以及**按路径唯一豁免**的 `/mp/auth/login`
+  （它本身就是换令牌的入口，且不写 Cookie）。带无效 Bearer 头的登录请求也按无令牌放行，
+  过期令牌不能把重新登录堵死。
 - web/ 端行为不变：无 Bearer 头的请求完全走原 Cookie 会话分支。
 
 ### 3.2 小程序（`miniapp/`）
@@ -55,10 +58,11 @@ Taro 4 + React（Taro 支持的 18.x，与 `web/` 的 React 19 独立）+ TypeSc
 
 ```
 miniapp/src/
-  app.tsx / app.config.ts / theme.json
+  app.tsx / app.config.ts
   styles/tokens.scss        ← scripts/gen-tokens.mjs 从 web/src/styles/tokens.css 生成（勿手改）
+  theme.json                ← 同一脚本生成（导航栏 / tabBar 色值跟随令牌，勿手改）
   lib/{env,token,raw,auth,request,api,domain,upload,privacy,sse,utf8,agentStream}.ts
-  components/{Tags,Feedback}.tsx
+  components/{Tags,Feedback,PrivacyDialog}.tsx
   pages/diagnosis/{index,result}.tsx   判读入口 / 结果
   pages/records/index.tsx              记录列表（上拉分页）
   pages/agent/index.tsx                咨询（enableChunked 流式）
@@ -66,7 +70,7 @@ miniapp/src/
 ```
 
 - 主题：`darkmode: true` + `theme.json`，令牌用 `@media (prefers-color-scheme: dark)` 翻转。
-- 图片：`chooseMedia(compressed)` + `compressImage` 压到 2MB 内；超限直接提示重拍，不做未验证的离屏画布缩放。
+- 图片：`chooseMedia(compressed)` + `compressImage` 压到 2MB 内；仍超限再走离屏画布等比缩放（见下）。
 - 合规四项：隐私授权（自建说明弹层 `components/PrivacyDialog` → 平台 `requirePrivacyAuthorize`）、
   健康数据用途说明、AI 生成内容标识、结果页免责声明。
 - 图片超限的顺序：`compressImage` 70 → 40 → 离屏画布等比缩到最长边 1600 重编码 → 仍超就明确要求重拍。
@@ -88,7 +92,8 @@ miniapp/src/
 ## 5. 验证
 
 - 小程序：`npm run typecheck && npm test && npm run build:weapp`（CI `miniapp` job 同口径）。
-- 后端：`scripts/verify-fast.sh --db`（L2，覆盖 V35 迁移与 Spring 装配）。
+- 后端：`scripts/verify-fast.sh --java FlywayMySqlIntegrationTest --java MiniAppAuthServiceTest --java MiniAppTokenFilterTest --java MiniAppTokenServiceTest --java WeChatCode2SessionClientTest --java SameOriginFilterTest --db`
+  （L2，覆盖 V35 迁移与 Spring 装配）。脚本不接受「只有 `--db`」的写法——它要求点名要跑的用例。
 - 手工清单：静默登录建号且二次进入同账号；>2MB 图片被压缩或明确拒绝；拒识/待复核不给结论；
   Agent 流式逐字出现且以 `done` 收尾；隐私弹窗先于影像采集；系统深浅色切换无闪烁；
   `web/` 端 Cookie 会话与无令牌 POST 的 403 行为不变。
@@ -102,4 +107,6 @@ miniapp/src/
 | `enableChunked` | 社区实践、非官方背书；真机需先做最小验证，失败则退回非流式。30s 无分片看门狗同样未经真机校准，阈值可按实测调整 |
 | 图片压缩 | 离屏画布等比缩放（最长边 1600）已实现，但 `createOffscreenCanvas` 的 2d 能力**未在真机验证**；任何一步不可用即回退到「提示重拍」，不会退化成上传超限文件 |
 | COS 图片 | `/api/diagnosis/upload` 返回公网 COS URL 是既有行为，小程序沿用，作为已知债登记 |
-| Agent 会话 | 只有「当前会话 + 历史恢复」，不做重命名/置顶/多版本 |
+| Agent 会话 | 只有「当前会话 + 历史恢复」，不做重命名/置顶/多版本。历史接口在无游标时返回**最早**的 N 条（`ORDER BY id ASC LIMIT n`），超长会话恢复后看到的是开头一截；要翻到更近的内容需要服务端加「从尾部取」的分页口径，本版未做 |
+| 绑定与账号 | 首登按 `wx_<openid>` 建号；`unionid` 只在绑定时回填，不做跨 AppID 账号合并 |
+| 令牌续期开销 | 每次校验是一次 Redis `GET` + 一次 `EXPIRE`（滑动续期），不做批量或本地缓存；体验版量级可接受 |

@@ -652,12 +652,12 @@ jobs:
           cache-dependency-path: miniapp/package-lock.json
       - run: npm ci
       - run: npm run gen:tokens
-      # 生成物新鲜度：tokens.scss 是生成文件，手改能过 typecheck / build，
+      # 生成物新鲜度：tokens.scss 与 theme.json 都是生成文件，手改能过 typecheck / build，
       # 只有和 web/src/styles/tokens.css 重新生成的结果逐字节比对才拦得住。
-      - name: 令牌生成物必须与 tokens.css 一致
+      - name: 令牌与主题生成物必须与 tokens.css 一致
         run: |
-          if ! git diff --exit-code -- src/styles/tokens.scss; then
-            echo "::error::src/styles/tokens.scss 与 web/src/styles/tokens.css 不一致：不要手改生成文件，改令牌去 tokens.css 后重跑 npm run gen:tokens 并提交。"
+          if ! git diff --exit-code -- src/styles/tokens.scss src/theme.json; then
+            echo "::error::miniapp 的 tokens.scss / theme.json 与 web/src/styles/tokens.css 不一致：不要手改生成文件，改令牌去 tokens.css 后重跑 npm run gen:tokens 并提交。"
             exit 1
           fi
       - run: npm run typecheck
