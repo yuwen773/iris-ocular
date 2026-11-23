@@ -141,8 +141,8 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisMapper, Diagnosis
             result = this.saveOrUpdate(diagnosis);
         } catch (RuntimeException e) {
             // 与 doDiagnosis 同一类「提交结果未知」：不删（可能已经提交，删了不可逆）。
-            // 但这条日志是事后唯一能找回这个对象的线索——public/ 没有对账器，
-            // 不记就彻底查不到这张原图去了哪里。
+            // 但这条日志是事后最容易找回这个对象的线索：public/ 的只读审计只列「无引用」
+            // 对象，分不清「提交结果未知」，不记就查不到这张原图去了哪里。
             log.warn("影像已上传但落库结果未知，保留对象待人工排查, objectKey={}",
                     uploadPictureDetail.getObjectKey(), e);
             throw e;
@@ -150,7 +150,7 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisMapper, Diagnosis
         if (!result) {
             // 明确 0 行 = 记录没写进去，这张原图没有任何东西引用它。
             // 与 doDiagnosis 同一口径：删掉刚上传的那一个对象，否则它会在
-            // public/ 前缀下永久滞留（该前缀没有对账器）。
+            // public/ 前缀下永久滞留（该前缀只有只读审计，不会替人删）。
             // 注意只在「明确失败」时删：saveOrUpdate 抛异常属于提交结果未知，那里不删。
             fileManager.deleteUploadedPictureQuietly(uploadPictureDetail.getObjectKey());
             throw new BusinessException(ErrorCode.OPERATION_ERROR, PICTURE_FAIL_UPLOAD);
@@ -367,8 +367,9 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisMapper, Diagnosis
                 // 途中抛了超时——这时记录在库、原图却被删掉，是最坏的结果。
                 // 先按主键回查一次：查不到（且查询本身没失败）才认为记录确实没落库。
                 if (diagnosis != null && recordMayExist(diagnosis)) {
-                    // 注意：public/ 前缀下**没有**自动对账器（UploadCompensationService
-                    // 只扫 agent-chat/），这里留下的对象需要人工排查或后续接入对账。
+                    // 注意：public/ 前缀下只有**只读**审计（PublicImageOrphanAuditor 列出
+                    // 无引用对象并告警，UploadCompensationService 只扫 agent-chat/ 并自动删），
+                    // 这里留下的对象需要人工核对后清理。
                     // 仍然选择保留：删掉一张可能被正式记录引用的原图不可逆。
                     log.warn("诊断记录落库结果未知，保留已上传影像以免误删被引用对象（public/ 暂无常驻对账）, diagnosisId={}, objectKey={}",
                             diagnosis.getId(), imageKey);

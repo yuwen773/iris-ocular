@@ -2,6 +2,7 @@ package com.csust.eyediagnosis.controller;
 
 import com.csust.eyediagnosis.agent.DiagnosisAgent;
 import com.csust.eyediagnosis.agent.config.AgentConstants;
+import com.csust.eyediagnosis.agent.service.AccountStreamGuard;
 import com.csust.eyediagnosis.agent.service.ChatHistoryService;
 import com.csust.eyediagnosis.exception.ErrorCode;
 import com.csust.eyediagnosis.exception.GlobalExceptionHandler;
@@ -46,6 +47,10 @@ class AgentControllerRegenerateTest {
         ReflectionTestUtils.setField(controller, "chatHistoryService", history);
         ReflectionTestUtils.setField(controller, "agentConstants", new AgentConstants());
         ReflectionTestUtils.setField(controller, "diagnosisAgent", agent);
+        // 重新生成同样走 SSE 出口，闸门必须装配；账号在本用例里视为可用，
+        // 否则空流之外的事件会被一次性截断，测的就不是重新生成了。
+        when(userService.isAccountActive(anyLong())).thenReturn(true);
+        ReflectionTestUtils.setField(controller, "accountStreamGuard", new AccountStreamGuard(userService));
         return MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();

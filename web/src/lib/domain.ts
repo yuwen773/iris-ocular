@@ -427,14 +427,28 @@ export type ProbabilityReading = {
   label: string
   /** 是否经过真实数据标定 */
   calibrated: boolean
-  /** 未标定时的说明；已标定时为 null */
+  /** 未标定 / 不作患者结论时的说明；可正常呈现时为 null */
   note: string | null
 }
 
-/** 判读结果的校准状态：只有 CALIBRATED 才算经过真实数据标定。 */
+/**
+ * 判读结果的校准状态与患者结论准入。
+ *
+ * <p>只有 CALIBRATED 才算经过真实数据标定；算法明确给了
+ * `patientConclusionAllowed === false` 时，即使概率标定过也不作患者结论——
+ * 「校准过」与「允许给患者看」是两道各自独立的门，后者更严。
+ */
 export function probabilityReading(result: {
   calibrationStatus?: string | null
+  patientConclusionAllowed?: boolean | null
 }): ProbabilityReading {
+  if (result.patientConclusionAllowed === false) {
+    return {
+      label: "模型输出概率（不作患者结论）",
+      calibrated: false,
+      note: "本次判读未通过面向患者的结论准入（图像质量或拒识），只作参考，不作为诊断结论。",
+    }
+  }
   const status = (result.calibrationStatus ?? "").trim().toUpperCase()
   const calibrated = status === "CALIBRATED"
   if (calibrated) {

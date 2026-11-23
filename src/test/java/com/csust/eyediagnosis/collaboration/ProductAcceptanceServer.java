@@ -135,6 +135,8 @@ public class ProductAcceptanceServer {
             ReflectionTestUtils.setField(userController, "stringRedisTemplate", org.mockito.Mockito.mock(org.springframework.data.redis.core.StringRedisTemplate.class));
             context.registerBean(UserController.class, () -> userController);
             var agent = new AgentController(); ReflectionTestUtils.setField(agent, "userService", users); ReflectionTestUtils.setField(agent, "chatHistoryService", history);
+            ReflectionTestUtils.setField(agent, "accountStreamGuard",
+                    new com.csust.eyediagnosis.agent.service.AccountStreamGuard(users));
             ReflectionTestUtils.setField(agent, "agentConstants", new AgentConstants()); ReflectionTestUtils.setField(agent, "diagnosisAgent", org.mockito.Mockito.mock(com.csust.eyediagnosis.agent.DiagnosisAgent.class));
             context.registerBean(AgentController.class, () -> agent);
             context.registerBean(CollaborationRunController.class, () -> new CollaborationRunController(runs, streams, repository(context), new CollaborationImages(jdbc, runs, storage)));

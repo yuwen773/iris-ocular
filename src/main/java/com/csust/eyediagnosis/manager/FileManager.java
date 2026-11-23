@@ -81,7 +81,8 @@ public class FileManager {
             // 覆盖 ImageArchive 没管到的那一段：对象已经写好，但后面的封装（size / host）
             // 失败。storePicture 在**写入本身**失败时已删过一次，这里再删一次是幂等的
             // （COS 对不存在的 key 删除成功），换来的是「任何失败都不留孤儿」。
-            // public/ 前缀没有对账器，漏掉就是一张只能人工排查的原图。
+            // public/ 前缀只有只读审计（PublicImageOrphanAuditor 会列出无引用对象，但不会自动删），
+            // 漏掉就是一张要靠人工清理的原图。
             log.error("图片上传到对象存储失败，清理可能已写入的对象: key={}", uploadPath, e);
             imageArchive.discardQuietly(uploadPath);
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, FileConstant.FAIL_UPLOAD);

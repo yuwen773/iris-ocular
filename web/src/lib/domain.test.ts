@@ -322,4 +322,20 @@ describe("probabilityReading", () => {
   it("没有任何校准信息时按未标定处理，不猜", () => {
     expect(probabilityReading({}).calibrated).toBe(false)
   })
+
+  it("算法说不能作患者结论时，即使校准过也不按结论读", () => {
+    const reading = probabilityReading({
+      calibrationStatus: "CALIBRATED",
+      patientConclusionAllowed: false,
+    })
+    expect(reading.calibrated).toBe(false)
+    expect(reading.label).toContain("不作患者结论")
+    expect(reading.note).toContain("只作参考")
+  })
+
+  it("明确允许作患者结论时沿用校准口径", () => {
+    expect(
+      probabilityReading({ calibrationStatus: "CALIBRATED", patientConclusionAllowed: true }),
+    ).toEqual({ label: "校准后概率", calibrated: true, note: null })
+  })
 })

@@ -349,7 +349,18 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         user.setId(loginUser.getId());
         user.setUserAvatar(avatarUrl);
         //更新
-        int result = this.baseMapper.updateById(user);
+        int result;
+        try {
+            result = this.baseMapper.updateById(user);
+        } catch (RuntimeException e) {
+            // 头像对象已写进 COS，这一行却没更新成：先回读确认数据库没引用它再删，
+            // 否则它就是 public/ 下一个没人认领的孤儿（只读审计能列出来，但没人会去删）。
+            discardUnreferencedAvatar(loginUser.getId(), avatarUrl, uploadPictureDetail.getObjectKey());
+            throw e;
+        }
+        if (result < 1) {
+            discardUnreferencedAvatar(loginUser.getId(), avatarUrl, uploadPictureDetail.getObjectKey());
+        }
         //从数据库中获取用户信息
         User updateUser = this.getById(loginUser.getId());
         //插入/更新
@@ -357,6 +368,29 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         UserVO userVO = new UserVO();
         BeanUtils.copyProperties(updateUser,userVO);
         return userVO;
+    }
+
+    /**
+     * 头像更新失败时，清掉「刚上传、但用户行没有引用」的那一份对象。
+     *
+     * <p>判据是回读数据库，不是「刚才失败了」：{@code updateById} 成功、随后查询抛错时，
+     * 用户行已经指向这份头像，删它就是把正在用的头像删了。
+     */
+    private void discardUnreferencedAvatar(Long userId, String avatarUrl, String objectKey) {
+        if (userId == null || objectKey == null) {
+            return;
+        }
+        try {
+            User current = this.getById(userId);
+            if (current != null && avatarUrl != null && avatarUrl.equals(current.getUserAvatar())) {
+                return;
+            }
+            // deleteUploadedPictureQuietly 内部吞掉异常：清理失败不能替换成原始失败
+            fileManager.deleteUploadedPictureQuietly(objectKey);
+            log.info("头像更新未生效，已清理本次上传的对象: objectKey={}", objectKey);
+        } catch (Exception e) {
+            log.warn("头像更新失败后清理对象失败: objectKey={}", objectKey, e);
+        }
     }
     /**
      * 用户申请复诊
