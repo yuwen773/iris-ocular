@@ -40,7 +40,7 @@ class McpTerminalCategoryTest {
         McpTool tool = new McpTool();
         tool.setName("fixture");
         tool.setInputSchema(new InputSchema());
-        McpToolCallback callback = new McpToolCallback(manager, server, tool);
+        McpToolCallback callback = new McpToolCallback(manager, server, tool, null, null);
         var frames = new ArrayList<MessageDTO>();
         var audits = new ArrayList<ToolStepSink.ToolAuditRecord>();
         ToolStepSink sink = new ToolStepSink("fixture", 42L, audits::add);

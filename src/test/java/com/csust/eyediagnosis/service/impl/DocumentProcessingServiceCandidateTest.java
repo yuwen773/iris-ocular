@@ -36,7 +36,8 @@ import static org.mockito.Mockito.when;
 class DocumentProcessingServiceCandidateTest {
 
     private static final DocumentProcessingService.CandidateMetadata METADATA =
-            new DocumentProcessingService.CandidateMetadata("new.txt", "cos/new.txt", 3L, ".txt", "新标题");
+            new DocumentProcessingService.CandidateMetadata(
+                    "new.txt", "cos/new.txt", 3L, ".txt", "新标题", "cos/old.txt");
 
     @Test
     void candidatePublishesFileMetadataTogetherWithIndexVersion() throws Exception {
@@ -59,8 +60,9 @@ class DocumentProcessingServiceCandidateTest {
         service.processDocumentCandidate(9L, temp, ".txt", "新标题", "v2", METADATA);
 
         verify(mapper).promoteCandidate(9L, "v2", 1, "new.txt", "cos/new.txt", 3L, ".txt", "新标题");
-        // 发布成功：新对象正被引用，不能删
-        verify(cos, never()).deleteObject(anyString());
+        // 发布成功：新对象正被引用，不能删；被取代的旧对象已无引用，必须清掉
+        verify(cos).deleteObject("cos/old.txt");
+        verify(cos, never()).deleteObject("cos/new.txt");
     }
 
     @Test
@@ -89,6 +91,8 @@ class DocumentProcessingServiceCandidateTest {
         verify(mapper).clearCandidate(9L, "v2");
         // 新对象不再被任何行引用，必须删掉
         verify(cos).deleteObject("cos/new.txt");
+        // 候选失败绝不碰正在被检索的旧对象
+        verify(cos, never()).deleteObject("cos/old.txt");
     }
 
     @Test
@@ -109,6 +113,7 @@ class DocumentProcessingServiceCandidateTest {
 
         verify(mapper, never()).clearCandidate(anyLong(), anyString());
         verify(cos).deleteObject("cos/new.txt");
+        verify(cos, never()).deleteObject("cos/old.txt");
     }
 
     private DocumentProcessingService service(KnowledgeDocumentMapper mapper, VectorStore vectorStore,

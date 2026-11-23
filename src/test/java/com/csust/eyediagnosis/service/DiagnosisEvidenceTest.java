@@ -7,7 +7,6 @@ import com.csust.eyediagnosis.model.vo.diagnosis.DiagnosisResultVO;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -16,6 +15,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * 各读各的字段，不从别的字段推，也不互相冒充。
  */
 class DiagnosisEvidenceTest {
+
+    private static final String MODEL = "efficientnet-b4@1.0.0";
+    private static final String WEIGHT = "A".repeat(64);
+    private static final String PREPROCESS = "v1";
+    private static final String POLICY = "medical-safety-v3";
 
     private static DiagnosisProto.DiagnosisResponse response() {
         return DiagnosisProto.DiagnosisResponse.newBuilder()
@@ -28,7 +32,46 @@ class DiagnosisEvidenceTest {
                 .setImageQualityVersion("quality-blur-v0-uncalibrated")
                 .setImageQualityCalibrationState("UNCALIBRATED")
                 .setPatientConclusionAllowed(true)
+                .setOodStatus(DiagnosisProto.OodStatus.NOT_EVALUATED)
+                .setQualityScore(25)
+                .setRequiresReview(true)
+                .setModelVersion(MODEL)
+                .setWeightSha256(WEIGHT)
+                .setPreprocessVersion(PREPROCESS)
+                .setInferencePolicyVersion(POLICY)
                 .build();
+    }
+
+    /**
+     * 一份快照写三个目标，取值口径必须一致。
+     *
+     * <p>这是 {@code DiagnosisEvidence} 存在的理由：三个目标各写一遍，
+     * 列宽与归一化口径就会互相漂移（权重哈希大小写、复核状态、质量分）。
+     */
+    @Test
+    void oneSnapshotAppliesTheSameEvidenceToEveryTarget() {
+        DiagnosisEvidence evidence = DiagnosisEvidence.from(response(), MODEL, WEIGHT, PREPROCESS, POLICY);
+
+        Diagnosis diagnosis = new Diagnosis();
+        DiagnosisResultVO vo = new DiagnosisResultVO();
+        InferenceCache cache = evidence.newCache("hash");
+        evidence.applyTo(diagnosis);
+        evidence.applyTo(vo);
+
+        // 权重哈希在三个目标都归一为小写 64 字符（V16 归一后的口径）
+        assertEquals(WEIGHT.toLowerCase(), diagnosis.getWeightSha256());
+        assertEquals(WEIGHT.toLowerCase(), vo.getWeightSha256());
+        assertEquals(WEIGHT.toLowerCase(), cache.getWeightSha256());
+        assertEquals(MODEL, diagnosis.getModelVersion());
+        assertEquals(MODEL, vo.getModelVersion());
+        assertEquals(MODEL, cache.getModelVersion());
+        assertEquals("AWAITING_REVIEW", diagnosis.getHumanReviewStatus());
+        assertEquals("AWAITING_REVIEW", vo.getHumanReviewStatus());
+        assertTrue(vo.getRequiresReview());
+        assertTrue(cache.getRequiresReview());
+        assertEquals(25, diagnosis.getQualityScore());
+        assertEquals(25, vo.getQualityScore());
+        assertEquals(25, cache.getQualityScore());
     }
 
     @Test
@@ -38,7 +81,8 @@ class DiagnosisEvidenceTest {
 
         assertEquals(0.82, vo.getClassificationProbability());
         assertEquals("calibration-v0", vo.getCalibrationVersion());
-        assertEquals("QUALITY_PASSED", vo.getImageQualityState());
+        // 对外只说产品语言，不透出 proto 的 QUALITY_ 前缀
+        assertEquals("PASSED", vo.getImageQualityState());
         assertEquals("quality-blur-v0-uncalibrated", vo.getImageQualityVersion());
         assertEquals("UNCALIBRATED", vo.getImageQualityCalibrationState());
         assertTrue(vo.getPatientConclusionAllowed());
@@ -51,7 +95,7 @@ class DiagnosisEvidenceTest {
 
         assertEquals(0.82, diagnosis.getClassificationProbability());
         assertEquals("calibration-v0", diagnosis.getCalibrationVersion());
-        assertEquals("QUALITY_PASSED", diagnosis.getImageQualityState());
+        assertEquals("PASSED", diagnosis.getImageQualityState());
         assertEquals("quality-blur-v0-uncalibrated", diagnosis.getImageQualityVersion());
         assertEquals("UNCALIBRATED", diagnosis.getImageQualityCalibrationState());
         assertTrue(diagnosis.getPatientConclusionAllowed());
@@ -72,12 +116,16 @@ class DiagnosisEvidenceTest {
 
         assertEquals(0.82, cache.getClassificationProbability());
         assertEquals("calibration-v0", cache.getCalibrationVersion());
-        assertEquals("QUALITY_PASSED", cache.getImageQualityState());
+        assertEquals("PASSED", cache.getImageQualityState());
         assertEquals("quality-blur-v0-uncalibrated", cache.getImageQualityVersion());
         assertEquals("UNCALIBRATED", cache.getImageQualityCalibrationState());
         assertTrue(cache.getPatientConclusionAllowed());
     }
 
+    /**
+     * 算法没给的证据必须留空：空串会变成「版本号是空字符串」这种半真半假的值，
+     * 0.0 会被读成「模型输出 0%」，false 会被读成「明确不允许面向患者」。
+     */
     @Test
     void missingEvidenceFieldsStayEmptyInsteadOfBeingGuessed() {
         DiagnosisProto.DiagnosisResponse bare = DiagnosisProto.DiagnosisResponse.newBuilder()
@@ -85,10 +133,30 @@ class DiagnosisEvidenceTest {
                 .build();
 
         DiagnosisResultVO vo = new DiagnosisResultVO();
-        DiagnosisEvidence.fromResponse(bare).applyTo(vo);
+        InferenceCache cache = new InferenceCache();
+        DiagnosisEvidence evidence = DiagnosisEvidence.fromResponse(bare);
+        evidence.applyTo(vo);
+        evidence.applyTo(cache);
 
-        assertEquals("QUALITY_UNSPECIFIED", vo.getImageQualityState());
-        assertEquals("", vo.getCalibrationVersion());
-        assertFalse(Boolean.TRUE.equals(vo.getPatientConclusionAllowed()));
+        assertNull(vo.getClassificationProbability());
+        assertNull(vo.getCalibrationVersion());
+        assertNull(vo.getImageQualityState());
+        assertNull(vo.getImageQualityVersion());
+        assertNull(vo.getImageQualityCalibrationState());
+        assertNull(vo.getPatientConclusionAllowed());
+        assertNull(cache.getClassificationProbability());
+        assertNull(cache.getPatientConclusionAllowed());
+    }
+
+    @Test
+    void qualityStateUsesTheProductVocabularyNotTheProtoEnumName() {
+        assertEquals("PASSED", DiagnosisEvidence.imageQualityStateOf(
+                DiagnosisProto.ImageQualityState.QUALITY_PASSED));
+        assertEquals("FAILED", DiagnosisEvidence.imageQualityStateOf(
+                DiagnosisProto.ImageQualityState.QUALITY_FAILED));
+        assertEquals("NOT_EVALUATED", DiagnosisEvidence.imageQualityStateOf(
+                DiagnosisProto.ImageQualityState.QUALITY_NOT_EVALUATED));
+        assertNull(DiagnosisEvidence.imageQualityStateOf(
+                DiagnosisProto.ImageQualityState.QUALITY_UNSPECIFIED));
     }
 }

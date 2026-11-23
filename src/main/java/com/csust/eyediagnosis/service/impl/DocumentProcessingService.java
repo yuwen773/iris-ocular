@@ -96,8 +96,15 @@ public class DocumentProcessingService {
         runEtl(docId, file, fileType, title, version, true, metadata);
     }
 
-    /** 候选版本发布时随发布指针一起落库的文件元数据。 */
-    public record CandidateMetadata(String fileName, String fileUrl, Long fileSize, String fileType, String title) { }
+    /**
+     * 候选版本发布时随发布指针一起落库的文件元数据。
+     *
+     * @param fileUrl         候选版本自己的对象键（发布后成为文档的 fileUrl）
+     * @param previousFileUrl 发布前文档指向的旧对象键；切换成功后它没有任何引用，
+     *                        属于应该清掉的旧版本对象
+     */
+    public record CandidateMetadata(String fileName, String fileUrl, Long fileSize, String fileType,
+                                    String title, String previousFileUrl) { }
 
     private void runEtl(Long docId, File file, String fileType, String title, String version, boolean candidate) {
         runEtl(docId, file, fileType, title, version, candidate, null);
@@ -191,6 +198,9 @@ public class DocumentProcessingService {
                         candidateMetadata == null ? null : candidateMetadata.title());
                 if (promoted == 1) {
                     purgeStaleVersions(docId, version);
+                    // 切换成功后旧对象既没有行引用、也没有向量引用，留着就是孤儿。
+                    // 放在发布成功之后清：候选失败绝不碰旧对象。
+                    deleteSupersededObject(candidateMetadata);
                 } else {
                     // 已被更新的候选取代：本次候选作废，活动版本保持不变，对象也不再被引用。
                     purgeVectors(docId, version);
@@ -230,17 +240,38 @@ public class DocumentProcessingService {
      * 存储里的孤儿。清理失败只记日志——索引侧已经一致，不值得为一次清理失败回滚。
      */
     private void discardCandidateObject(CandidateMetadata metadata) {
-        if (metadata == null || metadata.fileUrl() == null) {
+        if (metadata == null) {
+            return;
+        }
+        deleteObjectQuietly(metadata.fileUrl(), "候选对象");
+    }
+
+    /**
+     * 发布切换后清掉被取代的旧对象。
+     *
+     * <p>旧对象在切换成功的那一刻起就没有任何行或向量引用它了；不清就是对象存储里的
+     * 长期孤儿（每次编辑文档多一份）。清理失败只记日志：索引侧已经一致，不值得为一次
+     * 清理失败回滚一次已经生效的发布。
+     */
+    private void deleteSupersededObject(CandidateMetadata metadata) {
+        if (metadata == null) {
+            return;
+        }
+        deleteObjectQuietly(metadata.previousFileUrl(), "旧版本对象");
+    }
+
+    private void deleteObjectQuietly(String fileUrl, String what) {
+        if (fileUrl == null) {
             return;
         }
         if (cosManager == null) {
-            log.warn("[ETL] 未配置 CosManager，候选对象未清理: key={}", metadata.fileUrl());
+            log.warn("[ETL] 未配置 CosManager，{}未清理: key={}", what, fileUrl);
             return;
         }
         try {
-            cosManager.deleteObject(metadata.fileUrl());
+            cosManager.deleteObject(fileUrl);
         } catch (Exception e) {
-            log.warn("[ETL] 候选对象清理失败，可能残留孤儿对象: key={}", metadata.fileUrl(), e);
+            log.warn("[ETL] {}清理失败，可能残留孤儿对象: key={}", what, fileUrl, e);
         }
     }
 

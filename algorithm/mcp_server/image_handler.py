@@ -16,7 +16,8 @@ logger = logging.getLogger(__name__)
 _IMAGE_SUFFIXES = frozenset((".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"))
 _TEMP_SUFFIX_MAP = {".png", ".bmp", ".tif", ".tiff", ".webp"}
 
-# 下载上限：先看 Content-Length，再按实际字节数截断。
+# 下载上限：先看 Content-Length 提前拒绝，再流式累积，超过就断开。
+# 不能「收完全量再比大小」：公网响应大小由对方决定，收完再判等于拿进程内存当赌注。
 _MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024
 
 _http_client: httpx.AsyncClient | None = None
@@ -28,6 +29,28 @@ async def _get_client() -> httpx.AsyncClient:
         # 不跟随重定向：跳转目标会绕过这里的公网地址校验。
         _http_client = httpx.AsyncClient(follow_redirects=False)
     return _http_client
+
+
+async def _download_bounded(url: str) -> bytes:
+    """流式取图，超过 ``_MAX_DOWNLOAD_BYTES`` 立刻中止。
+
+    先看 Content-Length（有就提前拒绝），再边下边数；两者都不依赖对方守规矩。
+    """
+    client = await _get_client()
+    try:
+        async with client.stream("GET", url, timeout=30) as resp:
+            resp.raise_for_status()
+            declared = (resp.headers.get("content-length") or "").strip()
+            if declared.isdigit() and int(declared) > _MAX_DOWNLOAD_BYTES:
+                raise ValueError("下载图片超过 50MB 限制")
+            buffer = bytearray()
+            async for chunk in resp.aiter_bytes():
+                buffer.extend(chunk)
+                if len(buffer) > _MAX_DOWNLOAD_BYTES:
+                    raise ValueError("下载图片超过 50MB 限制")
+            return bytes(buffer)
+    except httpx.HTTPError as e:
+        raise ValueError(f"下载图片失败: {e}") from e
 
 
 def _remote_urls_allowed() -> bool:
@@ -51,7 +74,17 @@ def reference_secret_configured() -> bool:
 
 
 def _reference_secret() -> str:
-    return os.getenv("MCP_IMAGE_REF_SECRET", "").strip()
+    """图片引用密钥。
+
+    两端必须配成同一个值：Java 侧是签发方，这里是校验方。为了不给运营留一个
+    「名字写错就验不过」的坑，两个变量名都认——``MCP_IMAGE_REF_SECRET`` 优先，
+    其次是 Java 侧历史上用的 ``IMAGE_REFERENCE_SECRET``。
+    """
+    for name in ("MCP_IMAGE_REF_SECRET", "IMAGE_REFERENCE_SECRET"):
+        value = os.getenv(name, "").strip()
+        if value:
+            return value
+    return ""
 
 
 async def resolve_image(image_input: str) -> str:
@@ -93,15 +126,7 @@ async def _resolve_reference(reference: str) -> str:
         raise ValueError(f"图片引用不可用: {e}") from e
 
     host = urllib.parse.urlsplit(target).hostname
-    try:
-        client = await _get_client()
-        resp = await client.get(target, timeout=30)
-        resp.raise_for_status()
-    except httpx.HTTPError as e:
-        raise ValueError(f"下载图片失败: {e}") from e
-    content = resp.content
-    if len(content) > _MAX_DOWNLOAD_BYTES:
-        raise ValueError("下载图片超过 50MB 限制")
+    content = await _download_bounded(target)
     # 只记主机名：签名与目标地址都不进日志（目标里带签名参数）。
     logger.info("已按后端签发的引用取图: host=%s", host)
     return _write_temp(content, target)
@@ -169,15 +194,7 @@ def assert_public_url(url: str) -> None:
 
 async def _resolve_url(url: str) -> str:
     assert_public_url(url)
-    client = await _get_client()
-    try:
-        resp = await client.get(url, timeout=30)
-        resp.raise_for_status()
-    except httpx.HTTPError as e:
-        raise ValueError(f"下载图片失败: {e}") from e
-    content = resp.content
-    if len(content) > _MAX_DOWNLOAD_BYTES:
-        raise ValueError("下载图片超过 50MB 限制")
+    content = await _download_bounded(url)
     return _write_temp(content, url)
 
 

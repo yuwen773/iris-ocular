@@ -118,10 +118,12 @@ eye-diagnosis:
     # enable the legacy dispatcher or it can replay pre-existing Outbox rows.
     outbox:
       enabled: false
-    # 短期图片引用：Java 侧签发、算法侧 MCP 校验，两侧密钥必须一致
-    # （算法侧读 MCP_IMAGE_REF_SECRET）。未配置时签发直接失败，不生成验不过的引用。
+    # 短期图片引用：Java 侧签发、算法侧 MCP 校验，两侧密钥必须一致。
+    # 两个变量名都认（MCP_IMAGE_REF_SECRET 优先，其次 IMAGE_REFERENCE_SECRET），
+    # 算法侧同样两个都认——名字写错不会变成「验不过」这种难查的故障。
+    # 未配置时签发直接失败，不生成验不过的引用。
     image-reference:
-      secret: ${IMAGE_REFERENCE_SECRET:}
+      secret: ${MCP_IMAGE_REF_SECRET:${IMAGE_REFERENCE_SECRET:}}
       ttl-seconds: 300
   # 上传补偿对账：清理 COS 上没有任务行登记的孤儿图片。
   # 默认开启：该任务是「对象已写入、任务行没写成」这类残留的唯一周期性兜底，
@@ -158,14 +160,18 @@ eye-diagnosis:
       enabled: true
       model: gte-rerank-v2
     hybrid-search:
-      # 默认关闭：词法通道需要按 owner 元数据直取全量分块，语料规模越大取回成本越高。
-      # 词法通道已重建为「按 owner 直取该用户可见的全部分块」，不再是「语义近邻前 1000 条」
-      # 那种语义偏置的子集；词法命中仍需回向量库核对 similarity-threshold，核对不通过的
-      # 会被丢弃并记账。开启前请按 WP-Q1 补 Recall@K / 延迟评估。
-      enabled: false
+      # 词法通道已重建为「按 owner 元数据直取该用户可见的全部分块」，不再是
+      # 「语义近邻前 1000 条」那种语义偏置的子集；词法命中仍需回向量库核对
+      # similarity-threshold，核对不通过的会被丢弃并记账，因此不会绕过阈值成为证据。
+      # 默认开启：旧实现默认开着但通道是错的，关掉只是把「召回不全」换成「词法召回没了」。
+      # WP-Q1 的 Recall@K / 延迟评估仍待补，届时按评估结果调 max-corpus-chunks。
+      enabled: true
       rrf-k: 60
       # 一次词法召回最多取多少分块（内存边界，不是召回目标）。触顶会记 WARN。
-      max-corpus-chunks: 5000
+      # 默认值要高于「上万分块」这一档，否则万级知识库一进来就被截断。
+      max-corpus-chunks: 20000
+      # 所有用户缓存语料的分块总量上限；超出按 LRU 驱逐最久未用的用户语料。
+      max-total-corpus-chunks: 40000
       # 词法语料缓存的用户数上限；超出按 LRU 驱逐。
       cache-max-users: 20
     # B2 来源标记：默认关闭。开启后只会在既有 owner 过滤之后进一步收窄

@@ -16,6 +16,14 @@
 | MCP 服务 | 用户可启用的外部工具服务，会话覆盖 → 全局启用 → 禁用的解析优先级 | `agent/manager/MCPManager.java` |
 | 知识库文档（KnowledgeDocument） | RAG 文档的上传、切块与向量化记录 | `model/entity/` |
 | 知识索引版本（indexVersion） | 一次文档处理的服务端 UUID；仅 READY 文档当前版本的片段和引用可作为证据，失败代及旧代必须排除 | `KnowledgeDocument` / `DocumentProcessingService` / `DocumentSearchTool` |
+| 词法语料（LexicalCorpus） | 按 `ownerUserId` 元数据从向量库**直取**的该用户可见全部分块（含内置语料），供 BM25 使用；不是语义近邻子集 | `agent/rag/LexicalCorpusService.java` |
+| 混合检索（hybrid-search） | 向量检索 + 词法召回经 RRF 融合；词法命中必须回向量库核对相似度阈值，未通过的一律丢弃 | `agent/tools/DocumentSearchTool.java` |
+| 图片引用（iris-img://） | 后端签发的短期对象引用（HMAC-SHA256，≤15 分钟）；MCP 默认只认它，不认任意 URL | `agent/service/ImageReferenceSigner.java` / `algorithm/mcp_server/image_ref.py` |
+| 图像质量门（ImageQualityState） | 这张图过没过质量门的结论，对外只说 `PASSED / FAILED / NOT_EVALUATED`；与「结论可不可信」分开 | `algorithm/eye_diagnosis/quality.py` / `V34` |
+| 质量门标定产物（QualityCalibration） | 模糊阈值及其出处的版本化产物；`UNCALIBRATED` 时必须如实标注，不得当成已验证阈值 | `algorithm/eye_diagnosis/quality_calibration.py` / `algorithm/configs/calibration/` |
+| 分类概率（classificationProbability） | 原始 softmax top-1（0–1）。**不是**校准概率，更不是医学可靠性；未标定时界面必须照此标注 | `DiagnosisEvidence` / `V34` |
+| 患者结论准入（patientConclusionAllowed） | 算法侧判定「这条结论能否面向患者呈现」；与异步任务准入（`restrictReason`）是两道独立的门 | `diagnosis.proto` / `DiagnosisTaskRunner` |
+| 任务受限原因（restrictReason） | 异步患者任务为准入未通过时落库/下发的受限码；前端据此如实说明为何被限制 | `V33` / `DiagnosisTaskRunner` |
 
 ## 两个流程状态不要混用
 

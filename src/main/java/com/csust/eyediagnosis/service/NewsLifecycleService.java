@@ -194,7 +194,6 @@ public class NewsLifecycleService {
         return new ArrayList<>(unique);
     }
 
-    /** 把异常翻译成一句人话（业务异常带自己的文案，其余按未知失败处理）。 */
     /** 合法迁移表：DRAFT→PUBLISHED 是前端「发布」按钮的兼容通道，须保留。 */
     private static boolean isAllowed(Integer from, Integer to) {
         if (!NewsStatus.isValid(from) || !NewsStatus.isValid(to)) {

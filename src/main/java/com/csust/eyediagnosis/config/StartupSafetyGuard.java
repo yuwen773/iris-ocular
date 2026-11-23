@@ -55,6 +55,17 @@ public class StartupSafetyGuard {
             violations.add("server.servlet.session.cookie.secure=false"
                     + "（会话 Cookie 未强制 HTTPS；部署环境应设 SESSION_COOKIE_SECURE=true）");
         }
+        // 影像字节与诊断结论都走 gRPC；非回环地址上的明文链路既无加密也无对端校验。
+        // 要么开 TLS，要么显式承认这段链路由网络隔离覆盖——不允许「没注意到就这样跑」。
+        String grpcHost = environment.getProperty("diagnosis.grpc.host", "127.0.0.1");
+        boolean grpcTls = environment.getProperty("diagnosis.grpc.tls-enabled", Boolean.class, false);
+        boolean plaintextAllowed = environment.getProperty(
+                "diagnosis.grpc.plaintext-allowed", Boolean.class, false);
+        if (!isLoopback(grpcHost) && !grpcTls && !plaintextAllowed) {
+            violations.add("diagnosis.grpc.host=" + grpcHost + " 且 tls-enabled=false"
+                    + "（跨主机明文 gRPC：开 TLS，或确认链路已被网络隔离覆盖后设"
+                    + " DIAGNOSIS_GRPC_PLAINTEXT_ALLOWED=true）");
+        }
         if (violations.isEmpty()) {
             log.info("部署安全基线检查通过（profiles={}）", active);
             return;
@@ -63,5 +74,10 @@ public class StartupSafetyGuard {
                 "部署安全基线未满足，拒绝启动（profiles=" + active + "）：\n  - "
                         + String.join("\n  - ", violations)
                         + "\n参考 src/main/resources/application-server.example.yml 的「生产安全基线」一节。");
+    }
+
+    private static boolean isLoopback(String host) {
+        return host == null || host.isBlank()
+                || "127.0.0.1".equals(host) || "::1".equals(host) || "localhost".equalsIgnoreCase(host);
     }
 }

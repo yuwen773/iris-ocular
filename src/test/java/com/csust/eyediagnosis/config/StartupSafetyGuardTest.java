@@ -59,4 +59,36 @@ class StartupSafetyGuardTest {
         assertTrue(message.contains("SimpleLoggerAdvisor"), message);
         assertTrue(message.contains("cookie.secure"), message);
     }
+
+    @Test
+    void plaintextGrpcToARemoteHostBlocksStartup() {
+        MockEnvironment env = deployment().withProperty("diagnosis.grpc.host", "algorithm.internal");
+        env.setActiveProfiles("server");
+        IllegalStateException failure = assertThrows(IllegalStateException.class,
+                () -> new StartupSafetyGuard(env).verify());
+        assertTrue(failure.getMessage().contains("tls-enabled=false"), failure.getMessage());
+    }
+
+    @Test
+    void tlsOrExplicitNetworkIsolationMakesRemoteGrpcAcceptable() {
+        MockEnvironment tls = deployment()
+                .withProperty("diagnosis.grpc.host", "algorithm.internal")
+                .withProperty("diagnosis.grpc.tls-enabled", "true");
+        tls.setActiveProfiles("server");
+        assertDoesNotThrow(() -> new StartupSafetyGuard(tls).verify());
+
+        // 「已知这段链路被私有网络隔离覆盖」也是明确答复，但必须是显式承认
+        MockEnvironment isolated = deployment()
+                .withProperty("diagnosis.grpc.host", "10.0.0.12")
+                .withProperty("diagnosis.grpc.plaintext-allowed", "true");
+        isolated.setActiveProfiles("server");
+        assertDoesNotThrow(() -> new StartupSafetyGuard(isolated).verify());
+    }
+
+    @Test
+    void loopbackGrpcNeedsNoTls() {
+        MockEnvironment env = deployment().withProperty("diagnosis.grpc.host", "127.0.0.1");
+        env.setActiveProfiles("server");
+        assertDoesNotThrow(() -> new StartupSafetyGuard(env).verify());
+    }
 }

@@ -31,10 +31,6 @@ public class McpToolCallback implements ToolCallback {
     /** 当前会话用户；图片引用必须按它的归属签发。 */
     private final Long userId;
 
-    public McpToolCallback(MCPManager mcpManager, McpServer entity, McpTool tool) {
-        this(mcpManager, entity, tool, null, null);
-    }
-
     public McpToolCallback(MCPManager mcpManager, McpServer entity, McpTool tool,
                            AgentImageReferenceResolver imageReferenceResolver, Long userId) {
         this.mcpManager = mcpManager;

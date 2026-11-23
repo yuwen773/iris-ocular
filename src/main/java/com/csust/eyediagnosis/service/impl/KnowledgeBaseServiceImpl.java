@@ -343,7 +343,10 @@ public class KnowledgeBaseServiceImpl extends ServiceImpl<KnowledgeDocumentMappe
                 documentProcessingService.processDocumentCandidate(
                         doc.getId(), tempFile, fileType, resolvedTitle, newVersion,
                         new DocumentProcessingService.CandidateMetadata(
-                                originalFilename, storedFileName, file.getSize(), fileType, resolvedTitle));
+                                originalFilename, storedFileName, file.getSize(), fileType, resolvedTitle,
+                                // 发布成功后由 ETL 清理这份被取代的旧对象；
+                                // 候选失败时它一步都不碰。
+                                doc.getFileUrl()));
             } else {
                 // 失败态/无活动版本：走整代替换，没有旧版本需要保留。
                 doc.setFileName(originalFilename);

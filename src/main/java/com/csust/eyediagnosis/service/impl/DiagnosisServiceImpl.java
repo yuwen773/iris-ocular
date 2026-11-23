@@ -621,14 +621,19 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisMapper, Diagnosis
                 .setRequiresReview(Boolean.TRUE.equals(cache.getRequiresReview()))
                 // 缓存命中也必须带回完整证据：少了这些字段，命中缓存的那次判读
                 // 就会比没命中的那次少一截证据（例如质量门版本变成空）。
-                .setClassificationProbability(cache.getClassificationProbability() == null
-                        ? 0.0 : cache.getClassificationProbability())
                 .setCalibrationVersion(cache.getCalibrationVersion() == null ? "" : cache.getCalibrationVersion())
                 .setImageQualityState(parseImageQualityState(cache.getImageQualityState()))
                 .setImageQualityVersion(cache.getImageQualityVersion() == null ? "" : cache.getImageQualityVersion())
                 .setImageQualityCalibrationState(cache.getImageQualityCalibrationState() == null
-                        ? "" : cache.getImageQualityCalibrationState())
-                .setPatientConclusionAllowed(Boolean.TRUE.equals(cache.getPatientConclusionAllowed()));
+                        ? "" : cache.getImageQualityCalibrationState());
+        // optional 字段只在缓存里真有值时才写：proto3 不带 presence 时，
+        // 写个 0.0 就等于替算法说「模型输出 0%」。
+        if (cache.getClassificationProbability() != null) {
+            builder.setClassificationProbability(cache.getClassificationProbability());
+        }
+        if (cache.getPatientConclusionAllowed() != null) {
+            builder.setPatientConclusionAllowed(cache.getPatientConclusionAllowed());
+        }
         try {
             List<Map<String, Object>> topPredictions = JsonUtils.fromJson(
                     cache.getTopPredictions(), new TypeReference<>() {});
@@ -646,20 +651,20 @@ public class DiagnosisServiceImpl extends ServiceImpl<DiagnosisMapper, Diagnosis
     /**
      * 缓存里的质量门结论字符串 → proto 枚举。
      *
-     * <p>缓存存的就是枚举名，往返必须逐字相等：认不出时返回 UNSPECIFIED，
-     * 不能替换成别的取值——那会让「缓存往返保持原样」的契约在边缘取值上失真。
+     * <p>缓存存的是对外契约值（{@code PASSED / FAILED / NOT_EVALUATED}），不是 proto
+     * 枚举名：这一列同时要进 API 和前端，名字得是产品语言。认不出或为空时返回
+     * UNSPECIFIED（「算法没给」），不要猜成别的取值。
      */
     private static DiagnosisProto.ImageQualityState parseImageQualityState(String value) {
-        if ("QUALITY_PASSED".equals(value) || "PASSED".equals(value)) {
-            return DiagnosisProto.ImageQualityState.QUALITY_PASSED;
+        if (value == null) {
+            return DiagnosisProto.ImageQualityState.QUALITY_UNSPECIFIED;
         }
-        if ("QUALITY_FAILED".equals(value) || "FAILED".equals(value)) {
-            return DiagnosisProto.ImageQualityState.QUALITY_FAILED;
-        }
-        if ("QUALITY_NOT_EVALUATED".equals(value) || "NOT_EVALUATED".equals(value)) {
-            return DiagnosisProto.ImageQualityState.QUALITY_NOT_EVALUATED;
-        }
-        return DiagnosisProto.ImageQualityState.QUALITY_UNSPECIFIED;
+        return switch (value) {
+            case "PASSED" -> DiagnosisProto.ImageQualityState.QUALITY_PASSED;
+            case "FAILED" -> DiagnosisProto.ImageQualityState.QUALITY_FAILED;
+            case "NOT_EVALUATED" -> DiagnosisProto.ImageQualityState.QUALITY_NOT_EVALUATED;
+            default -> DiagnosisProto.ImageQualityState.QUALITY_UNSPECIFIED;
+        };
     }
 
     private static DiagnosisProto.OodStatus parseOodStatus(String value) {

@@ -81,12 +81,40 @@ public final class DiagnosisEvidence {
         this.rejected = resp.getRejected();
         this.abstainReason = resp.getAbstainReason();
         this.requiresReview = resp.getRequiresReview();
-        this.classificationProbability = resp.getClassificationProbability();
-        this.calibrationVersion = resp.getCalibrationVersion();
-        this.imageQualityState = resp.getImageQualityState().name();
-        this.imageQualityVersion = resp.getImageQualityVersion();
-        this.imageQualityCalibrationState = resp.getImageQualityCalibrationState();
-        this.patientConclusionAllowed = resp.getPatientConclusionAllowed();
+        // 缺字段时留空，不猜：optional 字段用 has* 判断 presence，
+        // 否则 proto3 的默认值 0 / 0.0 / false 会被当成「算法真的这么说了」。
+        this.classificationProbability = resp.hasClassificationProbability()
+                ? resp.getClassificationProbability() : null;
+        this.calibrationVersion = blankToNull(resp.getCalibrationVersion());
+        this.imageQualityState = imageQualityStateOf(resp.getImageQualityState());
+        this.imageQualityVersion = blankToNull(resp.getImageQualityVersion());
+        this.imageQualityCalibrationState = blankToNull(resp.getImageQualityCalibrationState());
+        this.patientConclusionAllowed = resp.hasPatientConclusionAllowed()
+                ? resp.getPatientConclusionAllowed() : null;
+    }
+
+    /** 空串与「没给」在库里都该是 NULL，免得出现「版本号是空字符串」这种半真半假的值。 */
+    private static String blankToNull(String value) {
+        return StrUtil.isBlank(value) ? null : value;
+    }
+
+    /**
+     * proto 的质量门枚举 → 对外契约值。
+     *
+     * <p>对外只说 {@code PASSED / FAILED / NOT_EVALUATED} 三个词，不透出 proto 的
+     * {@code QUALITY_} 前缀：这一列要进数据库、进 API、进前端，名字得是产品语言，
+     * 而不是某版 IDL 的实现细节。UNSPECIFIED 表示「算法没给」，落 null。
+     */
+    static String imageQualityStateOf(DiagnosisProto.ImageQualityState state) {
+        if (state == null) {
+            return null;
+        }
+        return switch (state) {
+            case QUALITY_PASSED -> "PASSED";
+            case QUALITY_FAILED -> "FAILED";
+            case QUALITY_NOT_EVALUATED -> "NOT_EVALUATED";
+            default -> null;
+        };
     }
 
     /**

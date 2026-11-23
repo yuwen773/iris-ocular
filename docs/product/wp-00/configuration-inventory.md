@@ -98,7 +98,7 @@
 | `eye-diagnosis.rag.chunk-size` / `chunk-overlap` | `application.yml:102-103` | `agent/rag/TextChunkerService.java:16,19` | 切分粒度 | DYNAMIC | startup | 中（只影响新入库） | 后续重构 |
 | `eye-diagnosis.rag.search.top-k` / `final-top-k` / `similarity-threshold` | `application.yml:110-112` | `agent/tools/DocumentSearchTool.java:26,29,32` | 检索参数 | DYNAMIC | startup | 中 | 后续重构 |
 | `eye-diagnosis.rag.rerank.enabled` | `application.yml:114` | `DocumentSearchTool.java:35` | Rerank 开关 | STATIC_POLICY | startup | 中 | 保留 |
-| `eye-diagnosis.rag.hybrid-search.enabled` | `application.yml:117` | `DocumentSearchTool.java:38` | 混合检索开关 | STATIC_POLICY | startup | **高**（代码默认 `false` 与 yml `true` 相反，见 M10） | 保留 |
+| `eye-diagnosis.rag.hybrid-search.enabled` | `application.yml` | `DocumentSearchTool.java` | 混合检索开关 | STATIC_POLICY | startup | 低（代码与 yml 均为 `true`，M10 已消解） | 保留 |
 | `eye-diagnosis.rag.hybrid-search.rrf-k` | `application.yml:118` | `DocumentSearchTool.java:41,269` | RRF 常数 | DYNAMIC | startup | 低 | 后续重构 |
 | `eye-diagnosis.rag.corpus.seed-enabled` / `resource-pattern` | `application.yml:106-108` | `agent/rag/BuiltinCorpusSeeder.java:40,44,52` | 启动播种（产生嵌入费用） | STATIC_POLICY / DEPLOY_ONLY | startup | 高 | 保留 |
 | `eye-diagnosis.rag.evaluation.enabled` | `application.yml:119-120` | **无消费者**（测试由 `RUN_RAG_EVALUATION_TESTS` 环境变量控制） | — | — | — | 低 | 后续重构 |
@@ -202,7 +202,7 @@
 | M7 | Chroma 三键在 `application.yml` 缺失 | 只有 server 示例有 | 补默认值 |
 | M8 | COS / gRPC 键在 `application.yml` 缺失 | 只有 server 示例与 CI 有 | 明确「必须由 profile 提供」 |
 | M9 | 上传上限冲突 | 框架 10MB（`application.yml:14`） vs 代码 2MB（`FileManager.java:102`、`AgentImageUploadService.java:44`） | 统一口径 |
-| M10 | 混合检索默认值相反 | 代码 `false`（`DocumentSearchTool.java:38`） vs yml `true`（`application.yml:117`） | 以 yml 为唯一真源 |
+| M10 | 混合检索默认值相反（**已消解 2026-11-23**） | 代码与 yml 均为 `true`：词法通道改为按 owner 元数据直取全量分块，且词法命中必须过相似度阈值 | — |
 | M11 | `policy-version` 默认值不同 | 代码空 vs yml `${INFERENCE_POLICY_VERSION:medical-safety-v3-quality-observe}` | 统一 |
 | M12 | tracked yml 含凭据占位字面量 | `application.yml:99`（值不复制） | 改为 `${DASHSCOPE_API_KEY}` |
 | M13 | MCP 超时绕过配置 | `MCPManager.java:73-74,86-87,104` 硬编码 30/60s | 接线到配置 |

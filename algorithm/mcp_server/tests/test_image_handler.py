@@ -9,6 +9,26 @@ from mcp_server import image_ref
 from mcp_server.image_handler import resolve_image
 
 
+class _FakeStream:
+    """httpx 流式响应的替身：实现 ``async with`` 与 ``aiter_bytes``。"""
+
+    def __init__(self, content: bytes, headers: dict | None = None):
+        self._content = content
+        self.headers = headers or {}
+
+    def raise_for_status(self) -> None:
+        return None
+
+    async def aiter_bytes(self):
+        yield self._content
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc_info):
+        return False
+
+
 def _make_test_image_bytes() -> bytes:
     """Minimal 1x1 red PNG."""
     import struct, zlib
@@ -77,14 +97,11 @@ async def test_resolve_http_url(monkeypatch):
     # 显式放开任意 URL 后，SSRF 过滤仍然生效。
     monkeypatch.setenv("MCP_ALLOW_REMOTE_URLS", "true")
     img_bytes = _make_test_image_bytes()
-    mock_response = MagicMock()
-    mock_response.content = img_bytes
-    mock_response.raise_for_status = MagicMock()
 
     mock_client = AsyncMock()
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=False)
-    mock_client.get = AsyncMock(return_value=mock_response)
+    mock_client.stream = MagicMock(return_value=_FakeStream(img_bytes))
 
     # 解析结果固定成公网地址：用例不依赖真实 DNS，但 SSRF 校验仍然生效。
     monkeypatch.setattr(
@@ -93,7 +110,7 @@ async def test_resolve_http_url(monkeypatch):
     )
     with patch("mcp_server.image_handler._get_client", return_value=mock_client):
         result_path = await resolve_image("https://example.com/eye.png")
-        mock_client.get.assert_called_once_with("https://example.com/eye.png", timeout=30)
+        assert mock_client.stream.call_args.args == ("GET", "https://example.com/eye.png")
         assert os.path.exists(result_path)
 
 
@@ -140,22 +157,53 @@ async def test_signed_reference_is_accepted(monkeypatch):
     monkeypatch.setenv("MCP_IMAGE_REF_SECRET", "s3cret")
     reference = image_ref.sign("https://cos.example.com/agent-chat/7/a.png", "s3cret", 300)
 
-    mock_response = MagicMock()
-    mock_response.content = _make_test_image_bytes()
-    mock_response.raise_for_status = MagicMock()
-
     mock_client = AsyncMock()
-    mock_client.get = AsyncMock(return_value=mock_response)
+    mock_client.stream = MagicMock(return_value=_FakeStream(_make_test_image_bytes()))
 
     with patch("mcp_server.image_handler._get_client", return_value=mock_client):
         result_path = await resolve_image(reference)
         assert os.path.exists(result_path)
-        assert mock_client.get.await_args.args[0] == "https://cos.example.com/agent-chat/7/a.png"
+        assert mock_client.stream.call_args.args[1] == "https://cos.example.com/agent-chat/7/a.png"
+
+
+@pytest.mark.asyncio
+async def test_oversized_response_is_refused_from_content_length(monkeypatch):
+    # 声明了超大 Content-Length 就不必把正文收下来。
+    monkeypatch.setenv("MCP_ALLOW_REMOTE_URLS", "true")
+    monkeypatch.setattr(
+        "mcp_server.image_handler._resolve_host_ips",
+        lambda host, port: {"93.184.216.34"},
+    )
+    oversized = str(60 * 1024 * 1024)
+    mock_client = AsyncMock()
+    mock_client.stream = MagicMock(
+        return_value=_FakeStream(b"x", headers={"content-length": oversized})
+    )
+    with patch("mcp_server.image_handler._get_client", return_value=mock_client):
+        with pytest.raises(ValueError, match="50MB"):
+            await resolve_image("https://example.com/huge.png")
+
+
+@pytest.mark.asyncio
+async def test_streaming_download_stops_at_the_size_cap(monkeypatch):
+    # 对方不声明长度也不能把内存吃光：边下边数，超过上限立刻中止。
+    monkeypatch.setenv("MCP_ALLOW_REMOTE_URLS", "true")
+    monkeypatch.setattr("mcp_server.image_handler._MAX_DOWNLOAD_BYTES", 8)
+    monkeypatch.setattr(
+        "mcp_server.image_handler._resolve_host_ips",
+        lambda host, port: {"93.184.216.34"},
+    )
+    mock_client = AsyncMock()
+    mock_client.stream = MagicMock(return_value=_FakeStream(b"0123456789"))
+    with patch("mcp_server.image_handler._get_client", return_value=mock_client):
+        with pytest.raises(ValueError, match="50MB"):
+            await resolve_image("https://example.com/huge.png")
 
 
 @pytest.mark.asyncio
 async def test_reference_without_configured_secret_is_refused(monkeypatch):
     monkeypatch.delenv("MCP_IMAGE_REF_SECRET", raising=False)
+    monkeypatch.delenv("IMAGE_REFERENCE_SECRET", raising=False)
     reference = image_ref.sign("https://cos.example.com/a.png", "s3cret", 300)
     with pytest.raises(ValueError, match="图片引用不可用"):
         await resolve_image(reference)

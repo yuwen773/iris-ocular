@@ -82,9 +82,13 @@ eye-diagnosis:
       enabled: true
       model: gte-rerank-v2
     hybrid-search:
-      # 词法通道是「语义近邻前 1000 条」上的 BM25，不是全量倒排索引；开启前先评估语料规模。
-      enabled: false
+      # 词法通道按 owner 元数据直取该用户可见的全部分块做 BM25，命中后回向量库核对阈值；
+      # 默认开启（与 application.yml 一致）。语料规模大时按 max-corpus-chunks 调内存边界。
+      enabled: true
       rrf-k: 60
+      max-corpus-chunks: 20000
+      max-total-corpus-chunks: 40000
+      cache-max-users: 20
 
 # ── 生产安全基线 ────────────────────────────────────────────────────────────
 # 下面四项在 application.yml 里已经是安全默认值；这里显式写出来，是因为它们一旦被
@@ -108,3 +112,18 @@ server:
       cookie:
         # 站点走 HTTPS 时必须为 true；由 StartupSafetyGuard 强制。
         secure: true
+
+# ── gRPC 诊断通道 ───────────────────────────────────────────────────────────
+# 影像字节与诊断结论都走这条链路。非回环地址上的明文连接既无加密也无对端校验，
+# 因此跨主机部署必须二选一，否则 StartupSafetyGuard 在 server/prod 下拒绝启动：
+#   1) 开 TLS（下面的 tls-enabled: true；内网私有 CA 用 tls-ca-cert-path，需双向认证再加客户端证书）；
+#   2) 或确认这段链路已被网络隔离覆盖，显式承认 plaintext-allowed: true。
+diagnosis:
+  grpc:
+    host: 127.0.0.1            # 算法服务地址；跨主机时改成内网地址
+    port: 50051
+    tls-enabled: false
+    # tls-ca-cert-path: /etc/iris/certs/ca.pem
+    # tls-client-cert-path: /etc/iris/certs/client.pem
+    # tls-client-key-path: /etc/iris/certs/client-key.pem
+    plaintext-allowed: false

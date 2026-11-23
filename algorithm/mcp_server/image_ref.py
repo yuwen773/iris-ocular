@@ -77,7 +77,9 @@ def verify(reference: str, secret: str, now: int | None = None) -> str:
     格式不对、没有配置密钥——一律不放行。
     """
     if not secret:
-        raise ImageReferenceError("未配置图片引用密钥（MCP_IMAGE_REF_SECRET），拒绝使用图片引用")
+        raise ImageReferenceError(
+            "未配置图片引用密钥（MCP_IMAGE_REF_SECRET / IMAGE_REFERENCE_SECRET），拒绝使用图片引用"
+        )
     if not is_reference(reference):
         raise ImageReferenceError("不是合法的图片引用")
 
