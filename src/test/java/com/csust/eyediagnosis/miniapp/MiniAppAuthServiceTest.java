@@ -128,21 +128,24 @@ class MiniAppAuthServiceTest {
     }
 
     @Test
-    void bindingToDeletedAccountRecreatesUserAndRebinds() {
+    void bindingToDeletedAccountIsRefusedInsteadOfResurrectingTheAccount() {
         UserWechat binding = new UserWechat();
         binding.setUserId(5L);
         binding.setAppid("wx-app");
         binding.setOpenid("open-4");
         stubBindingLookup(binding);
+        // 管理员删过这个账号：逻辑删除后 selectById 查不到。
         when(userMapper.selectById(5L)).thenReturn(null);
         when(weChatClient.exchange("code")).thenReturn(
                 new WeChatCode2SessionClient.WeChatSession("open-4", null));
 
-        MiniAppAuthService.LoginResult result = authService.login("code");
+        BusinessException error = assertThrows(BusinessException.class, () -> authService.login("code"));
 
-        assertEquals(100L, result.user().getId());
-        verify(bindingMapper).updateById(binding);
-        assertEquals(100L, binding.getUserId());
+        // 删除必须真的生效：不能静默建一个新号顶上去（那等于让封禁/删除失效）。
+        assertEquals(40300, error.getCode());
+        verify(userMapper, never()).insert(any(User.class));
+        verify(bindingMapper, never()).insert(any(UserWechat.class));
+        verify(tokenService, never()).issue(anyLong());
     }
 
     @Test

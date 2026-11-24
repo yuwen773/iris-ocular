@@ -4,6 +4,7 @@ import com.csust.eyediagnosis.constant.MiniAppConstant;
 import jakarta.servlet.FilterChain;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
@@ -71,6 +72,33 @@ class MiniAppTokenFilterTest {
 
         assertEquals(200, response.getStatus());
         assertTrue(response.getContentAsString().contains("\"code\":40100"));
+        verify(chain, never()).doFilter(any(), any());
+    }
+
+    @Test
+    void invalidTokenDoesNotBlockSafeMethods() throws Exception {
+        when(tokenService.resolve("stale")).thenReturn(null);
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/news/list");
+        request.addHeader(MiniAppConstant.AUTHORIZATION_HEADER, "Bearer stale");
+
+        filter.doFilter(request, response, chain);
+
+        // 公开的只读接口不该被一枚过期令牌一起打挂；受保护的只读接口由鉴权层给 40100。
+        assertNull(request.getAttribute(MiniAppConstant.REQUEST_ATTR_USER_ID));
+        assertNull(request.getAttribute(MiniAppConstant.REQUEST_ATTR_TOKEN_AUTH));
+        verify(chain).doFilter(any(), any());
+        assertEquals(200, response.getStatus());
+    }
+
+    @Test
+    void tokenStoreFailureFailsClosedWithSystemErrorEnvelope() throws Exception {
+        when(tokenService.resolve("any")).thenThrow(new RedisConnectionFailureException("redis down"));
+
+        filter.doFilter(request("Bearer any"), response, chain);
+
+        // 令牌库不可用时不能放行匿名请求：回系统错误信封，不进业务链路。
+        assertEquals(200, response.getStatus());
+        assertTrue(response.getContentAsString().contains("\"code\":50000"));
         verify(chain, never()).doFilter(any(), any());
     }
 
