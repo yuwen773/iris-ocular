@@ -64,7 +64,7 @@ V38、V39 同样只新增表（`t_user_feedback`、`t_user_notification`），�
 升级前已存在的用户、判读与资讯数据在升级后行为与升级前一致；这两个功能在空历史库上
 就是两张空表。
 
-### 1.1 编号协调：V35–V41 的全局分配（2026-11-24）
+### 1.1 编号协调：V35–V42 的全局分配（2026-11-24）
 
 本分支（`t3/add-feedback-feature`）新增 **V38**（用户反馈）与 **V39**（站内通知）。
 V35–V37 已被其它在途分支占用，它们不在本分支的目录里：
@@ -74,7 +74,7 @@ V35–V37 已被其它在途分支占用，它们不在本分支的目录里：
 | V35 | 小程序后端（PR #160，未合并） | `V35__miniapp_wechat_binding.sql` |
 | V36 / V37 | Iris Control Center WP-01D（PR #164，未合并） | `V36__control_center_core.sql`、`V37__control_center_publish_approval.sql` |
 | V38 / V39 | 本分支 | `V38__user_feedback.sql`、`V39__user_notification.sql` |
-| V40 / V41 | 新闻摄取（无 PR，在途开发） | `V40__news_ingestion_pool.sql`、`V41__news_curation_and_receipts.sql` |
+| ~~V39–V41~~ | 新闻线 `t3/plan-iris-news-engine`（无 PR，在途）**当前也占 V39，与本分支撞号** | `V39__news_ingestion_pool.sql`、`V40__news_curation_and_receipts.sql`、`V41__news_editorial_publish_and_revisions.sql` |
 
 V32–V34 已随 PR #156 合入 master，V35 最早被本分支占用（当时叫 V35__user_feedback），
 随后让给小程序分支、配置中心也让开 V35 后取 V36/V37，本分支因此落在 V38/V39。由此产生
@@ -84,6 +84,9 @@ V32–V34 已随 PR #156 合入 master，V35 最早被本分支占用（当时�
   随后到达的 V35–V37 会被 Flyway 判为 out-of-order 而拒绝启动。
 - 因此**合并顺序必须是 V35（小程序）→ V36/V37（配置中心）→ V38/V39（本分支）**；
   不能靠打开 out-of-order 掩盖。
+- **新闻线还没开 PR，它开 PR 前必须把 V39–V41 整体后移到 V40–V42**（它的 V39 与本分支的
+  V39 同号，同号两脚本会让 Flyway 启动失败）。按「谁先合谁保留」，本分支已进入评审、
+  新闻线仍在开发，故由新闻线让号。
 - 重编号成本很低：改文件名 + `FlywayMySqlIntegrationTest` 里的版本与迁移数断言，
   脚本内容不含自身版本号（本分支已按此从 V35 改到 V37，再改到 V38/V39，演练过两次）。
 
