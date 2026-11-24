@@ -13,10 +13,12 @@
 | 发布生命周期 | 0 草稿 → 3 待审核 / 1 已发布 / 2 下架；合法迁移见 `NewsLifecycleService` | `constant/NewsStatus.java` |
 | 资讯审计（NewsAudit） | 状态与内容变更留痕，payload 只记字段级 diff，不含富文本正文 | `model/entity/NewsAudit.java` |
 | Agent 会话 | 一次智能对话的线程；消息写入由 `ChatMessageWriter` 承担事务 | `agent/service/` |
-| MCP 服务 | 用户可启用的外部工具服务，会话覆盖 → 全局启用 → 禁用的解析优先级 | `agent/manager/MCPManager.java` |
+| 流式故障（AgentStreamError） | Agent 流里失败时对外的机器可读码与人话；模型服务故障与「服务端自己坏了」分开 | `agent/AgentStreamError.java` |
+| MCP 服务 | 用户可启用的外部工具服务；解析优先级（会话覆盖 → 全局启用 → 禁用）在拦截器里，客户端与工具发现缓存在这里 | 优先级 `agent/interceptor/TextMcpModelInterceptor.java`；客户端 `agent/manager/MCPManager.java` |
 | 知识库文档（KnowledgeDocument） | RAG 文档的上传、切块与向量化记录 | `model/entity/` |
 | 知识索引版本（indexVersion） | 一次文档处理的服务端 UUID；仅 READY 文档当前版本的片段和引用可作为证据，失败代及旧代必须排除 | `KnowledgeDocument` / `DocumentProcessingService` / `DocumentSearchTool` |
 | 公开影像前缀审计（public/） | `public/` 下判读原图与头像**没有任务表登记**，只做只读对账：列出无数据库引用的对象并告警，删除仍由人工决定（同一前缀混两类对象，删错不可恢复） | `upload/audit/PublicImageOrphanAuditor.java` |
+| 上传任务（UploadTask） | 一次图片上传的状态机与补偿对账；清理 COS 上无任务行登记的孤儿对象 | `upload/state/`、`t_upload_task` |
 | 用户反馈（UserFeedback） | **登录用户**对产品、判读体验或 Agent 回答提出的意见，可关联一次判读任务或一个 Agent 会话，由管理员处理与回复；**不进入**医疗结论、复核队列与统计口径 | `model/entity/UserFeedback.java`、`service/UserFeedbackLifecycleService.java` |
 | 站内通知（UserNotification） | 一条「有东西变了、去哪里看」的可读消息；文案在发送时定稿存库，正文只给指针（不含结论 / 病名 / 严重度）；已读且超过保留期即物理删除，不是台账 | `model/entity/UserNotification.java`、`service/NotificationService.java`、`constant/NotificationType.java` |
 

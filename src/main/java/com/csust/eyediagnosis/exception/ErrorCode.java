@@ -68,6 +68,12 @@ public enum ErrorCode {
      */
     STORAGE_ERROR(50002,"影像存储失败"),
 
+    // 模型服务（DashScope）侧的失败：与「服务端自己坏了」分开，
+    // 前端据此说清是配置/额度问题还是临时故障。
+    MODEL_SERVICE_UNAUTHORIZED(50301,"模型服务鉴权失败"),
+    MODEL_SERVICE_QUOTA_EXCEEDED(50302,"模型服务额度不足"),
+    MODEL_SERVICE_UNAVAILABLE(50303,"模型服务不可用"),
+
     DIAGNOSIS_REJECTED_QUALITY(40010,"图片质量不合格"),
     DIAGNOSIS_REJECTED_OOD(40011,"图像分布外"),
     DIAGNOSIS_NEEDS_REVIEW(40012,"诊断结果需人工复核"),
