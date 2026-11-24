@@ -1,0 +1,307 @@
+package com.csust.eyediagnosis.newsworkbench;
+
+import com.csust.eyediagnosis.newscuration.NewsCurationModels;
+
+import java.time.Instant;
+import java.util.List;
+
+/**
+ * Typed DTOs and response views for {@link NewsWorkbenchController} (WP-05).
+ */
+public final class NewsWorkbenchModels {
+
+    private NewsWorkbenchModels() {
+    }
+
+    public record PageVO<T>(
+            List<T> records,
+            long total,
+            long current,
+            long size,
+            long pages
+    ) {
+    }
+
+    public record SourceCounts(
+            int totalSources,
+            int enabledSources
+    ) {
+    }
+
+    public record TaskCounts(
+            long pendingCount,
+            long leasedCount,
+            long retryScheduledCount,
+            long completedCount,
+            long failedCount,
+            long expiredLeaseCount
+    ) {
+    }
+
+    public record MaterialCounts(
+            long visibleMaterialCount,
+            long visibleRevisionCount
+    ) {
+    }
+
+    public record CandidateCounts(
+            long acceptedCount,
+            long needsReviewCount,
+            long rejectedCount,
+            long evidenceViolationCount,
+            long needsReconciliationCount,
+            long draftedNewsCount
+    ) {
+    }
+
+    public record ReceiptCounts(
+            long unknownOutcomeCount,
+            long inFlightCount,
+            long staleInFlightCount,
+            long succeededCount
+    ) {
+    }
+
+    public record OverviewVO(
+            SourceCounts sources,
+            TaskCounts tasks,
+            MaterialCounts materials,
+            CandidateCounts candidates,
+            ReceiptCounts receipts,
+            BudgetSummaryVO todayBudget,
+            boolean curationEnabled,
+            BenchRunSummaryVO latestBenchRun
+    ) {
+    }
+
+    public record SourceCursorVO(
+            long sourceConfigVersion,
+            String queryText,
+            String committedCursor,
+            Instant updatedAt
+    ) {
+    }
+
+    public record SourceDetailVO(
+            String source,
+            boolean enabled,
+            Instant updatedAt,
+            long visibleMaterialCount,
+            long pendingTaskCount,
+            long leasedTaskCount,
+            long failedTaskCount,
+            long completedTaskCount,
+            List<SourceCursorVO> cursors
+    ) {
+    }
+
+    public record CollectionTaskVO(
+            String taskId,
+            String source,
+            long sourceConfigVersion,
+            String queryText,
+            String windowStartOn,
+            String windowEndBefore,
+            String status,
+            long generation,
+            int attemptCount,
+            int maxAttempts,
+            String leaseWorkerId,
+            Instant leaseExpiresAt,
+            boolean leaseExpired,
+            Instant nextAttemptAt,
+            String lastFailureCode,
+            Integer committedBatchCount,
+            Integer committedRecordCount,
+            String committedCursor,
+            Instant completedAt,
+            Instant createdAt,
+            Instant updatedAt
+    ) {
+    }
+
+    /**
+     * Public-to-admin lease audit view. Deliberately omits {@code leaseTokenHash}.
+     */
+    public record LeaseRecordVO(
+            String taskId,
+            long generation,
+            String workerId,
+            Instant leaseExpiresAt,
+            Instant claimedAt
+    ) {
+    }
+
+    public record CandidateSummaryVO(
+            long id,
+            long materialId,
+            long materialRevisionId,
+            String source,
+            String sourceRecordId,
+            String contentDigest,
+            String policyVersion,
+            String callId,
+            String status,
+            String decision,
+            String evidenceTier,
+            Integer relevanceScore,
+            String suggestedTitle,
+            String suggestedSummary,
+            String category,
+            int claimsCount,
+            int violationsCount,
+            String evidenceSnapshotSha256,
+            Long linkedNewsId,
+            Integer linkedNewsStatus,
+            Instant createdAt,
+            Instant updatedAt
+    ) {
+    }
+
+    public record CandidateDetailVO(
+            long id,
+            long materialId,
+            long materialRevisionId,
+            String source,
+            String sourceRecordId,
+            String contentDigest,
+            String policyVersion,
+            String callId,
+            String status,
+            String decision,
+            String evidenceTier,
+            Integer relevanceScore,
+            String suggestedTitle,
+            String suggestedSummary,
+            String category,
+            List<String> limitations,
+            List<NewsCurationModels.CurationClaim> claims,
+            List<NewsCurationModels.EvidenceViolation> violations,
+            String evidenceSnapshotSha256,
+            String evidenceSnapshotJson,
+            CallReceiptVO callReceipt,
+            Long linkedNewsId,
+            Integer linkedNewsStatus,
+            Instant createdAt,
+            Instant updatedAt
+    ) {
+    }
+
+    public record BudgetSummaryVO(
+            String budgetDate,
+            String scope,
+            int maxCalls,
+            int usedCalls,
+            int reservedCalls,
+            long maxTokens,
+            long usedTokens,
+            long reservedTokens,
+            long maxCostMicros,
+            long usedCostMicros,
+            long reservedCostMicros,
+            boolean circuitBroken,
+            String circuitReason,
+            Instant updatedAt
+    ) {
+    }
+
+    public record CallReceiptVO(
+            String callId,
+            String idempotencyKey,
+            long materialRevisionId,
+            String policyVersion,
+            int attemptNo,
+            String budgetDate,
+            String budgetScope,
+            String provider,
+            String modelName,
+            String promptSha256,
+            String state,
+            long reservedTokens,
+            long reservedCostMicros,
+            Integer promptTokens,
+            Integer completionTokens,
+            Long actualCostMicros,
+            Integer httpStatus,
+            String providerRequestId,
+            String responseSha256,
+            String errorCode,
+            Integer latencyMs,
+            String reconciledBy,
+            String reconcileNote,
+            Instant reconciledAt,
+            Instant reservedAt,
+            Instant dispatchedAt,
+            Instant deadlineAt,
+            Instant completedAt
+    ) {
+    }
+
+    public record BenchRunSummaryVO(
+            String runId,
+            String datasetVersion,
+            String datasetSha256,
+            String policyVersion,
+            String mode,
+            int totalCases,
+            int passedCases,
+            int precisionBps,
+            int recallBps,
+            int evidenceCatchBps,
+            int licenseComplianceBps,
+            int injectionCatchBps,
+            int totalCalls,
+            long totalTokens,
+            long totalCostMicros,
+            boolean gatePassed,
+            Instant createdAt
+    ) {
+    }
+
+    public record SourceToggleRequest(Boolean enabled) {
+    }
+
+    public record RegisterSourceConfigRequest(
+            Long sourceConfigVersion,
+            String query,
+            String initialCursor
+    ) {
+    }
+
+    public record EnqueueTaskRequest(
+            String taskId,
+            String source,
+            Long sourceConfigVersion,
+            String query,
+            String windowStartOn,
+            String windowEndBefore,
+            Integer maxAttempts
+    ) {
+    }
+
+    public record ConfigureBudgetRequest(
+            String budgetDate,
+            String scope,
+            Integer maxCalls,
+            Long maxTokens,
+            Long maxCostMicros
+    ) {
+    }
+
+    public record ResetCircuitRequest(
+            String budgetDate,
+            String scope
+    ) {
+    }
+
+    public record ReconcileReceiptRequest(
+            String resolution,
+            String note,
+            String recoveredRawJson,
+            Integer promptTokens,
+            Integer completionTokens,
+            Long actualCostMicros,
+            String providerRequestId
+    ) {
+    }
+}

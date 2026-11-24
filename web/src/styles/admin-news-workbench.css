@@ -1,0 +1,368 @@
+/* ==========================================================================
+   Iris · 管理员资讯引擎工作台 & 编辑页溯源抽屉
+   --------------------------------------------------------------------------
+   零硬编码色值（strictly enforced by hardcoded-colors.test.ts）：
+   全部取自 tokens.css 的 --admin-* / --risk-* / --danger / --font-* / --radius-*。
+   严禁将 Tailwind utility 类与手写 BEM 类混写在同一 className 上。
+   ========================================================================== */
+
+.admin-workbench {
+  display: grid;
+  gap: 22px;
+}
+
+.admin-workbench__statusbadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.admin-workbench__tiles {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.admin-workbench__tabsrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.admin-workbench__tabs {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--admin-line);
+  border-radius: var(--admin-radius-control);
+  background: var(--admin-surface-deep);
+}
+
+.admin-workbench__tab {
+  padding: 7px 14px;
+  border: 1px solid transparent;
+  border-radius: calc(var(--admin-radius-control) - 3px);
+  background: transparent;
+  color: var(--admin-text-muted);
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    background var(--fast),
+    color var(--fast),
+    border-color var(--fast);
+}
+
+.admin-workbench__tab:hover {
+  color: var(--admin-text);
+  background: color-mix(in srgb, var(--admin-surface) 70%, transparent);
+}
+
+.admin-workbench__tab[aria-selected="true"] {
+  border-color: var(--admin-line);
+  background: var(--admin-surface);
+  color: var(--admin-primary);
+  font-weight: 600;
+  box-shadow: var(--admin-shadow-card);
+}
+
+.admin-workbench__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--admin-line-soft);
+  border-radius: var(--admin-radius-card);
+  background: var(--admin-surface);
+  box-shadow: var(--admin-shadow-card);
+}
+
+.admin-workbench__filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.admin-workbench__select,
+.admin-workbench__input,
+.admin-workbench__textarea {
+  padding: 7px 10px;
+  border: 1px solid var(--admin-line-strong);
+  border-radius: var(--radius-md);
+  background: var(--admin-surface);
+  color: var(--admin-text);
+  font-size: 13px;
+}
+
+.admin-workbench__select {
+  height: 36px;
+}
+
+.admin-workbench__input {
+  width: 100%;
+  height: 36px;
+}
+
+.admin-workbench__textarea {
+  width: 100%;
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.admin-workbench__field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.admin-workbench__label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--admin-text-faint);
+}
+
+.admin-workbench__formgrid {
+  display: grid;
+  gap: 14px;
+}
+
+.admin-workbench__sources {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.admin-workbench__sourcecard {
+  display: grid;
+  gap: 14px;
+  padding: 18px 20px;
+  border: 1px solid var(--admin-line-soft);
+  border-radius: var(--admin-radius-card);
+  background: var(--admin-surface);
+  box-shadow: var(--admin-shadow-card);
+}
+
+.admin-workbench__sourcehead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.admin-workbench__sourcename {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--admin-text);
+}
+
+.admin-workbench__sourceactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.admin-workbench__cursorlist {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+
+.admin-workbench__cursoritem {
+  display: grid;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid var(--admin-line);
+  border-radius: var(--radius-md);
+  background: var(--admin-surface-deep);
+  font-size: 12px;
+}
+
+.admin-workbench__facts {
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.admin-workbench__factrow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--admin-line);
+  font-size: 12.5px;
+}
+
+.admin-workbench__factkey {
+  color: var(--admin-text-faint);
+}
+
+.admin-workbench__factval {
+  color: var(--admin-text);
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.admin-workbench__drawerstack {
+  display: grid;
+  gap: 18px;
+}
+
+.admin-workbench__section {
+  display: grid;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--admin-line);
+}
+
+.admin-workbench__sectiontitle {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: var(--admin-text-faint);
+}
+
+.admin-workbench__claimlist,
+.admin-workbench__revlist {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 10px;
+}
+
+.admin-workbench__claimcard,
+.admin-workbench__revcard {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--admin-line);
+  border-radius: var(--radius-md);
+  background: var(--admin-surface-deep);
+}
+
+.admin-workbench__quote {
+  margin: 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--admin-primary);
+  font-size: 12px;
+  color: var(--admin-text-muted);
+}
+
+.admin-workbench__pre {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--admin-line);
+  border-radius: var(--radius-md);
+  background: var(--admin-surface);
+  color: var(--admin-text);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.admin-workbench__draweractions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.admin-workbench__note {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--admin-text-muted);
+}
+
+.admin-workbench__footer {
+  margin: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--admin-line);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--admin-text-faint);
+}
+
+.admin-workbench__mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.admin-workbench__paneltitle {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--admin-text);
+}
+
+/* ── 编辑页右侧栏 · 证据溯源与修订卡片 ─────────────────────── */
+
+.admin-newsedit__provenance {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--admin-line);
+}
+
+.admin-newsedit__provrow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.admin-newsedit__provkey {
+  color: var(--admin-text-faint);
+}
+
+.admin-newsedit__provval {
+  color: var(--admin-text);
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+@media (max-width: 1100px) {
+  .admin-workbench__tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-workbench__sources {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .admin-workbench__tiles {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-workbench__tabs {
+    width: 100%;
+  }
+
+  .admin-workbench__tab {
+    flex: 1 1 auto;
+    text-align: center;
+  }
+}

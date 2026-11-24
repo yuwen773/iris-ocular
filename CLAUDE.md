@@ -77,6 +77,7 @@ Java 21 与本机 MySQL 实例的环境事实见主检出目录的 `CLAUDE.local
 | KnowledgeBaseController | `/api/knowledge/*` | RAG document management |
 | NewsController | `/api/news/*` | News CRUD |
 | NewsWorkerLeaseController | `/api/internal/news/v1/leases/*` | 内部资讯采集 Worker 租约领取、批次上报、完成与失败回执（机器凭证鉴权） |
+| NewsWorkbenchController | `/api/admin/news-workbench/*` | 管理员资讯引擎工作台：任务追踪、信源与预算管理、候选证据审查、调用对账与评测历史 |
 | ControlledReferenceController | `/api/controlled-references/*` | 受控参考资料上传、治理与检索 |
 | DoctorReviewController | `/api/doctor-reviews/*` | 医生复核冻结草稿 |
 | PatientDraftTestController / PatientDraftSeedController | `/api/patient-draft-test/*` | 仅管理员、需显式开启的草稿校验 |

@@ -1,6 +1,7 @@
 import { NavLink } from "react-router-dom"
 import {
   ChartColumn,
+  Layers,
   LayoutDashboard,
   Library,
   Newspaper,
@@ -9,7 +10,7 @@ import {
   type LucideIcon,
 } from "lucide-react"
 
-/** 侧栏六项。导出供测试/复用；路由与占位页编号同源。 */
+/** 侧栏七项。导出供测试/复用；路由与占位页编号同源。 */
 export const ADMIN_NAV = [
   { to: "/admin/dashboard", code: "01", label: "仪表盘", icon: LayoutDashboard },
   { to: "/admin/users", code: "02", label: "用户管理", icon: Users },
@@ -17,6 +18,7 @@ export const ADMIN_NAV = [
   { to: "/admin/diagnosis", code: "04", label: "诊断管理", icon: Stethoscope },
   { to: "/admin/knowledge", code: "05", label: "知识库", icon: Library },
   { to: "/admin/data-analysis", code: "06", label: "数据分析", icon: ChartColumn },
+  { to: "/admin/news-workbench", code: "07", label: "资讯引擎", icon: Layers },
 ] as const satisfies ReadonlyArray<{ to: string; code: string; label: string; icon: LucideIcon }>
 
 /**
@@ -26,7 +28,7 @@ export const ADMIN_NAV = [
 const ADMIN_GROUPS = [
   { label: "概览", codes: ["01"] },
   { label: "业务管理", codes: ["02", "04"] },
-  { label: "内容与知识", codes: ["03", "05"] },
+  { label: "内容与知识", codes: ["03", "07", "05"] },
   { label: "分析", codes: ["06"] },
 ] as const
 

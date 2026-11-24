@@ -61,6 +61,11 @@ const AdminUsersPage = lazy(() =>
 const AdminNewsPage = lazy(() =>
   import("@/pages/admin/AdminNewsPage").then((m) => ({ default: m.AdminNewsPage })),
 )
+const AdminNewsWorkbenchPage = lazy(() =>
+  import("@/pages/admin/AdminNewsWorkbenchPage").then((m) => ({
+    default: m.AdminNewsWorkbenchPage,
+  })),
+)
 const AdminDiagnosisPage = lazy(() =>
   import("@/pages/admin/AdminDiagnosisPage").then((m) => ({ default: m.AdminDiagnosisPage })),
 )
@@ -210,6 +215,10 @@ export function App() {
             <Route
               path="news/:id/edit"
               element={<AdminNewsEditPage />}
+            />
+            <Route
+              path="news-workbench"
+              element={<AdminNewsWorkbenchPage />}
             />
           </Route>
 

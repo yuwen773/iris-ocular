@@ -77,6 +77,38 @@ export type AdminNews = {
   status?: number | null
   /** 下架原因（后端在状态转 2 且带 note 时写入；NewsVO 只读暴露）。 */
   offlineReason?: string | null
+  category?: string | null
+  source?: string | null
+  featured?: number | null
+  curationCandidateId?: string | null
+  materialRevisionId?: string | null
+  evidenceSnapshotSha256?: string | null
+  currentRevisionNo?: number | null
+  publishedRevisionNo?: number | null
+}
+
+export type NewsRevision = {
+  id?: string
+  newsId?: string
+  revisionNo?: number
+  action?: string
+  status?: number | null
+  title?: string
+  summary?: string
+  content?: string
+  coverImage?: string
+  category?: string | null
+  source?: string | null
+  featured?: number | null
+  curationCandidateId?: string | null
+  materialRevisionId?: string | null
+  evidenceSnapshotSha256?: string | null
+  evidenceSnapshotJson?: string | null
+  contentSha256?: string | null
+  actorId?: string | null
+  actorRole?: string | null
+  reviewNote?: string | null
+  createdAt?: string | null
 }
 export type NewsQuery = {
   current: number; pageSize: number
@@ -102,6 +134,18 @@ export function changeNewsStatusBatch(ids: string[], status: number, note?: stri
 }
 export function getNews(id: string): Promise<AdminNews> {
   return request<AdminNews>(`/news/get/${id}`, { method: "GET" })
+}
+export function listNewsRevisions(id: string): Promise<NewsRevision[]> {
+  return request<NewsRevision[]>(`/news/${encodeURIComponent(id)}/revisions`, { method: "GET" })
+}
+export function createNewsFromCandidate(
+  candidateId: string,
+  submitForReview = false,
+): Promise<string> {
+  return request<string>(
+    `/news/from-candidate/${encodeURIComponent(candidateId)}?submitForReview=${submitForReview}`,
+    { method: "POST" },
+  )
 }
 /**
  * 创建或编辑新闻。id 缺席即创建——后端返回落库后的 id（Long 全局序列化成 String），

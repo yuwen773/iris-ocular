@@ -27,6 +27,27 @@ export const queryKeys = {
     news: (q: NewsQuery) => ["admin", "news", q] as const,
     newsAll: ["admin", "news"] as const,
     newsDetail: (id: string) => ["admin", "news", "detail", id] as const,
+    newsRevisions: (id: string) => ["admin", "news", "revisions", id] as const,
+    newsWorkbench: {
+      all: ["admin", "newsWorkbench"] as const,
+      overview: ["admin", "newsWorkbench", "overview"] as const,
+      sources: ["admin", "newsWorkbench", "sources"] as const,
+      tasks: (q: { source?: string; status?: string; current: number; pageSize: number }) =>
+        ["admin", "newsWorkbench", "tasks", q] as const,
+      taskLeases: (taskId: string) => ["admin", "newsWorkbench", "taskLeases", taskId] as const,
+      candidates: (q: {
+        status?: string
+        source?: string
+        evidenceTier?: string
+        current: number
+        pageSize: number
+      }) => ["admin", "newsWorkbench", "candidates", q] as const,
+      candidateDetail: (id: string) => ["admin", "newsWorkbench", "candidateDetail", id] as const,
+      budgets: (scope?: string) => ["admin", "newsWorkbench", "budgets", scope ?? ""] as const,
+      receipts: (q: { state?: string; budgetScope?: string; current: number; pageSize: number }) =>
+        ["admin", "newsWorkbench", "receipts", q] as const,
+      benchRuns: ["admin", "newsWorkbench", "benchRuns"] as const,
+    },
     diagnosis: (q: DiagnosisQuery) => ["admin", "diagnosis", q] as const,
     diagnosisAll: ["admin", "diagnosis"] as const,
     diagnosisDetail: (id: string) => ["admin", "diagnosis", "detail", id] as const,

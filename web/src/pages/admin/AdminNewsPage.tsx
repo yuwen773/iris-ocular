@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   EyeOff,
   FileClock,
+  Layers,
   Newspaper,
   Pencil,
   Send,
@@ -550,14 +551,24 @@ export function AdminNewsPage(): ReactElement {
           </span>
         }
         actions={
-          <button
-            type="button"
-            className="admin-btn admin-btn--primary admin-news__new"
-            onClick={() => navigate("/admin/news/new/edit")}
-          >
-            <Pencil size={15} strokeWidth={2} aria-hidden="true" />
-            新建资讯
-          </button>
+          <>
+            <button
+              type="button"
+              className="admin-btn admin-btn--ghost"
+              onClick={() => navigate("/admin/news-workbench")}
+            >
+              <Layers size={15} strokeWidth={2} aria-hidden="true" />
+              资讯引擎工作台
+            </button>
+            <button
+              type="button"
+              className="admin-btn admin-btn--primary admin-news__new"
+              onClick={() => navigate("/admin/news/new/edit")}
+            >
+              <Pencil size={15} strokeWidth={2} aria-hidden="true" />
+              新建资讯
+            </button>
+          </>
         }
       />
 

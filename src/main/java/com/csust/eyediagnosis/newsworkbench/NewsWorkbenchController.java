@@ -1,0 +1,180 @@
+package com.csust.eyediagnosis.newsworkbench;
+
+import com.csust.eyediagnosis.annotation.AuthCheck;
+import com.csust.eyediagnosis.common.BaseResponse;
+import com.csust.eyediagnosis.common.ResultUtils;
+import com.csust.eyediagnosis.constant.AuthConstant;
+import com.csust.eyediagnosis.model.entity.User;
+import com.csust.eyediagnosis.newscuration.NewsCurationModels;
+import com.csust.eyediagnosis.service.UserService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
+import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
+
+/**
+ * Admin-only workbench endpoints exposing News Engine operational visibility, source/task scheduling,
+ * evidence candidate review, reserve-before-IO receipt reconciliation, and NewsBench history (WP-05).
+ */
+@RestController
+@RequestMapping("/admin/news-workbench")
+@Tag(name = "NewsWorkbenchController", description = "管理员资讯引擎工作台")
+@RequiredArgsConstructor
+public class NewsWorkbenchController {
+
+    private final NewsWorkbenchService workbenchService;
+    private final UserService userService;
+
+    @GetMapping("/overview")
+    @AuthCheck(mustRole = AuthConstant.ADMIN_ROLE)
+    @Operation(summary = "获取资讯引擎工作台总览统计")
+    public BaseResponse<NewsWorkbenchModels.OverviewVO> getOverview() {
+        return ResultUtils.success(workbenchService.getOverview());
+    }
+
+    @GetMapping("/sources")
+    @AuthCheck(mustRole = AuthConstant.ADMIN_ROLE)
+    @Operation(summary = "列出各信源启停状态、游标配置及任务统计")
+    public BaseResponse<List<NewsWorkbenchModels.SourceDetailVO>> listSources() {
+        return ResultUtils.success(workbenchService.listSources());
+    }
+
+    @PostMapping("/sources/{source}/toggle")
+    @AuthCheck(mustRole = AuthConstant.ADMIN_ROLE)
+    @Operation(summary = "启停指定资讯信源")
+    public BaseResponse<NewsWorkbenchModels.SourceDetailVO> toggleSource(
+            @PathVariable("source") String source,
+            @RequestBody(required = false) NewsWorkbenchModels.SourceToggleRequest body) {
+        Boolean enabled = body == null ? null : body.enabled();
+        return ResultUtils.success(workbenchService.toggleSource(source, enabled));
+    }
+
+    @PostMapping("/sources/{source}/configs")
+    @AuthCheck(mustRole = AuthConstant.ADMIN_ROLE)
+    @Operation(summary = "登记或更新信源配置版本与初始游标")
+    public BaseResponse<NewsWorkbenchModels.SourceDetailVO> registerSourceConfig(
+            @PathVariable("source") String source,
+            @RequestBody(required = false) NewsWorkbenchModels.RegisterSourceConfigRequest body) {
+        return ResultUtils.success(workbenchService.registerSourceConfig(source, body));
+    }
+
+    @GetMapping("/tasks")
+    @AuthCheck(mustRole = AuthConstant.ADMIN_ROLE)
+    @Operation(summary = "分页查询资讯采集窗口任务")
+    public BaseResponse<NewsWorkbenchModels.PageVO<NewsWorkbenchModels.CollectionTaskVO>> listTasks(
+            @RequestParam(value = "source", required = false) String source,
+            @RequestParam(value = "status", required = false) String status,
+            @RequestParam(value = "current", defaultValue = "1") long current,
+            @RequestParam(value = "pageSize", defaultValue = "10") long pageSize) {
+        return ResultUtils.success(workbenchService.listTasks(source, status, current, pageSize));
+    }
+
+    @PostMapping("/tasks/enqueue")
+    @AuthCheck(mustRole = AuthConstant.ADMIN_ROLE)
+    @Operation(summary = "手动入队资讯采集时间窗任务")
+    public BaseResponse<NewsWorkbenchModels.CollectionTaskVO> enqueueTask(
+            @RequestBody(required = false) NewsWorkbenchModels.EnqueueTaskRequest body) {
+        return ResultUtils.success(workbenchService.enqueueTask(body));
+    }
+
+    @GetMapping("/tasks/{taskId}/leases")
+    @AuthCheck(mustRole = AuthConstant.ADMIN_ROLE)
+    @Operation(summary = "查看采集任务历史租约世代记录")
+    public BaseResponse<List<NewsWorkbenchModels.LeaseRecordVO>> listTaskLeases(
+            @PathVariable("taskId") String taskId) {
+        return ResultUtils.success(workbenchService.listTaskLeases(taskId));
+    }
+
+    @GetMapping("/candidates")
+    @AuthCheck(mustRole = AuthConstant.ADMIN_ROLE)
+    @Operation(summary = "分页查询精选候选队列")
+    public BaseResponse<NewsWorkbenchModels.PageVO<NewsWorkbenchModels.CandidateSummaryVO>> listCandidates(
+            @RequestParam(value = "status", required = false) String status,
+            @RequestParam(value = "source", required = false) String source,
+            @RequestParam(value = "evidenceTier", required = false) String evidenceTier,
+            @RequestParam(value = "current", defaultValue = "1") long current,
+            @RequestParam(value = "pageSize", defaultValue = "10") long pageSize) {
+        return ResultUtils.success(workbenchService.listCandidates(status, source, evidenceTier, current, pageSize));
+    }
+
+    @GetMapping("/candidates/{candidateId}")
+    @AuthCheck(mustRole = AuthConstant.ADMIN_ROLE)
+    @Operation(summary = "查看精选候选冻结证据快照与关联回执详情")
+    public BaseResponse<NewsWorkbenchModels.CandidateDetailVO> getCandidateDetail(
+            @PathVariable("candidateId") long candidateId) {
+        return ResultUtils.success(workbenchService.getCandidateDetail(candidateId));
+    }
+
+    @GetMapping("/budgets")
+    @AuthCheck(mustRole = AuthConstant.ADMIN_ROLE)
+    @Operation(summary = "查询日精选预算与熔断状态")
+    public BaseResponse<List<NewsWorkbenchModels.BudgetSummaryVO>> listBudgets(
+            @RequestParam(value = "scope", required = false) String scope,
+            @RequestParam(value = "limit", defaultValue = "14") int limit) {
+        return ResultUtils.success(workbenchService.listBudgets(scope, limit));
+    }
+
+    @PostMapping("/budgets")
+    @AuthCheck(mustRole = AuthConstant.ADMIN_ROLE)
+    @Operation(summary = "配置或更新日精选额度")
+    public BaseResponse<NewsWorkbenchModels.BudgetSummaryVO> configureBudget(
+            @RequestBody(required = false) NewsWorkbenchModels.ConfigureBudgetRequest body) {
+        return ResultUtils.success(workbenchService.configureBudget(body));
+    }
+
+    @PostMapping("/budgets/reset-circuit")
+    @AuthCheck(mustRole = AuthConstant.ADMIN_ROLE)
+    @Operation(summary = "人工解除鉴权熔断")
+    public BaseResponse<NewsWorkbenchModels.BudgetSummaryVO> resetCircuitBreaker(
+            @RequestBody(required = false) NewsWorkbenchModels.ResetCircuitRequest body,
+            HttpServletRequest request) {
+        User operator = userService.getLoginUser(request);
+        return ResultUtils.success(workbenchService.resetCircuitBreaker(body, operator));
+    }
+
+    @GetMapping("/receipts")
+    @AuthCheck(mustRole = AuthConstant.ADMIN_ROLE)
+    @Operation(summary = "分页查询付费模型调用回执台账")
+    public BaseResponse<NewsWorkbenchModels.PageVO<NewsWorkbenchModels.CallReceiptVO>> listReceipts(
+            @RequestParam(value = "state", required = false) String state,
+            @RequestParam(value = "budgetScope", required = false) String budgetScope,
+            @RequestParam(value = "current", defaultValue = "1") long current,
+            @RequestParam(value = "pageSize", defaultValue = "10") long pageSize) {
+        return ResultUtils.success(workbenchService.listReceipts(state, budgetScope, current, pageSize));
+    }
+
+    @PostMapping("/receipts/reclaim-stale")
+    @AuthCheck(mustRole = AuthConstant.ADMIN_ROLE)
+    @Operation(summary = "回收超时悬空模型调用回执")
+    public BaseResponse<NewsCurationModels.StaleReclaimResult> reclaimStaleCalls() {
+        return ResultUtils.success(workbenchService.reclaimStaleCalls());
+    }
+
+    @PostMapping("/receipts/{callId}/reconcile")
+    @AuthCheck(mustRole = AuthConstant.ADMIN_ROLE)
+    @Operation(summary = "对账确认 OUTCOME_UNKNOWN 模型调用回执")
+    public BaseResponse<NewsWorkbenchModels.CallReceiptVO> reconcileReceipt(
+            @PathVariable("callId") String callId,
+            @RequestBody(required = false) NewsWorkbenchModels.ReconcileReceiptRequest body,
+            HttpServletRequest request) {
+        User operator = userService.getLoginUser(request);
+        return ResultUtils.success(workbenchService.reconcileReceipt(callId, body, operator));
+    }
+
+    @GetMapping("/bench-runs")
+    @AuthCheck(mustRole = AuthConstant.ADMIN_ROLE)
+    @Operation(summary = "查询已落库的 NewsBench 评测历史记录")
+    public BaseResponse<List<NewsWorkbenchModels.BenchRunSummaryVO>> listBenchRuns(
+            @RequestParam(value = "limit", defaultValue = "20") int limit) {
+        return ResultUtils.success(workbenchService.listBenchRuns(limit));
+    }
+}

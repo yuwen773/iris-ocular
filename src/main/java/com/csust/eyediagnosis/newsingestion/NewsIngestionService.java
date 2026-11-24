@@ -163,6 +163,19 @@ public class NewsIngestionService {
         });
     }
 
+    /** Enables or disables a registered news source for worker claim scheduling. */
+    public boolean setSourceEnabled(String source, boolean enabled) {
+        if (source == null || !NewsWireModels.SOURCES.contains(source)) {
+            throw new IllegalArgumentException("Unsupported news source: " + source);
+        }
+        transactions.executeWithoutResult(status -> jdbc.update("""
+                INSERT INTO t_news_source (source, enabled)
+                VALUES (?, ?)
+                ON DUPLICATE KEY UPDATE enabled = VALUES(enabled)
+                """, source, enabled ? 1 : 0));
+        return enabled;
+    }
+
     public Optional<NewsWireModels.Lease> claim(NewsWorkerIdentity worker) {
         Objects.requireNonNull(worker, "worker must not be null");
         TreeSet<String> sources = new TreeSet<>(worker.allowedSources());
