@@ -1,15 +1,23 @@
 import { relogin } from './auth'
 import { decodeResponseBody, isAuthEnvelope } from './authEnvelope'
+import { evidenceResources } from './citations'
 import { API_BASE } from './env'
 import { getToken } from './token'
 import { SseParser } from './sse'
+import { readStreamError } from './streamError'
 import { Utf8StreamDecoder } from './utf8'
-import type { AgentChunk } from './api'
+import type { AgentChunk, ResourceRef } from './api'
 
 export interface AgentStreamHandlers {
   onChunk: (chunk: AgentChunk) => void
   onDone: () => void
   onError: (message: string) => void
+  /**
+   * 本回合检索到的资源（知识库片段）。
+   *
+   * <p>只有**成功**的工具终态帧才带资源；失败/超时的调用不带，端上也不补造。
+   */
+  onResources?: (resources: ResourceRef[]) => void
 }
 
 export interface AgentStreamHandle {
@@ -103,12 +111,19 @@ export function streamAgentChat(
         return
       }
       if (event.event === 'error') {
-        settle(() => handlers.onError(event.data || '对话中断，请重试'))
+        // 后端给 {code, msg}（50301–50303 模型服务、40101 未登录）；旧服务只给一句人话。
+        settle(() => handlers.onError(readStreamError(event.data).message))
         return
       }
       if (!event.data) return
       try {
         const chunk = JSON.parse(event.data) as AgentChunk
+        // 资源跟着工具终态帧走，但**不是**回答正文：所以先取资源，再判正文。
+        // 只有成功的调用才算证据（失败/超时的调用不带资源，端上也不补造）。
+        const evidence = evidenceResources(chunk.toolStatus, chunk.resources)
+        if (evidence.length > 0) {
+          handlers.onResources?.(evidence as ResourceRef[])
+        }
         if (isAnswerChunk(chunk)) {
           handlers.onChunk(chunk)
         }

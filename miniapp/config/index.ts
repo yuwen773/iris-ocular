@@ -29,8 +29,10 @@ export default defineConfig<'webpack5'>(async (merge) => {
         process.env.TARO_APP_API_BASE || 'http://127.0.0.1:8081/api',
       ),
     },
+    // tabBar 图标只在 app.config.ts 里以字符串路径出现，走不到 webpack 的资源处理，
+    // 必须原样拷进产物（app.json 里的 `assets/tabbar/*.png` 指向 dist/ 下的这一份）。
     copy: {
-      patterns: [],
+      patterns: [{ from: 'src/assets', to: 'dist/assets' }],
       options: {},
     },
     framework: 'react',

@@ -156,8 +156,8 @@ async function shrinkOnCanvas(src: string): Promise<string | null> {
  * <p>某一档压缩失败不算失败：那只是「这一档没有结果」，后面还有别的档与画布兜底。
  * 只有全部走不通才让用户重拍。
  */
-export async function pickAndPrepareImage(): Promise<string> {
-  const picked = await chooseImage()
+export async function pickAndPrepareImage(source: ImageSource = 'any'): Promise<string> {
+  const picked = await chooseImage(source)
 
   const compressed70 = await compressOrNull(picked, 70)
   if (compressed70 && (await fileSize(compressed70)) <= MAX_IMAGE_BYTES) return compressed70
@@ -172,13 +172,16 @@ export async function pickAndPrepareImage(): Promise<string> {
   throw new ImageTooLargeError(await fileSize(shrunk ?? compressed40 ?? compressed70 ?? picked))
 }
 
-function chooseImage(): Promise<string> {
+/** 取图来源：相机 / 相册分开给按钮，也可以不分（`any` 时由系统选择器自己问）。 */
+export type ImageSource = 'camera' | 'album' | 'any'
+
+function chooseImage(source: ImageSource): Promise<string> {
   return new Promise((resolve, reject) => {
     wx.chooseMedia({
       count: 1,
       mediaType: ['image'],
       sizeType: ['compressed'],
-      sourceType: ['camera', 'album'],
+      sourceType: source === 'any' ? ['camera', 'album'] : [source],
       success: (res) => {
         const file = res.tempFiles[0]
         if (!file) {

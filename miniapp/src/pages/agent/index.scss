@@ -1,8 +1,67 @@
+/**
+ * 咨询页 = 首屏（05）+ 对话中（06）。
+ *
+ * 画布沿用品牌画布，上下文卡、快捷问题、历史会话与 AI 回答均落在 crisp 白纸面
+ * （深色翻转成 `#17263d`），保持 0 圆角 Clinical 精度，同时消除原始线框感：
+ * 用户提问靠右按内容收紧，AI 回答以带钴蓝左标线的单据卡内嵌可核验引用与声明，
+ * 停止生成直接收进底栏按钮，始终触手可及。
+ * 1px = 2rpx。
+ */
+
 .agent-page {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  background: var(--field);
+  background: var(--brand-canvas);
+}
+
+.agent-top {
+  flex: none;
+  padding: 20rpx 32rpx 0;
+  background: var(--brand-canvas);
+}
+
+.dochead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24rpx;
+  min-height: 64rpx;
+  padding-bottom: 16rpx;
+  border-bottom: 1rpx solid var(--brand-line);
+  font-family: var(--font-mono);
+  font-size: 26rpx;
+  letter-spacing: 0.1em;
+  color: var(--brand-muted);
+}
+
+.dochead__title {
+  flex: 1;
+  min-width: 0;
+}
+
+.dochead__meta {
+  flex: none;
+}
+
+/* 对话中顶部一键返回新对话，不再把按钮沉在消息列表最底端。 */
+.dochead__act {
+  flex: none;
+  display: flex;
+  align-items: center;
+  min-height: 56rpx;
+  padding: 0 20rpx;
+  border: 1rpx solid var(--brand-line-strong);
+  background: var(--brand-surface);
+  font-family: var(--font-sans);
+  font-size: 26rpx;
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--brand-primary);
+}
+
+.dochead__act:active {
+  background: var(--brand-soft);
 }
 
 .agent-scroll {
@@ -11,120 +70,570 @@
 }
 
 .agent-inner {
-  padding: 24rpx 32rpx 32rpx;
+  padding: 28rpx 32rpx 40rpx;
 }
 
-.agent-intro {
-  padding: 32rpx 0 16rpx;
+/* ── 首屏 ─────────────────────────────────────────────── */
+.h-page {
+  display: block;
+  font-family: var(--font-serif);
+  font-size: 56rpx;
+  line-height: 1.24;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--brand-text);
 }
 
-.agent-older {
-  margin-bottom: 16rpx;
+.lede {
+  display: block;
+  margin-top: 12rpx;
+  font-size: 28rpx;
+  line-height: 1.6;
+  color: var(--brand-muted);
 }
 
-.agent-suggestions {
+/* 上下文卡：顶部一条钴蓝光学标线确立主视觉锚点。 */
+.ctx {
+  margin-top: 28rpx;
+  background: var(--brand-surface);
+  border: 1rpx solid var(--brand-line);
+  border-top: 4rpx solid var(--brand-primary);
+  box-shadow: var(--brand-shadow);
+}
+
+.ctx:active {
+  background: var(--brand-soft);
+}
+
+.ctx-top {
   display: flex;
-  flex-direction: column;
-  gap: 12rpx;
+  gap: 24rpx;
+  align-items: center;
+  padding: 24rpx 26rpx 22rpx;
+}
+
+.ctx-img-wrap {
+  flex: none;
+  width: 116rpx;
+  height: 116rpx;
+  overflow: hidden;
+  border: 1rpx solid var(--brand-line);
+  background: #0b1425;
+}
+
+.ctx-img-wrap--none {
+  border-color: var(--brand-line-strong);
+}
+
+.ctx-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.ctx-m {
+  flex: 1;
+  min-width: 0;
+}
+
+.ctx-d {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 26rpx;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+  color: var(--brand-muted);
+}
+
+.ctx-r {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6rpx 12rpx;
+  margin-top: 8rpx;
+}
+
+.ctx-r__name {
+  font-size: 32rpx;
+  line-height: 1.35;
+  font-weight: 600;
+  color: var(--brand-text);
+}
+
+/* 严重度语义旁注：颜色配合文字，不与分类主语抢分量。 */
+.ctx-r__sev {
+  font-size: 26rpx;
+  font-weight: 600;
+  color: var(--brand-muted);
+}
+
+.ctx-r__sev.is-normal {
+  color: var(--risk-normal-ink);
+}
+
+.ctx-r__sev.is-attention {
+  color: var(--risk-attention-ink);
+}
+
+.ctx-r__sev.is-critical {
+  color: var(--risk-critical-ink);
+}
+
+.ctx-sub {
+  display: block;
+  margin-top: 6rpx;
+  font-family: var(--font-mono);
+  font-size: 26rpx;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+  color: var(--brand-muted);
+}
+
+.ctx-go {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20rpx 26rpx;
+  border-top: 1rpx solid var(--brand-line);
+  background: var(--brand-soft);
+  font-size: 28rpx;
+  font-weight: 600;
+  color: var(--brand-primary);
+}
+
+.ctx-arrow {
+  width: 14rpx;
+  height: 14rpx;
+  border-right: 3rpx solid var(--brand-primary);
+  border-top: 3rpx solid var(--brand-primary);
+  transform: rotate(45deg);
+}
+
+/* 建议问题：三栏等宽对齐上下文卡，白底轻描边，告别粗糙线框感。 */
+.chips {
+  display: flex;
+  gap: 14rpx;
   margin-top: 24rpx;
 }
 
-.agent-chip {
-  padding: 20rpx 24rpx;
-  border: 1rpx solid var(--line-strong);
-  background: var(--surface);
+.chip {
+  flex: 1;
+  min-width: 0;
+  min-height: 88rpx;
+  padding: 0 12rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--brand-surface);
+  border: 1rpx solid var(--brand-line);
+  text-align: center;
 }
 
-/* 历史会话：intro 里的一段台账式列表，不做卡片堆叠。 */
-.agent-sessions {
-  margin-top: 40rpx;
-  padding-top: 24rpx;
-  border-top: 1rpx solid var(--line);
-}
-
-.agent-session {
-  padding: 20rpx 0;
-  border-bottom: 1rpx solid var(--line);
-}
-
-.agent-session__title {
-  display: block;
+.chip__text {
   font-size: 28rpx;
-  color: var(--ink);
+  font-weight: 500;
+  color: var(--brand-text);
+  white-space: nowrap;
 }
 
-.agent-session__preview {
-  display: block;
-  margin-top: 6rpx;
-  font-size: 24rpx;
-  color: var(--ink-3);
+.chip:active {
+  background: var(--brand-soft);
+  border-color: var(--brand-primary);
+}
+
+/* 分节标题 */
+.sect {
+  display: flex;
+  align-items: center;
+  gap: 18rpx;
+  margin: 40rpx 0 16rpx;
+  font-family: var(--font-mono);
+  font-size: 26rpx;
+  letter-spacing: 0.12em;
+  color: var(--brand-muted);
+}
+
+.sect::before {
+  content: '';
+  width: 24rpx;
+  height: 2rpx;
+  background: var(--brand-line-strong);
+}
+
+.sect-n {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 26rpx;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+  color: var(--brand-muted);
+}
+
+/* 历史会话收进整张台账面板里，默认展示最近 2 条。 */
+.conv-panel {
+  background: var(--brand-surface);
+  border: 1rpx solid var(--brand-line);
+}
+
+.conv {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  padding: 24rpx 24rpx;
+  border-bottom: 1rpx solid var(--brand-line);
+}
+
+.conv:last-child {
+  border-bottom: 0;
+}
+
+.conv:active {
+  background: var(--brand-soft);
+}
+
+.conv__main {
+  flex: 1;
+  min-width: 0;
+}
+
+.conv__t {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16rpx;
+}
+
+.conv__title {
+  flex: 1;
+  min-width: 0;
+  font-size: 32rpx;
+  font-weight: 600;
+  line-height: 1.38;
+  color: var(--brand-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.agent-msg {
-  padding: 24rpx;
-  border: 1rpx solid var(--line);
-  background: var(--surface);
+.conv__n {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 24rpx;
+  font-variant-numeric: tabular-nums;
+  color: var(--brand-muted);
 }
 
-.agent-msg + .agent-msg {
-  margin-top: 16rpx;
-}
-
-.agent-msg--user {
-  background: var(--surface-2);
-  border-color: var(--line-strong);
-}
-
-.agent-msg__text {
+.conv__s {
   display: block;
   margin-top: 8rpx;
+  font-size: 26rpx;
+  line-height: 1.5;
+  color: var(--brand-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conv__chevron {
+  flex: none;
+  width: 12rpx;
+  height: 12rpx;
+  border-right: 2rpx solid var(--brand-muted);
+  border-top: 2rpx solid var(--brand-muted);
+  transform: rotate(45deg);
+}
+
+.conv-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 88rpx;
   font-size: 28rpx;
-  line-height: 1.75;
-  color: var(--ink);
+  font-weight: 500;
+  color: var(--brand-primary);
+}
+
+.conv-toggle:active {
+  background: var(--brand-soft);
+}
+
+.conv-empty {
+  padding: 28rpx 24rpx;
+  background: var(--brand-glass);
+  border: 1rpx solid var(--brand-line);
+  font-size: 26rpx;
+  line-height: 1.6;
+  color: var(--brand-muted);
+}
+
+/* 更早消息的入口：贴在对话流上方的一枚幽灵按钮，不打断阅读。 */
+.agent-older {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12rpx;
+  margin-bottom: 28rpx;
+}
+
+.agent-older__btn {
+  min-height: 72rpx;
+  padding: 0 28rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--brand-surface);
+  border: 1rpx solid var(--brand-line-strong);
+  font-size: 26rpx;
+  color: var(--brand-primary);
+
+  &::after {
+    border: none;
+  }
+}
+
+.agent-older__btn:active {
+  background: var(--brand-soft);
+}
+
+.agent-older__note {
+  display: block;
+  margin-bottom: 20rpx;
+}
+
+/* ── 对话中 ───────────────────────────────────────────── */
+.thread-list {
+  display: flex;
+  flex-direction: column;
+  gap: 28rpx;
+}
+
+.bub {
+  display: flex;
+  width: 100%;
+}
+
+/* 用户消息靠右、按内容宽度收紧，告别整行大蓝砖。 */
+.bub--user {
+  justify-content: flex-end;
+}
+
+.user-pill {
+  max-width: 82%;
+  padding: 20rpx 26rpx;
+  background: var(--brand-primary);
+  color: var(--brand-primary-fg);
+}
+
+.user-pill__text {
+  display: block;
+  font-size: 32rpx;
+  line-height: 1.58;
+  color: var(--brand-primary-fg);
   white-space: pre-wrap;
   word-break: break-word;
 }
 
-.agent-msg__badge {
-  display: block;
-  margin-top: 12rpx;
-  font-size: 22rpx;
-  color: var(--ink-3);
+/* AI 回答：带钴蓝左标线的临床单据卡，眉标 + 正文 + 证据页脚三位一体。 */
+.bub--assistant {
+  justify-content: flex-start;
 }
 
+.ai-card {
+  width: 100%;
+  background: var(--brand-surface);
+  border: 1rpx solid var(--brand-line);
+  border-left: 4rpx solid var(--brand-primary);
+  box-shadow: var(--brand-shadow);
+}
+
+.ai-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  padding: 18rpx 24rpx 0;
+}
+
+.ai-card__id {
+  display: inline-flex;
+  align-items: center;
+  gap: 10rpx;
+}
+
+.ai-card__dot {
+  width: 12rpx;
+  height: 12rpx;
+  background: var(--brand-primary);
+}
+
+.ai-card__dot.is-live {
+  background: var(--signal);
+}
+
+.ai-card__name {
+  font-family: var(--font-mono);
+  font-size: 26rpx;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--brand-text);
+}
+
+.ai-card__status {
+  font-family: var(--font-mono);
+  font-size: 24rpx;
+  color: var(--brand-muted);
+}
+
+.ai-card__status.is-live {
+  color: var(--signal-text);
+  font-weight: 600;
+}
+
+.ai-card__body {
+  padding: 16rpx 24rpx 22rpx;
+}
+
+.ai-card__text {
+  display: block;
+  font-size: 32rpx;
+  line-height: 1.68;
+  color: var(--brand-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 流式光标：一个色块，不用字符。 */
+.caret {
+  display: inline-block;
+  width: 12rpx;
+  height: 30rpx;
+  margin-left: 6rpx;
+  vertical-align: -5rpx;
+  background: var(--signal);
+}
+
+/* 内嵌证据与状态页脚：把引用稳稳绑在这条回答上，不飘在卡片外。 */
+.ai-card__foot {
+  padding: 16rpx 24rpx 18rpx;
+  border-top: 1rpx solid var(--brand-line);
+  background: var(--brand-soft);
+}
+
+.refs {
+  display: flex;
+  flex-direction: column;
+  gap: 10rpx;
+}
+
+.refs__i {
+  display: flex;
+  align-items: flex-start;
+  gap: 10rpx;
+}
+
+.refs__idx {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 26rpx;
+  font-weight: 600;
+  line-height: 1.48;
+  color: var(--brand-primary);
+}
+
+.refs__t {
+  flex: 1;
+  min-width: 0;
+  font-size: 26rpx;
+  line-height: 1.48;
+  color: var(--brand-text);
+}
+
+.refs__unv {
+  display: block;
+  margin-top: 10rpx;
+  font-size: 26rpx;
+  line-height: 1.48;
+  color: var(--risk-attention-ink);
+}
+
+.stopped {
+  display: block;
+  margin-top: 10rpx;
+  font-size: 26rpx;
+  line-height: 1.48;
+  color: var(--brand-muted);
+}
+
+.agent-fault {
+  margin-top: 24rpx;
+}
+
+/* ── 底部输入条：标准 88rpx 触控高度 + 柔和内凹输入框 + 流式直切停止键 ── */
 .agent-bar {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 16rpx;
-  padding: 16rpx 24rpx;
-  border-top: 1rpx solid var(--line);
-  background: var(--surface);
+  padding: 18rpx 24rpx calc(18rpx + env(safe-area-inset-bottom));
+  border-top: 1rpx solid var(--brand-line);
+  background: var(--brand-surface);
 }
 
 .agent-input {
   flex: 1;
-  min-height: 76rpx;
-  padding: 0 20rpx;
-  border: 1rpx solid var(--line-strong);
-  background: var(--paper-surface);
-  font-size: 28rpx;
+  min-width: 0;
+  height: 88rpx;
+  padding: 0 24rpx;
+  border: 1rpx solid var(--brand-line);
+  background: var(--brand-canvas);
+  font-size: 30rpx;
+  color: var(--brand-text);
+}
+
+.agent-input__ph {
+  color: var(--brand-muted);
 }
 
 .agent-send {
-  min-width: 140rpx;
-  min-height: 76rpx;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10rpx;
+  min-width: 136rpx;
+  height: 88rpx;
+  margin: 0;
   padding: 0 24rpx;
-  font-size: 28rpx;
+  border-radius: var(--radius-none);
+  font-size: 30rpx;
+  font-weight: 600;
+  line-height: 1.2;
+
+  &::after {
+    border: none;
+  }
 }
 
-.agent-new {
-  margin: 0 24rpx 16rpx;
+.agent-send--ready {
+  background: var(--brand-primary);
+  border: 1rpx solid var(--brand-primary);
+  color: var(--brand-primary-fg);
 }
 
-.agent-disclaimer {
-  padding: 0 24rpx 32rpx;
-  background: var(--field);
+.agent-send--idle {
+  background: var(--brand-soft);
+  border: 1rpx solid var(--brand-line);
+  color: var(--brand-muted);
+}
+
+.agent-send--stop {
+  background: var(--brand-surface);
+  border: 1rpx solid var(--brand-line-strong);
+  color: var(--brand-text);
+}
+
+.agent-send__sq {
+  width: 16rpx;
+  height: 16rpx;
+  background: var(--signal);
 }

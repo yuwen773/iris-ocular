@@ -62,8 +62,9 @@ export interface AgentSession {
   title?: string
   lastMessage?: string
   messageCount?: number
-  createdTime?: string
-  updatedTime?: string
+  /** 后端序列化 Date 可能给 ISO 串，也可能给 epoch 毫秒。 */
+  createdTime?: string | number
+  updatedTime?: string | number
   isPinned?: boolean
 }
 
@@ -91,15 +92,30 @@ export interface ChatHistory {
   uncommittedTerminal?: boolean
 }
 
+/** 会话资源（检索命中的知识库片段等）：只取端上判定证据要用的字段。 */
+export interface ResourceRef {
+  id?: string
+  kind?: string
+  title?: string
+  source?: string
+  url?: string
+  documentId?: string
+  chunkIndex?: number
+}
+
 /** SSE 无名事件里的数据（MessageDTO 的展示子集）。 */
 export interface AgentChunk {
   content?: string
   messageType?: string
   toolStatus?: string
+  toolCallId?: string
+  toolName?: string
   stepLabel?: string
   finishReason?: string
   errorCategory?: string
   timestamp?: string
+  /** 只在成功的工具终态帧上出现：检索真实命中的文档片段。 */
+  resources?: ResourceRef[]
 }
 
 export function getDiagnosis(id: string | number): Promise<DiagnosisResult> {
