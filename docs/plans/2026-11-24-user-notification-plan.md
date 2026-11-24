@@ -36,7 +36,7 @@
 | 清理 | 已读且超过保留期物理删除；未读永不清理；只暴露 `retention-days` 一项配置 |
 | 开关 | 不加开关（旁路，写失败不阻断业务） |
 
-## 4. 数据模型（V38）
+## 4. 数据模型（V39）
 
 `t_user_notification`：`id`（雪花）/ `userId` / `type` / `title` / `body` / `refType` /
 `refId` / `readAt` / `createTime`；索引 `(userId, createTime)`、`(userId, readAt)`。
@@ -85,7 +85,7 @@ styles/notification.css       铃铛 / 页面 / 管理端徽标；零硬编码�
   `UserFeedbackLifecycleServiceTest` 新增 3 条通知用例。
 - 前端：`notificationDomain.test.ts`（4）、`NotificationBell.test.tsx`（4）、
   `NotificationsPage.test.tsx`（8）。
-- 迁移：`FlywayMySqlIntegrationTest` 同步到 V38 / 16 条迁移 / 表清单加 `t_user_notification`。
+- 迁移：`FlywayMySqlIntegrationTest` 同步到 V39 / 16 条迁移 / 表清单加 `t_user_notification`。
 - 判据：新增迁移 + 写库 + 事务提交后写入 + 接收人归属 → **L2**。
 
 ## 9. 风险与已知边界

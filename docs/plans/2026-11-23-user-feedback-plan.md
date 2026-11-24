@@ -56,7 +56,7 @@ Iris 之前没有用户声音通道：患者对判读结论有异议、对 Agent
 ## 5. 后端结构
 
 ```
-src/main/resources/db/migration/V37__user_feedback.sql
+src/main/resources/db/migration/V38__user_feedback.sql
 model/entity/UserFeedback.java                 @TableName + @TableLogic
 mapper/UserFeedbackMapper.java                 BaseMapper + 两个归属计数查询
 model/dto/userfeedback/{Submit,Query,Decide,Reply}DTO.java
@@ -113,7 +113,7 @@ constant/{UserFeedbackStatus,UserFeedbackCategory}.java
   `UserFeedbackOwnershipTest`（7，控制层：会话用户是唯一身份来源、请求体不得夹带
   `userId` / `status`、六个管理端点必须挂 `@AuthCheck(mustRole = admin)`、响应 `no-store`）。
 - 前端：`userFeedbackDomain.test.ts`、`FeedbackPage.test.tsx`、`AdminFeedbackPage.test.tsx`（17）。
-- 迁移：`FlywayMySqlIntegrationTest` 三条版本断言同步到 V37 / 本分支 16 条迁移（V37 反馈 + V38 通知）
+- 迁移：`FlywayMySqlIntegrationTest` 三条版本断言同步到 V38 / 本分支 16 条迁移（V38 反馈 + V39 通知）
   / 表清单加 `t_user_feedback`。
 - L2 判据：新增迁移 + 写库 + 事务 + 权限 + 资源归属 + 上传归属 + 新 Bean / 配置。
 - 合并前需补 L3、手工端到端与双主题验收（见验收文档 §7–§8）。
@@ -121,7 +121,7 @@ constant/{UserFeedbackStatus,UserFeedbackCategory}.java
 ## 9. 风险与已知边界
 
 - **迁移编号**：master 已含 V32–V34（PR #156），V35–V36 被在途的 Iris Control Center 占用，
-  本功能取 V37（站内通知另取 V38）；合并顺序见
+  本功能取 V38（站内通知另取 V39）；合并顺序见
   `docs/architecture/migration-matrix.md` §1.1。谁先合谁保留；重编号 = 改文件名 + 版本/迁移数断言。
 - **反馈不是医疗记录**：不进判读统计、复核队列与数据分析口径。
 - **审计表**本轮不做；需要多轮处理留痕时再照 `t_news_audit` 加表。

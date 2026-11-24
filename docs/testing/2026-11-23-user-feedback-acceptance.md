@@ -20,7 +20,7 @@
 
 ## 2. 数据模型与迁移
 
-- 迁移：`V37__user_feedback.sql`（只新增表，不改任何既有表）。
+- 迁移：`V38__user_feedback.sql`（只新增表，不改任何既有表）。
 - 表：`t_user_feedback`。列名小驼峰（`map-underscore-to-camel-case: false`）。
   正文 `TEXT`（`VARCHAR(64K)` 在 MySQL 里不成立）；无 `CHECK`（3306 是 5.7，会解析并忽略）。
 - 索引：`(userId, createTime)`、`(status, createTime)`、`(targetType, targetId)`。
@@ -107,7 +107,7 @@
 | **L2 Flyway 门禁** | `scripts/verify-fast.sh --java FlywayMySqlIntegrationTest --db` | **PASS — L2**，1 类 / 5 用例（rebase 后复验，sha `b3f5bc71`） |
 | **L2 Spring 装配** | `scripts/verify-fast.sh --java EyeDiagnosisApplicationTests --db` | **PASS — L2**，`contextLoads` 1/1：新 Bean、Mapper、`UserFeedbackSettings` 可装配（rebase 后复验） |
 
-L2 用例覆盖：空库 → V38、master V17 → V38、旧迁移集合接受 future 版本、history 含无法解析版本时拒绝启动、V23 → V24 历史行不改写。
+L2 用例覆盖：空库 → V39、master V17 → V39、旧迁移集合接受 future 版本、history 含无法解析版本时拒绝启动、V23 → V24 历史行不改写。
 
 ### 未执行（必须如实标注）
 
@@ -139,7 +139,8 @@ L2 用例覆盖：空库 → V38、master V17 → V38、旧迁移集合接受 fu
 ## 10. 合并顺序（重要）
 
 V32–V34 已随 PR #156 合入 master，V35–V36 仍被在途的 Iris Control Center 占用，
-本分支取 V37（站内通知另取 V38）。
-`spring.flyway.out-of-order` 保持 `false`，所以**先应用过 V37/V38 的库会拒绝随后到达的 V35/V36**。
-建议先合并 V35/V36 所在分支，再合并本分支；若本分支先合，后续分支需重编号到 V39+。
+本分支取 V38（站内通知另取 V39）。
+`spring.flyway.out-of-order` 保持 `false`，所以**先应用过 V38/V39 的库会拒绝随后到达的 V35–V37**。
+建议按编号顺序合并：小程序（V35）→ 配置中心（V36/V37）→ 本分支（V38/V39）；
+若本分支先合，后续分支需重编号到 V40+。
 详见 `docs/architecture/migration-matrix.md` §1.1。

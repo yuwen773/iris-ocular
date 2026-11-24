@@ -9,10 +9,12 @@
 -- （FourRoleGraph.feedback = NONE/REWRITE/SUPPLEMENT、SSE agent.feedback.requested，
 -- 已冻结契约）；裸词 t_feedback 会让两个不同概念同名。
 --
--- 编号说明：V32–V34 已随 PR #156 合入 master，V35–V36 由在途的
--- Iris Control Center 占用，本迁移取当前所有分支最大版本 +1 = V37
--- （站内通知另取 V38）。若合并前又有其它线占用，按「谁先合谁保留」重编号——
+-- 编号说明：V32–V34 已随 PR #156 合入 master，V35 由在途的小程序后端分支、
+-- V36–V37 由在途的 Iris Control Center 占用，本迁移取当前所有分支最大版本 +1
+-- = V38（站内通知另取 V39）。若合并前又有其它线占用，按「谁先合谁保留」重编号——
 -- 脚本本身不含自身版本号，重编号只需改文件名与 FlywayMySqlIntegrationTest 的断言。
+-- 重编号记录：本条最早写作 V35，2026-11-24 因 V35 让给小程序分支改为 V37，
+-- 再因配置中心让开 V35 改到 V36/V37 而改为 V38。DDL 内容一字未改。
 --
 -- 主键不写 AUTO_INCREMENT：id 由实体 @TableId(type = ASSIGN_ID) 生成雪花值，
 -- 列定义与真实来源保持一致（否则读迁移的人会以为库会分配 id）。

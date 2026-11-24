@@ -48,7 +48,7 @@ class FlywayMySqlIntegrationTest {
                 assertEquals(12, masterMigrations);
                 Flyway latest = Flyway.configure().dataSource(url, username, password).schemas(schema)
                         .locations("classpath:db/migration", "classpath:db/callback").load();
-                // V18–V38 共 19 条（含本分支的 V37 用户反馈 / V38 站内通知）；
+                // V18–V39 共 19 条（含本分支的 V38 用户反馈 / V39 站内通知）；
                 // 数字写死是为了让「多出/少掉一条迁移」在评审时被看见。
                 assertEquals(19, latest.migrate().migrationsExecuted);
                 try (var account = statement.executeQuery("SELECT userAccount,userPassword,userRole,legacyMarker FROM `"
@@ -88,7 +88,7 @@ class FlywayMySqlIntegrationTest {
 
                 int expectedMigrations = flyway.info().all().length;
                 assertEquals(expectedMigrations, flyway.migrate().migrationsExecuted);
-                assertEquals("38", flyway.info().current().getVersion().toString());
+                assertEquals("39", flyway.info().current().getVersion().toString());
 
                 // 空库 migrate 后必须拥有全部被实体使用的表，否则登录、资讯、
                 // Agent 会话、知识库会在启动时无表可写。
@@ -164,7 +164,7 @@ class FlywayMySqlIntegrationTest {
                 Flyway rc = Flyway.configure().dataSource(url, username, password).schemas(schema)
                         .locations("classpath:db/migration", "classpath:db/callback").load();
                 assertEquals(19, rc.migrate().migrationsExecuted);
-                assertEquals("38", rc.info().current().getVersion().toString());
+                assertEquals("39", rc.info().current().getVersion().toString());
 
                 Flyway oldJar = jarFlyway(url, username, password, schema, oldHome);
                 assertEquals(0, oldJar.migrate().migrationsExecuted, "旧迁移集合不会执行 future 版本");

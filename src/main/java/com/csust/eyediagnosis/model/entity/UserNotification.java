@@ -15,7 +15,7 @@ import java.util.Date;
  * 文案（title / body）在发送时定稿存库，历史消息不随后续改名变化。
  *
  * <p>没有 {@code isDelete}：已读且超过保留期的行由
- * {@code NotificationCleanupScheduler} 物理删除（见 {@code V38__user_notification.sql}）。
+ * {@code NotificationCleanupScheduler} 物理删除（见 {@code V39__user_notification.sql}）。
  *
  * @TableName t_user_notification
  */

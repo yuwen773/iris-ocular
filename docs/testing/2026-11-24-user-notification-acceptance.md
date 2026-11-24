@@ -24,9 +24,9 @@
 
 ## 2. 数据模型与迁移
 
-- 迁移：`V38__user_notification.sql`（只新增表，不改任何既有表）。
+- 迁移：`V39__user_notification.sql`（只新增表，不改任何既有表）。
 - 表：`t_user_notification`。列名小驼峰；`id` 是雪花值（`IdType.ASSIGN_ID`），
-  迁移里**不写** `AUTO_INCREMENT`（与 V37 一致：列定义与真实来源保持一致）。
+  迁移里**不写** `AUTO_INCREMENT`（与 V38 一致：列定义与真实来源保持一致）。
 - 存文案（`title` / `body`）：通知是「发出去那一刻的通知」，类型文案以后会改，
   历史消息保持当时的措辞。
 - 没有 `isDelete`：已读且超过保留期即物理删除；未读永不清理。
@@ -104,7 +104,7 @@
 | 前端全量用例 | `node node_modules/vitest/vitest.mjs run` | **115 文件 / 1226 用例，0 失败**（rebase 后复验，含 master 新增用例） |
 | 新增前端用例 | `vitest run src/lib/notificationDomain.test.ts src/components/NotificationBell.test.tsx src/pages/NotificationsPage.test.tsx` | 16/16 PASS |
 | 后端通知 + 反馈写侧 | `scripts/verify-fast.sh --java 'NotificationServiceTest,NotificationOwnershipTest,UserFeedbackLifecycleServiceTest,UserFeedbackStatusTest,UserFeedbackAttachmentServiceTest'` | PASS — L1，5 类 / **59 用例** |
-| **L2 Flyway 门禁** | `scripts/verify-fast.sh --java FlywayMySqlIntegrationTest --db` | **PASS — L2**，1 类 / 5 用例（空库 → V38、master V17 → V38、future 版本放行、缺失版本拒绝、V23→V24 不改写） |
+| **L2 Flyway 门禁** | `scripts/verify-fast.sh --java FlywayMySqlIntegrationTest --db` | **PASS — L2**，1 类 / 5 用例（空库 → V39、master V17 → V39、future 版本放行、缺失版本拒绝、V23→V24 不改写） |
 | **L2 Spring 装配** | `scripts/verify-fast.sh --java EyeDiagnosisApplicationTests --db` | **PASS — L2**，1 类 / 1 用例（`contextLoads`） |
 | 复核写侧回归 | `ISSUE20_TEST_URL=jdbc:mysql://127.0.0.1:<临时容器>/issue20_test scripts/verify-fast.sh --java DoctorReviewApiTest` | PASS，1 类 / **38 用例实际执行、0 跳过**（复核通知改挂在 `submit` 之后，回归这套） |
 
@@ -112,7 +112,7 @@
 > （上表 L1 五类 + Flyway 五例 + `contextLoads` 一例），前端 115 文件 / 1226 用例 PASS，
 > 三个文档门禁全绿。master 带进来的改动与本分支的冲突点：`DiagnosisTaskRunner.finish`
 > （master 新增 `restrictReason` 列，通知逻辑叠在上面）、`FlywayMySqlIntegrationTest`
-> 的迁移数与版本断言（V18–V38 共 19 条）、`web/src/lib/adminApi.ts` 的类型导入合并。
+> 的迁移数与版本断言（V18–V39 共 19 条）、`web/src/lib/adminApi.ts` 的类型导入合并。
 
 
 > `verify-fast.sh --db` 的 MySQL 端口默认固定 33316。同机有别的会话在跑
@@ -120,9 +120,10 @@
 > 表现为 `Communications link failure`（不是代码问题）。复跑用
 > `VERIFY_FAST_MYSQL_PORT=33326 VERIFY_FAST_REDIS_PORT=36399` 即可。
 
-> 迁移改名的坑（已实证）：`V35__user_feedback.sql` 重命名为 V37 后，`target/classes`
-> 里仍留着旧的 V35 编译产物，Flyway 会先跑 V35 再跑 V37 → `Table 't_user_feedback' already exists`。
-> 改迁移文件名后必须清掉过期资源（`mvn clean` 或删 `target/classes/db/migration/V35*`）。
+> 迁移改名的坑（已实证）：`V35__user_feedback.sql` 改名为 V37 时（本轮再改为 V38），
+> `target/classes` 里仍留着旧的 V35 编译产物，Flyway 会先跑 V35 再跑 V37 →
+> `Table 't_user_feedback' already exists`。每次改迁移文件名后都必须清掉过期资源
+> （`mvn clean` 或删 `target/classes/db/migration/V35*` / `V37*`）。
 
 ### 未执行（必须如实标注）
 
@@ -152,7 +153,8 @@
 ## 10. 合并顺序（重要）
 
 V32–V34 已随 PR #156 合入 master，V35–V36 仍被在途的 Iris Control Center 占用，
-本分支的反馈与通知分别取 V37、V38。
-`spring.flyway.out-of-order` 保持 `false`，所以**先应用过 V37/V38 的库会拒绝随后到达的 V35/V36**。
-建议先合并 V35/V36 所在分支，再合并本分支；若本分支先合，后续分支需重编号到 V39+。
+本分支的反馈与通知分别取 V38、V39。
+`spring.flyway.out-of-order` 保持 `false`，所以**先应用过 V38/V39 的库会拒绝随后到达的 V35–V37**。
+建议按编号顺序合并：小程序（V35）→ 配置中心（V36/V37）→ 本分支（V38/V39）；
+若本分支先合，后续分支需重编号到 V40+。
 详见 `docs/architecture/migration-matrix.md` §1.1。

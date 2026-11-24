@@ -105,7 +105,7 @@ Python service does not send the fields. Old rows are not backfilled: the
 historical values are not recoverable, and inventing them would be
 fabricating evidence.
 
-## V37 / V38 (2026-11-24)
+## V38 / V39 (2026-11-24)
 
 Two migrations from the user-feedback and in-app-notification work (branch
 `t3/add-feedback-feature`). No edits to V1--V34; each script only creates one
@@ -113,22 +113,23 @@ new table, so existing rows need no backfill. Per-target upgrade paths stay in
 `docs/architecture/migration-matrix.md`; §1.1 there records the numbering
 decision.
 
-- **V37** `t_user_feedback`: the product-feedback channel — body, category,
+- **V38** `t_user_feedback`: the product-feedback channel — body, category,
   optional link to a diagnosis task / agent session, status machine, admin
   reply, and the object key of a private screenshot.
-- **V38** `t_user_notification`: the in-app inbox — type, the copy frozen at
+- **V39** `t_user_notification`: the in-app inbox — type, the copy frozen at
   send time, a pointer to the related record, and the read timestamp.
 
 Two consequences to know before writing the next migration:
 
-1. V35--V36 are owned by the in-flight Iris Control Center branch (PR #164).
-   This branch took V37/V38 to avoid a clash, which creates an ordering
+1. V35 is owned by the in-flight miniapp branch (PR #160); V36--V37 by the in-flight
+   Iris Control Center branch (PR #164).
+   This branch took V38/V39 to avoid a clash, which creates an ordering
    constraint: with `spring.flyway.out-of-order=false`, a database that already
-   applied V37/V38 rejects V35--V36 arriving later. Merge the Control Center
+   applied V38/V39 rejects V35--V37 arriving later. Merge the Control Center
    branch first, or renumber it to V39+ inside the same release window.
 2. Renumbering is cheap: change the file name plus the version / migration-count
    assertions in `FlywayMySqlIntegrationTest`; the scripts contain no version
-   number of their own (V35→V37 was rehearsed once).
+   number of their own (V35→V38 was rehearsed once).
 
 Also still binding for every new script: never edit an applied script, only
 append a higher version.
