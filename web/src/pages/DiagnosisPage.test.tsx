@@ -20,6 +20,12 @@ vi.mock("@/lib/session", () => ({
   }),
 }))
 
+// 顶栏铃铛有独立用例（NotificationBell.test.tsx）；本文件不提供 QueryClientProvider，
+// 也不该让页面测试替顶栏打个人接口。
+vi.mock("@/components/NotificationBell", () => ({
+  NotificationBell: () => null,
+}))
+
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
   runDiagnosis: vi.fn(),

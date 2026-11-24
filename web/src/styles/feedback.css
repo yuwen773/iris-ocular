@@ -1,0 +1,438 @@
+/**
+ * 用户端 · 意见反馈（Clinical）
+ *
+ * 与判读记录 / 个人中心同一套品牌工作区语言：面板是 Layered Glass，
+ * 发丝线分区、等宽读数、衬线标题。反馈是产品意见通道，不是医疗记录——
+ * 这里不出现医学语义色，状态标签的档位由 RiskTag 自己裁决。
+ *
+ * 颜色一律来自 tokens.css；本文件不写任何字面色（hardcoded-colors 棘轮）。
+ */
+
+.feedback {
+  padding-bottom: clamp(56px, 9vh, 110px);
+}
+
+/* ── 页头 ─────────────────────────────────────────────── */
+
+.feedback__intro {
+  display: grid;
+  gap: 10px;
+  padding: clamp(20px, 3.4vh, 34px) 0 clamp(18px, 2.4vh, 26px);
+}
+
+.feedback__title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: clamp(28px, 2.6vw, 38px);
+  line-height: 1.18;
+  letter-spacing: -0.02em;
+}
+
+/* ── 面板 ─────────────────────────────────────────────── */
+
+.feedback__panel {
+  padding: clamp(20px, 2.6vw, 32px);
+  border: 1px solid var(--brand-glass-layered-edge);
+  border-radius: var(--radius-lg);
+  background: var(--brand-glass-layered);
+  box-shadow: var(--brand-shadow);
+  -webkit-backdrop-filter: blur(var(--brand-glass-layered-blur)) saturate(1.2);
+  backdrop-filter: blur(var(--brand-glass-layered-blur)) saturate(1.2);
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  .feedback__panel {
+    background: var(--brand-glass-fallback);
+  }
+}
+
+.feedback__panel--list {
+  margin-top: clamp(18px, 2.6vh, 28px);
+}
+
+.feedback__panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 14px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--hr);
+}
+
+.feedback__panel-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--fg);
+}
+
+.feedback__panel-note {
+  font-size: 11px;
+  color: var(--fg-3);
+}
+
+/* ── 表单 ─────────────────────────────────────────────── */
+
+.feedback__form {
+  display: grid;
+  gap: 22px;
+}
+
+.feedback__fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.feedback__field {
+  display: grid;
+  gap: 7px;
+}
+
+.feedback__label {
+  display: block;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-2);
+}
+
+.feedback__fieldset .feedback__label {
+  margin-bottom: 10px;
+}
+
+.feedback__sublabel {
+  display: block;
+  margin-bottom: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--fg-3);
+}
+
+.feedback__input {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--field);
+  border: 1px solid var(--brand-line);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  transition:
+    border-color var(--fast),
+    background var(--fast);
+}
+
+select.feedback__input {
+  height: 42px;
+  padding-block: 0;
+}
+
+.feedback__input:hover {
+  border-color: var(--brand-line-strong);
+}
+
+.feedback__input:focus {
+  border-color: var(--brand-primary);
+  background: var(--brand-surface);
+  outline: none;
+}
+
+.feedback__input:disabled {
+  color: var(--fg-3);
+  cursor: not-allowed;
+  background: color-mix(in srgb, var(--brand-canvas) 45%, var(--brand-surface));
+}
+
+.feedback__input--area {
+  min-height: 132px;
+  line-height: 1.65;
+  resize: vertical;
+}
+
+.feedback__counter {
+  justify-self: end;
+  font-size: 11px;
+  color: var(--fg-3);
+}
+
+/* ── 分类：四张可选卡 ─────────────────────────────────── */
+
+.feedback__categories {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+}
+
+.feedback__category {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--brand-line);
+  background: var(--field);
+  cursor: pointer;
+  transition:
+    border-color var(--fast),
+    background var(--fast);
+}
+
+.feedback__category:hover {
+  border-color: var(--brand-line-strong);
+}
+
+.feedback__category:focus-within {
+  border-color: var(--brand-primary);
+}
+
+.feedback__category:has(input:checked) {
+  border-color: var(--brand-primary);
+  background: var(--brand-soft);
+}
+
+.feedback__category input {
+  margin-top: 3px;
+  accent-color: var(--brand-primary);
+}
+
+.feedback__category-body {
+  display: grid;
+  gap: 3px;
+}
+
+.feedback__category-label {
+  font-size: 14px;
+  color: var(--fg);
+}
+
+.feedback__category-hint {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--fg-3);
+}
+
+/* ── 关联对象 / 截图 ─────────────────────────────────── */
+
+.feedback__target {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.feedback__target-kind {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+.feedback__upload {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+}
+
+.feedback__upload-remove {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.feedback__hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--fg-3);
+}
+
+.feedback__form-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  padding-top: 4px;
+}
+
+/* ── 我的反馈 ─────────────────────────────────────────── */
+
+.feedback__state {
+  margin: 0;
+  padding: 24px 0;
+  font-size: 13px;
+  color: var(--fg-3);
+}
+
+.feedback__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.feedback__item {
+  display: grid;
+  gap: 10px;
+  padding: 18px 0;
+  border-top: 1px solid var(--hr);
+}
+
+.feedback__item:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.feedback__item-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.feedback__item-cat {
+  font-size: 13px;
+  color: var(--fg-2);
+}
+
+.feedback__item-time {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--fg-3);
+}
+
+.feedback__item-content {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.75;
+  color: var(--fg);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.feedback__item-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--fg-3);
+}
+
+.feedback__item-note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--fg-3);
+}
+
+.feedback__reply {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border-left: 2px solid var(--brand-primary);
+  background: var(--brand-soft);
+}
+
+.feedback__reply-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-2);
+}
+
+.feedback__reply-text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.feedback__reply-time {
+  font-size: 11px;
+  color: var(--fg-3);
+}
+
+/* ── 分页 ─────────────────────────────────────────────── */
+
+.feedback__pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--hr);
+}
+
+.feedback__pager-step {
+  padding: 8px 14px;
+  border: 1px solid var(--brand-line);
+  background: transparent;
+  color: var(--fg);
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    border-color var(--fast),
+    background var(--fast);
+}
+
+.feedback__pager-step:hover:not(:disabled) {
+  border-color: var(--brand-line-strong);
+  background: var(--brand-surface);
+}
+
+.feedback__pager-step:disabled {
+  color: var(--fg-3);
+  cursor: not-allowed;
+}
+
+.feedback__pager-state {
+  font-size: 12px;
+  color: var(--fg-3);
+}
+
+/* ── 空态 ─────────────────────────────────────────────── */
+
+.feedback__empty {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: clamp(28px, 5vh, 48px) 0;
+  text-align: center;
+}
+
+.feedback__empty-title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 20px;
+  font-weight: 400;
+}
+
+.feedback__empty-body {
+  max-width: 46ch;
+  margin: 0 0 8px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--fg-2);
+}
+
+/* ── 响应式 ───────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .feedback__categories {
+    grid-template-columns: 1fr;
+  }
+
+  .feedback__target-kind {
+    flex-basis: 100%;
+  }
+
+  .feedback__item-time {
+    margin-left: 0;
+  }
+}
