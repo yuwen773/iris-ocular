@@ -3,12 +3,11 @@ import { Button, Text, View } from '@tarojs/components'
 /**
  * 免责声明条。文案与 web/ 保持同一口径：AI 结果不是诊断。
  */
+export const AI_DISCLAIMER =
+  '本结果由 AI 模型生成，仅用于辅助参考，不构成医学诊断。如有视力变化或眼部不适，请前往正规医疗机构就诊。'
+
 export function Disclaimer({ text }: { text?: string | null }) {
-  return (
-    <View className="mp-disclaimer">
-      {text || '本结果由 AI 模型生成，仅用于辅助参考，不构成医学诊断。如有视力变化或眼部不适，请前往正规医疗机构就诊。'}
-    </View>
-  )
+  return <View className="mp-disclaimer">{text || AI_DISCLAIMER}</View>
 }
 
 export function EmptyState({ text }: { text: string }) {

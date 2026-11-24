@@ -31,16 +31,20 @@ export default defineAppConfig({
     navigationBarTextStyle: theme.light.navTxtStyle,
     backgroundColor: theme.light.bgColor,
   },
+  // tabBar 图标：`theme.json` 只覆盖颜色变量（就是上面那 8 个），图标路径不在其中——
+  // 一套 PNG 要同时待在浅色白底和深色 `#17263d` 上。所以四枚图标同色 `#66799A`
+  // （对白底 3.1:1、对 #17263D 3.4:1，都过 3:1 的非文本对比线），
+  // 选中态靠**实心 vs 描边**区分，不靠色相；文字色随主题翻转。
   tabBar: {
     color: theme.light.tabFontColor,
     selectedColor: theme.light.tabSelectedColor,
     backgroundColor: theme.light.tabBgColor,
     borderStyle: theme.light.tabBorderStyle,
     list: [
-      { pagePath: 'pages/diagnosis/index', text: '判读' },
-      { pagePath: 'pages/records/index', text: '记录' },
-      { pagePath: 'pages/agent/index', text: '咨询' },
-      { pagePath: 'pages/profile/index', text: '我的' },
+      { pagePath: 'pages/diagnosis/index', text: '判读', iconPath: 'assets/tabbar/scan.png', selectedIconPath: 'assets/tabbar/scan-on.png' },
+      { pagePath: 'pages/records/index', text: '记录', iconPath: 'assets/tabbar/record.png', selectedIconPath: 'assets/tabbar/record-on.png' },
+      { pagePath: 'pages/agent/index', text: '咨询', iconPath: 'assets/tabbar/chat.png', selectedIconPath: 'assets/tabbar/chat-on.png' },
+      { pagePath: 'pages/profile/index', text: '我的', iconPath: 'assets/tabbar/me.png', selectedIconPath: 'assets/tabbar/me-on.png' },
     ],
   },
   darkmode: true,

@@ -1,4 +1,4 @@
 export default definePageConfig({
-  navigationBarTitleText: '眼底判读',
+  navigationBarTitleText: '判读',
   enablePullDownRefresh: false,
 })

@@ -1,55 +1,371 @@
-.result-image {
-  width: 100%;
-  height: 420rpx;
-  margin-top: 24rpx;
-  background: var(--surface-2);
-  border: 1rpx solid var(--line);
+/**
+ * 结果页 = 一张报告单（= web 的 RecordSheet）。
+ *
+ * 画布是品牌画布，报告是浮在上面的一张纸；深色下纸换成 `#17263d` 面板。
+ * 版式按定稿 03 / 07：单据头 → 结局标记 → 类别 → 严重度 → 读数 → 建议 →
+ * 折叠详情 → 记录编号。拒识/待复核时**不显示任何概率**（07 的规矩）。
+ * 1px = 2rpx。
+ */
+
+.report {
+  padding: 28rpx 28rpx 32rpx;
+  background: var(--brand-surface);
+  border: 1rpx solid var(--brand-line);
+  box-shadow: var(--brand-shadow);
 }
 
-.result-headline {
-  margin-top: 20rpx;
-  font-family: var(--font-serif);
-  font-size: 44rpx;
-  line-height: 1.35;
-  color: var(--ink);
-}
-
-.result-headline--muted {
-  font-size: 34rpx;
-  color: var(--ink-2);
-}
-
-.result-block {
-  margin-top: 24rpx;
-}
-
-.result-text {
-  display: block;
-  margin-top: 10rpx;
-  font-size: 28rpx;
-  line-height: 1.75;
-  color: var(--ink);
-  white-space: pre-wrap;
-}
-
-.result-detail {
-  margin-top: 20rpx;
-  border-top: 1rpx solid var(--line);
-}
-
-.result-detail__row {
+.dochead {
   display: flex;
-  align-items: flex-start;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 24rpx;
+  padding-bottom: 20rpx;
+  border-bottom: 1rpx solid var(--brand-line);
+  font-family: var(--font-mono);
+  font-size: 26rpx;
+  letter-spacing: 0.12em;
+  color: var(--brand-muted);
+}
+
+.tagline {
+  display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 24rpx;
-  padding: 16rpx 0;
-  border-bottom: 1rpx solid var(--line);
+  margin-top: 28rpx;
 }
 
-.result-detail__value {
+.tagline__code {
+  font-family: var(--font-mono);
+  font-size: 26rpx;
+  letter-spacing: 0.08em;
+  color: var(--brand-muted);
+}
+
+.cat {
+  margin-top: 24rpx;
+  font-family: var(--font-serif);
+  font-size: 64rpx;
+  line-height: 1.28;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--brand-text);
+}
+
+/* ── 严重度：颜色是第二信息载体，词永远在 ─────────────── */
+.sev {
+  display: flex;
+  align-items: center;
+  gap: 28rpx;
+  margin-top: 24rpx;
+  padding: 24rpx 0;
+  border-top: 1rpx solid var(--brand-line);
+  border-bottom: 1rpx solid var(--brand-line);
+}
+
+.sev__k {
+  font-family: var(--font-mono);
+  font-size: 26rpx;
+  letter-spacing: 0.12em;
+  color: var(--brand-muted);
+}
+
+.sev__word {
+  font-size: 40rpx;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--brand-text);
+}
+
+.sev__word.is-normal {
+  color: var(--risk-normal-ink);
+}
+
+.sev__word.is-attention {
+  color: var(--risk-attention-ink);
+}
+
+.sev__word.is-critical {
+  color: var(--risk-critical-ink);
+}
+
+/* ── 读数 ───────────────────────────────────────────── */
+.gauge {
+  margin-top: 36rpx;
+  padding: 32rpx 32rpx 28rpx;
+  border: 1rpx solid var(--brand-line-strong);
+}
+
+.gauge__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24rpx;
+}
+
+.gauge__k {
+  font-family: var(--font-mono);
+  font-size: 26rpx;
+  letter-spacing: 0.14em;
+  color: var(--brand-muted);
+}
+
+.trust {
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+  font-size: 30rpx;
+  font-weight: 600;
+  color: var(--brand-text);
+}
+
+.trust__dot {
+  width: 16rpx;
+  height: 16rpx;
+  background: var(--brand-text);
+}
+
+.trust.is-attention {
+  color: var(--risk-attention-ink);
+}
+
+.trust.is-attention .trust__dot {
+  background: var(--risk-attention);
+}
+
+.trust.is-critical {
+  color: var(--risk-critical-ink);
+}
+
+.trust.is-critical .trust__dot {
+  background: var(--risk-critical);
+}
+
+.readout {
+  margin: 8rpx 0 24rpx;
+  font-family: var(--font-mono);
+  font-size: 112rpx;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--brand-text);
+}
+
+.readout__pct {
+  margin-left: 4rpx;
+  font-size: 68rpx;
+  letter-spacing: 0;
+  color: var(--brand-muted);
+}
+
+.scale {
+  position: relative;
+  height: 10rpx;
+  background: var(--brand-line);
+}
+
+.scale__fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: var(--signal);
+}
+
+.note {
+  display: block;
+  margin-top: 20rpx;
+  font-size: 28rpx;
+  line-height: 1.6;
+  color: var(--brand-muted);
+}
+
+/* ── 未给出结论 ─────────────────────────────────────── */
+.void-box {
+  margin-top: 36rpx;
+  padding: 32rpx;
+  border: 1rpx solid var(--brand-line-strong);
+}
+
+.void-box__k {
+  font-family: var(--font-mono);
+  font-size: 26rpx;
+  letter-spacing: 0.14em;
+  color: var(--brand-muted);
+}
+
+.void-box__dash {
+  display: block;
+  margin-top: 12rpx;
+  font-family: var(--font-mono);
+  font-size: 64rpx;
+  line-height: 1.1;
+  letter-spacing: 0.08em;
+  color: var(--brand-muted);
+}
+
+.void-box__note {
+  display: block;
+  margin-top: 12rpx;
+  font-size: 28rpx;
+  line-height: 1.6;
+  color: var(--brand-text);
+}
+
+/* ── 建议 / 原因：信号橙只做一竖条 ───────────────────── */
+.advice {
+  display: flex;
+  gap: 32rpx;
+  align-items: flex-start;
+  margin-top: 36rpx;
+  padding: 28rpx 0;
+  border-top: 1rpx solid var(--brand-line-strong);
+  border-bottom: 1rpx solid var(--brand-line);
+}
+
+.advice__k {
+  flex: none;
+  position: relative;
+  padding-left: 24rpx;
+  font-family: var(--font-serif);
+  font-size: 38rpx;
+  font-weight: 600;
+  color: var(--brand-text);
+}
+
+.advice__k::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 10rpx;
+  width: 8rpx;
+  height: 32rpx;
+  background: var(--signal);
+}
+
+.advice__p {
   flex: 1;
+  font-size: 32rpx;
+  line-height: 1.68;
+  color: var(--brand-text);
+}
+
+/* ── 折叠详情 ───────────────────────────────────────── */
+.fold {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 96rpx;
+  margin: 0;
+  padding: 0;
+  border-radius: var(--radius-none);
+  border-bottom: 1rpx solid var(--brand-line);
+  background: transparent;
+  font-size: 32rpx;
+  line-height: 1.2;
+  color: var(--brand-text);
+  text-align: left;
+
+  &::after {
+    border: none;
+  }
+}
+
+/* 折角用两条边画，不用字符：⌄ 在深色和部分机型上太细。 */
+.fold__mark {
+  width: 16rpx;
+  height: 16rpx;
+  margin-right: 6rpx;
+  border-right: 2rpx solid var(--brand-muted);
+  border-bottom: 2rpx solid var(--brand-muted);
+  transform: rotate(45deg) translate(-2rpx, -2rpx);
+  transition: transform 0.18s ease;
+}
+
+.fold__mark.is-open {
+  transform: rotate(-135deg) translate(-2rpx, -2rpx);
+}
+
+.fold-body {
+  padding-top: 4rpx;
+}
+
+.fold-body__r {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 28rpx;
+  min-height: 88rpx;
+  padding: 20rpx 0;
+  border-bottom: 1rpx solid var(--brand-line);
+}
+
+.fold-body__k {
+  font-family: var(--font-mono);
+  font-size: 26rpx;
+  letter-spacing: 0.1em;
+  color: var(--brand-muted);
+}
+
+.fold-body__v {
+  flex: 1;
+  font-size: 30rpx;
+  color: var(--brand-text);
   text-align: right;
-  font-size: 24rpx;
-  color: var(--ink-2);
   word-break: break-all;
+}
+
+/* ── 页脚：记录编号 + AI 免责 ───────────────────────── */
+.linkbtn {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  min-height: 96rpx;
+  margin: 0;
+  padding: 0;
+  border-radius: var(--radius-none);
+  background: transparent;
+  font-size: 30rpx;
+  line-height: 1.2;
+  color: var(--brand-muted);
+
+  &::after {
+    border: none;
+  }
+}
+
+.repno {
+  display: block;
+  margin-top: 16rpx;
+  font-family: var(--font-mono);
+  font-size: 26rpx;
+  letter-spacing: 0.1em;
+  color: var(--brand-muted);
+  word-break: break-all;
+}
+
+.disc {
+  display: flex;
+  gap: 20rpx;
+  align-items: flex-start;
+  margin-top: 32rpx;
+  padding: 24rpx 28rpx 26rpx;
+  border-top: 1rpx solid var(--brand-line);
+  font-size: 28rpx;
+  line-height: 1.65;
+  color: var(--brand-muted);
+}
+
+.disc__ai {
+  flex: none;
+  padding: 0 10rpx;
+  border: 1rpx solid var(--brand-line-strong);
+  font-family: var(--font-mono);
+  font-size: 24rpx;
+  letter-spacing: 0.06em;
+  line-height: 1.6;
+}
+
+.disc__text {
+  flex: 1;
 }
