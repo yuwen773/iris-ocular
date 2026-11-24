@@ -284,6 +284,8 @@ export type ChatHistoryVO = {
   messages: HistoryMessageVO[]
   hasMore: boolean
   nextCursor: string | null
+  hasNewer: boolean
+  newerCursor: string | null
   /**
    * 本会话存在未提交的消息终态（写入失败或待恢复）。
    * 历史仍会返回，但**不完整**——界面必须显式说明，不能装作完整。
@@ -351,8 +353,8 @@ export function generateTitle(sessionId: string, firstMessage: string) {
 }
 
 export function getChatHistory(threadId: string, beforeId?: string, limit = 40) {
-  let path = `/agent/history/${threadId}?limit=${limit}`
-  if (beforeId) path += `&beforeId=${beforeId}`
+  let path = `/agent/history/${encodeURIComponent(threadId)}?limit=${limit}`
+  if (beforeId) path += `&beforeId=${encodeURIComponent(beforeId)}`
   return request<ChatHistoryVO>(path).then((history) => ({
     ...history,
     messages: history.messages.map((message) => ({

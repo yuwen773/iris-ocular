@@ -50,3 +50,8 @@ export function toChatItems(history: ChatHistory): ChatItem[] {
   }
   return items
 }
+
+export function prependHistoryItems(current: ChatItem[], older: ChatItem[]): ChatItem[] {
+  const loaded = new Set(current.map((item) => item.id))
+  return [...older.filter((item) => !loaded.has(item.id)), ...current]
+}

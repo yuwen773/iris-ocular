@@ -62,6 +62,8 @@ it("normalizes real Java message dates without changing cursor or message identi
             ],
             hasMore: true,
             nextCursor: "2120565650562129921",
+            hasNewer: false,
+            newerCursor: "2120565650562129921",
           },
         })
       )
@@ -73,4 +75,5 @@ it("normalizes real Java message dates without changing cursor or message identi
   )
   expect(history.messages[0].id).toBe("2120565650562129921")
   expect(history.nextCursor).toBe("2120565650562129921")
+  expect(history.newerCursor).toBe("2120565650562129921")
 })

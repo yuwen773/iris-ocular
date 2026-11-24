@@ -1,12 +1,24 @@
-import { describe, expect, it } from 'vitest'
-import { toChatItems } from '@/lib/agentHistory'
-import type { ChatHistory } from '@/lib/api'
+import { describe, expect, it, vi } from 'vitest'
+import { prependHistoryItems, toChatItems } from '@/lib/agentHistory'
+import { getAgentHistory, type ChatHistory } from '@/lib/api'
+import { request } from '@/lib/request'
+
+vi.mock('@/lib/request', () => ({ request: vi.fn() }))
 
 function history(messages: ChatHistory['messages']): ChatHistory {
   return { messages, hasMore: false }
 }
 
 describe('历史会话 → 页面消息', () => {
+  it('恢复不带游标，加载更早消息时原样传回字符串游标', async () => {
+    const cursor = '2120565650562129921'
+    vi.mocked(request).mockResolvedValue({ messages: [], hasMore: true, nextCursor: cursor })
+    const latest = await getAgentHistory('thread-a')
+    expect(request).toHaveBeenLastCalledWith('/agent/history/thread-a?limit=40')
+    await getAgentHistory('thread-a', latest.nextCursor ?? undefined)
+    expect(request).toHaveBeenLastCalledWith(`/agent/history/thread-a?limit=40&beforeId=${cursor}`)
+  })
+
   it('只保留问答正文：思考过程、工具调用与回合终止都不展示', () => {
     const items = toChatItems(
       history([
@@ -57,5 +69,19 @@ describe('历史会话 → 页面消息', () => {
 
   it('缺 messages 字段时不抛错', () => {
     expect(toChatItems({ hasMore: false } as ChatHistory)).toEqual([])
+  })
+
+  it('更早一页可重复合并，保留顺序与后续对话，隐藏内部消息', () => {
+    const newestId = '2120565650562129923'
+    const latest = toChatItems(history([{ id: newestId, role: 'USER', content: '较新的问题' }]))
+    const older = toChatItems(history([
+      { id: '2120565650562129921', role: 'USER', content: '更早的问题' },
+      { id: '2120565650562129922', role: 'ASSISTANT', subType: 'reasoning', content: '内部过程' },
+    ]))
+    const pending = { id: 'local', role: 'assistant' as const, content: '实时回复', pending: true }
+    const merged = prependHistoryItems([...latest, pending], older)
+    expect(merged.map((item) => item.content)).toEqual(['更早的问题', '较新的问题', '实时回复'])
+    expect(merged[2]).toBe(pending)
+    expect(prependHistoryItems(merged, older)).toEqual(merged)
   })
 })
