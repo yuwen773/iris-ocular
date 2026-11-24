@@ -79,6 +79,7 @@ Java 21 与本机 MySQL 实例的环境事实见主检出目录的 `CLAUDE.local
 | ControlledReferenceController | `/api/controlled-references/*` | 受控参考资料上传、治理与检索 |
 | DoctorReviewController | `/api/doctor-reviews/*` | 医生复核冻结草稿 |
 | PatientDraftTestController / PatientDraftSeedController | `/api/patient-draft-test/*` | 仅管理员、需显式开启的草稿校验 |
+| ControlCenterController / ControlCenterCsrfController | `/api/admin/control-center/*` | 配置中心草稿/发布/审批/回滚 + CSRF 令牌；默认关闭（`eye-diagnosis.control-center.enabled=false`） |
 
 ## Database (MySQL `diagnosis`)
 

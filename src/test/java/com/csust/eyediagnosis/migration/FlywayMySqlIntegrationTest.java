@@ -158,7 +158,9 @@ class FlywayMySqlIntegrationTest {
         String url = System.getenv("FLYWAY_TEST_URL");
         Assumptions.assumeTrue(url != null && !url.isBlank(),
                 "Set FLYWAY_TEST_URL to run the real MySQL Flyway gate");
-        String schema = "diagnosis_ci_upgrade_v31_" + UUID.randomUUID().toString().replace("-", "");
+        // 前缀必须落在 CI 已授权的 `diagnosis_ci_empty_%` 里（.github/workflows/verify.yml
+        // 的 flyway 作业只按前缀授权），否则 CREATE DATABASE 会被 MySQL 拒绝。
+        String schema = "diagnosis_ci_empty_upgrade_v31_" + UUID.randomUUID().toString().replace("-", "");
         String username = System.getenv("FLYWAY_TEST_USERNAME");
         String password = System.getenv("FLYWAY_TEST_PASSWORD");
         try (var connection = DriverManager.getConnection(url, username, password);
