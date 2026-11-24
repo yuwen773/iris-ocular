@@ -30,7 +30,7 @@ Agent / 临床推理 / 模型客户端调用路径、`@AuthCheck` 角色语义�
 
 | 复核项 | 结论 | 证据 |
 |---|---|---|
-| `/api/admin/control-center/**` 与 Origin/CSRF 过滤器的实际匹配 | 通过。`SameOriginFilter.isControlCenterPath` 先剥 `context-path`（本仓库 `/api`）再比对 `/admin/control-center`，`/admin/control-center-fake` 不匹配 | `SameOriginFilterControlCenterTest#pathDetectionStripsContextPath`、`#pathDetectionHandlesPrefixBoundary`、`ControlCenterAcceptanceTest`（RANDOM_PORT 真 Tomcat） |
+| `/api/admin/control-center/**` 与 Origin/CSRF 过滤器的实际匹配 | 通过。`SameOriginFilter.isControlCenterPath` 用 `UrlPathHelper.getPathWithinApplication` 取「MVC 实际路由用的路径」——解码、剥掉 `;` 矩阵参数、剥离 `context-path`（本仓库 `/api`）——再比对 `/admin/control-center`；`/admin/control-center-fake` 不匹配。**2026-11-24 修正**：早先按 `getRequestURI()` 原始串比对，导致 `;test=1` 变体被 MVC 路由却跳过两道过滤器，见 WP-01D §8.5 | `SameOriginFilterControlCenterTest#pathDetectionStripsContextPath`、`#pathDetectionHandlesPrefixBoundary`、`ControlCenterAcceptanceTest#matrixParameterVariantsCannotBypassSecurityControls`（RANDOM_PORT 真 Tomcat，含 `;` 与 `%3B` 变体） |
 | 执行顺序 | Origin（`@Order(1)`）→ CSRF（`@Order(2)`）→ 认证（`AuthInterceptor`，40100）→ `@ConfigPermission`（40301） | `ControlCenterAcceptanceTest#originIsCheckedBeforeCsrf`、`#anonymousRequestIsRejected` 等 |
 | `@ConfigPermission` 在代理与内部调用下的边界 | **JSON 注释已写明**：CGLIB 代理不拦截同类内部调用，注解必须挂在控制器入口方法上；有专门用例锁定该事实 | `ConfigPermissionAspectTest#selfInvocationBypassesTheAspect` |
 | CSRF 端点缓存与泄漏 | `GET /admin/control-center/csrf` 返回 `Cache-Control: no-store` + `Pragma: no-cache`，仅管理员可取，响应只含 token 本身 | `ControlCenterAcceptanceTest`（no-store + 非管理员拒绝） |

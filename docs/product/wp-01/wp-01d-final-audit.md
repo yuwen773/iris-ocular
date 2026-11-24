@@ -526,6 +526,39 @@ C-9 由「⏳ 未做」改为「✅ 已做」：重编号与复跑迁移门禁�
 部署启用是**另一轮**决策，不随合并自动发生：§9.3 全部条目 + 真实反代端到端验证 +
 owner 对 R-2…R-9 的签字（R-1 已随 C-3 裁决接受，2026-11-23）。
 
+### 8.5 路径匹配缺口：安全控制覆盖问题（2026-11-24 复现、修复、验证）
+
+**这条推翻了本轮早先的定性。** 独立评审把它列为「P2 安全纵深」，owner 指出不该按 P2 放过，
+要求先在真实 Tomcat 上做负例复现——复现成立，且比评审描述的更严重。
+
+**缺陷**：`SameOriginFilter.isControlCenterPath` 用 `getRequestURI()` 的**原始串**做前缀比对，
+而 Tomcat/Spring 在路由前会把 `;name=value` 矩阵参数从每一段剥掉。于是
+`POST /api/admin/control-center;test=1/drafts` 被 MVC 路由到写方法，过滤器却判定
+「不是控制中心路径」——严格 Origin 降级为全站沿用的 host-only 比较，**CSRF 过滤器整体跳过**。
+
+**复现证据（真实 Tomcat、真实 context-path `/api`、`RANDOM_PORT`）**：
+
+| 变体 | 有合法 token | 同源无 token | 跨站 |
+|---|---|---|---|
+| `/api/admin/control-center/drafts`（对照） | 200 / code 0 | 403 `CSRF_MISSING` | 403 `ORIGIN_MISMATCH` |
+| `/api/admin/control-center;test=1/drafts` | 200 / code 0（能路由） | **200 / code 0，草稿真的写进去** | 403，`data:null`（**旧版 host-only 分支**） |
+| `/api/admin/control-center%3Btest=1/drafts` | — | `NoHandlerFoundException`（**未路由**，被 `GlobalExceptionHandler` 映射成 50000） | — |
+| `/api/admin/control-center/drafts;test=1` | 200 / code 0 | 403 `CSRF_MISSING` | 403 `ORIGIN_MISMATCH` |
+
+影响面：同源（或经旧版 host-only 判定放行，例如同主机明文 HTTP 来源）且**没有 CSRF token**
+的写请求可以成功执行。这不是「代码整洁」，是 `§3.1` 第 6 条之外的一道控制整体失效。
+
+**修复**：`isControlCenterPath` 改用 `UrlPathHelper.getPathWithinApplication(request)`——
+即 MVC 计算 lookup path 用的同一套逻辑（默认解码 URI、剥掉 `;` 矩阵参数、剥离 context-path）；
+解析异常时 **fail-closed**，按控制中心路径处理，不再跳过校验。
+
+**验证**：`ControlCenterAcceptanceTest#matrixParameterVariantsCannotBypassSecurityControls`
+把三条变体固化成断言，且每条都先证明「MVC 确实能路由」（合法 token 写成功），再断言
+无 token 必须 `CSRF_MISSING`、跨站必须严格分支的 `ORIGIN_MISMATCH`、且数据库零新增。
+`%3B` 那条按实测标为**未路由**并保留为探针（哪天被路由了这条用例立刻红）。
+回退修复后该用例按预期转红（`200 + code 0` 且草稿落库），恢复后转绿。
+控制中心全量 L2：**17 类 / 152 例 / 0 失败**（含跨进程 7/7）。
+
 ---
 
 ## 9. 风险接受清单与后续工作

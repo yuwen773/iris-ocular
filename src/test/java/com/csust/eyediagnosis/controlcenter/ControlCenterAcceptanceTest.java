@@ -263,6 +263,109 @@ class ControlCenterAcceptanceTest {
         assertEquals(0, leaks, "审计不得包含口令 / CSRF token / Session");
     }
 
+    // -------------------------------------------------- 路径变体（矩阵参数）
+
+    /**
+     * 矩阵参数不得成为安全控制的盲区。
+     *
+     * <p>过滤器若按 {@code getRequestURI()} 的原始串做前缀匹配，而 Tomcat/Spring 在路由前会
+     * 把 {@code ;name=value}（含被编码的 {@code %3B}）当作路径参数剥掉，就会出现「MVC 命中了
+     * 写方法、过滤器却判定不是控制中心路径」的组合。此时 Origin 严格模式与 CSRF 校验整体失效：
+     * 同源但无 token 的写请求会被直接执行。
+     *
+     * <p>因此每个变体都验证三件事，缺一不可：
+     * <ol>
+     *   <li><b>MVC 确实能命中</b>：带合法 Origin 与合法 token 时写请求成功——否则本条变体
+     *       根本没被路由，下面的拒绝就是空的；</li>
+     *   <li><b>CSRF 先于控制器执行</b>：同源、合法会话、无 token 必须 403 + {@code CSRF_MISSING}；</li>
+     *   <li><b>严格 Origin 先于控制器执行</b>：跨站请求必须 403 + {@code CROSS_ORIGIN_BLOCKED}。</li>
+     * </ol>
+     * 后两条都必须伴随「数据库没有新增行」。
+     */
+    @Test
+    void matrixParameterVariantsCannotBypassSecurityControls() throws Exception {
+        java.util.List<String> violations = new java.util.ArrayList<>();
+        String token = admin.get("/api/admin/control-center/csrf")
+                .json().path("data").path("token").asText();
+
+        for (Variant variant : PATH_VARIANTS) {
+            String path = variant.path();
+
+            // 1) 先确定这条变体到底有没有被 MVC 路由到写方法。Routed=false 的变体
+            //    必须真的写不进去——否则「没有路由」这个前提本身就错了。
+            jdbc.update("DELETE FROM t_config_draft");
+            Reply allowed = admin.write("POST", path, BYPASS_BODY, token);
+            boolean routed = allowed.code() == 0;
+            if (variant.routed() != routed) {
+                violations.add(path + " 路由性与预期不符（期望 routed=" + variant.routed()
+                        + "，实际 code=" + allowed.code() + "）: " + allowed.body());
+                continue;
+            }
+            if (!routed) {
+                if (draftRows() != 0) {
+                    violations.add(path + " 声称未路由，却写入了草稿");
+                }
+                continue;
+            }
+            if (draftRows() != 1) {
+                violations.add(path + " 合法请求未落库，无法作为路由证明");
+                continue;
+            }
+
+            // 2) 同源 + 合法会话 + 无 token：CSRF 必须先于控制器执行。
+            jdbc.update("DELETE FROM t_config_draft");
+            Client fresh = new Client(base);
+            assertTrue(fresh.login("cc-admin-" + suffix));
+            Reply noToken = fresh.postJson(path, BYPASS_BODY, base);
+            if (noToken.status() != 403 || !noToken.body().contains("CSRF_MISSING")) {
+                violations.add(path + " 同源无 token 未被 CSRF 拦下: "
+                        + noToken.status() + " " + noToken.body());
+            }
+            if (draftRows() != 0) {
+                violations.add(path + " 无 token 的请求写入了草稿");
+            }
+
+            // 3) 跨站：严格 Origin 必须先于控制器执行。reasonCode 的存在说明走的是
+            //    严格分支，而不是全站沿用的旧版 host-only 比较。
+            jdbc.update("DELETE FROM t_config_draft");
+            Reply crossSite = admin.fork().postJson(path, BYPASS_BODY, "http://evil.example.com");
+            if (crossSite.status() != 403 || !crossSite.body().contains("CROSS_ORIGIN_BLOCKED")) {
+                violations.add(path + " 跨站写未被 Origin 拦下: "
+                        + crossSite.status() + " " + crossSite.body());
+            }
+            if (!crossSite.body().contains(REASON_CODE_FIELD)) {
+                violations.add(path + " 走的是旧版 host-only 分支，严格 Origin 未生效: "
+                        + crossSite.body());
+            }
+            if (draftRows() != 0) {
+                violations.add(path + " 跨站请求写入了草稿");
+            }
+        }
+
+        assertTrue(violations.isEmpty(), "路径变体绕过安全控制:\n  " + String.join("\n  ", violations));
+    }
+
+    private static final String REASON_CODE_FIELD = "\"reasonCode\"";
+
+    private static final String BYPASS_BODY =
+            "{\"schemaVersion\":1,\"values\":{\"brand.siteName\":\"bypass\"}}";
+
+    /**
+     * 矩阵参数变体。
+     *
+     * <p>{@code routed} 是 2026-11-24 在真实 Tomcat + 真实 context-path 上实测的结果：
+     * 字面 {@code ;} 会被 Tomcat/MVC 当作路径参数剥掉后再匹配，因此能路由；而
+     * {@code %3B} 不会被解码参与匹配，MVC 直接 {@code NoHandlerFoundException}。
+     * 保留后者是为了把它当**探针**：哪天真被路由了，这条用例会立刻红。
+     */
+    private record Variant(String path, boolean routed) {
+    }
+
+    private static final java.util.List<Variant> PATH_VARIANTS = java.util.List.of(
+            new Variant("/api/admin/control-center;test=1/drafts", true),
+            new Variant("/api/admin/control-center%3Btest=1/drafts", false),
+            new Variant("/api/admin/control-center/drafts;test=1", true));
+
     // ---------------------------------------------------------------- 辅助
 
     private long insertUser(String account, String role) {

@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.web.util.UrlPathHelper;
 
 import java.io.IOException;
 import java.net.URI;
@@ -54,6 +55,12 @@ public class SameOriginFilter extends OncePerRequestFilter {
 
     private static final List<String> SAFE_METHODS = List.of("GET", "HEAD", "OPTIONS");
 
+    /**
+     * 与 MVC 计算 lookup path 同源的路径解析器：默认解码 URI 并剥掉 {@code ;} 矩阵参数。
+     * 无状态，可并发复用。
+     */
+    private static final UrlPathHelper PATH_HELPER = new UrlPathHelper();
+
     @Value("${security.same-origin.additional-hosts:}")
     private List<String> additionalHosts;
 
@@ -94,19 +101,40 @@ public class SameOriginFilter extends OncePerRequestFilter {
     /**
      * 请求是否落在控制中心路径下。
      *
-     * <p>比较前先剥掉 {@code server.servlet.context-path}（本仓库为 {@code /api}），
-     * 避免把路径判断绑死在部署前缀上。
+     * <p>判定必须与 <b>MVC 实际路由所用的路径</b>一致，不能拿
+     * {@code getRequestURI()} 的原始串直接比：Tomcat / Spring 在路由前会把
+     * {@code ;name=value} 形式的矩阵参数从每一段里剥掉。若过滤器按原始串判定，
+     * {@code POST /api/admin/control-center;test=1/drafts} 会被 MVC 路由到写方法，
+     * 过滤器却认为「不是控制中心路径」而整体跳过——严格 Origin 与 CSRF 两道控制同时失效，
+     * 同源但无 token 的写请求会被直接执行（2026-11-24 在真实 Tomcat 上复现并修复）。
+     *
+     * <p>这里用 {@link UrlPathHelper}（{@code removeSemicolonContent} 与 {@code urlDecode}
+     * 均为默认 true，也是 MVC 计算 lookup path 用的同一套逻辑）取「应用内路径」，
+     * 它已经完成解码、去分号与 context-path 剥离。
+     *
+     * <p>取不出路径时<b>按控制中心处理</b>（fail-closed）：判不出来就不该跳过校验。
      */
     public static boolean isControlCenterPath(HttpServletRequest request) {
-        String path = request.getRequestURI();
-        if (path == null) {
-            return false;
+        String path;
+        try {
+            path = PATH_HELPER.getPathWithinApplication(request);
+        } catch (RuntimeException ex) {
+            log.warn("路径解析失败，按控制中心路径处理（fail-closed）: uri={}",
+                    safeUri(request), ex.toString());
+            return true;
         }
-        String context = request.getContextPath();
-        if (context != null && !context.isEmpty() && path.startsWith(context)) {
-            path = path.substring(context.length());
+        if (path == null) {
+            return true;
         }
         return path.equals(CONTROL_CENTER_PREFIX) || path.startsWith(CONTROL_CENTER_PREFIX + "/");
+    }
+
+    private static String safeUri(HttpServletRequest request) {
+        try {
+            return request.getRequestURI();
+        } catch (RuntimeException ignored) {
+            return "<unavailable>";
+        }
     }
 
     private boolean allowsLegacyOrigin(HttpServletRequest request, HttpServletResponse response)
