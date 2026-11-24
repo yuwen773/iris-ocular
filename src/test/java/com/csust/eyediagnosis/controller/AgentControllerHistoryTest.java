@@ -4,22 +4,29 @@ import com.csust.eyediagnosis.agent.config.AgentConstants;
 import com.csust.eyediagnosis.agent.queue.SessionMessageQueue;
 import com.csust.eyediagnosis.agent.service.ChatHistoryService;
 import com.csust.eyediagnosis.agent.service.ChatMessageWriter;
+import com.csust.eyediagnosis.config.JsonConfig;
 import com.csust.eyediagnosis.exception.ErrorCode;
 import com.csust.eyediagnosis.exception.GlobalExceptionHandler;
 import com.csust.eyediagnosis.mapper.AgentMessageMapper;
 import com.csust.eyediagnosis.mapper.AgentSessionMapper;
+import com.csust.eyediagnosis.model.entity.AgentMessage;
 import com.csust.eyediagnosis.model.entity.AgentSession;
 import com.csust.eyediagnosis.model.entity.User;
 import com.csust.eyediagnosis.service.UserService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
+import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+
+import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -58,6 +65,8 @@ class AgentControllerHistoryTest {
         ReflectionTestUtils.setField(controller, "chatHistoryService", historyService);
         ReflectionTestUtils.setField(controller, "agentConstants", new AgentConstants());
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
+                .setMessageConverters(new MappingJackson2HttpMessageConverter(
+                        new JsonConfig().jacksonObjectMapper(Jackson2ObjectMapperBuilder.json())))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
     }
@@ -89,6 +98,44 @@ class AgentControllerHistoryTest {
                 .andExpect(jsonPath("$.data.messages").isEmpty())
                 .andExpect(jsonPath("$.data.hasMore").value(false));
 
-        verify(messageMapper).selectBySessionIdOrderByTimeASC("thread-a", effective);
+        verify(messageMapper).selectHistoryPage("thread-a", null, null, effective + 1);
+    }
+
+    @Test
+    void historySerializesCursorsWithoutLosingLongIdPrecision() throws Exception {
+        AgentMessage oldest = new AgentMessage();
+        oldest.setId(2_120_565_650_562_129_921L);
+        oldest.setRole("ASSISTANT");
+        AgentMessage newest = new AgentMessage();
+        newest.setId(oldest.getId() + 1);
+        newest.setRole("ASSISTANT");
+        when(messageMapper.selectHistoryPage("thread-a", null, null, 2)).thenReturn(List.of(newest, oldest));
+
+        mockMvc.perform(get("/agent/history/thread-a").param("limit", "1"))
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.messages[0].id").value(newest.getId().toString()))
+                .andExpect(jsonPath("$.data.hasMore").value(true))
+                .andExpect(jsonPath("$.data.nextCursor").value(newest.getId().toString()))
+                .andExpect(jsonPath("$.data.hasNewer").value(false))
+                .andExpect(jsonPath("$.data.newerCursor").value(newest.getId().toString()));
+
+        when(messageMapper.selectHistoryCursor("thread-a", oldest.getId())).thenReturn(oldest.getId());
+        when(messageMapper.selectHistoryPage("thread-a", null, oldest.getId(), 2)).thenReturn(List.of(newest));
+        when(messageMapper.selectHistoryPage("thread-a", newest.getId(), null, 1)).thenReturn(List.of(oldest));
+        mockMvc.perform(get("/agent/history/thread-a").param("afterId", oldest.getId().toString()).param("limit", "1"))
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.messages[0].id").value(newest.getId().toString()))
+                .andExpect(jsonPath("$.data.hasMore").value(true))
+                .andExpect(jsonPath("$.data.hasNewer").value(false));
+    }
+
+    @Test
+    void historyRejectsBothCursorsAndChecksOwnerBeforeQueryingMessages() throws Exception {
+        mockMvc.perform(get("/agent/history/thread-a").param("beforeId", "30").param("afterId", "10"))
+                .andExpect(jsonPath("$.code").value(ErrorCode.PARAMS_ERROR.getCode()));
+        mockMvc.perform(get("/agent/history/thread-not-owned").param("beforeId", "30"))
+                .andExpect(jsonPath("$.code").value(ErrorCode.NO_AUTH_ERROR.getCode()));
+
+        verifyNoInteractions(messageMapper);
     }
 }

@@ -57,3 +57,13 @@
 四种表达强度），令牌实现在 `web/src/styles/tokens.css`（已实现的事实，冲突时以它为准）；
 `frontend/`（Vue）**已弃用（deprecated）**，仍用旧青绿 `--iris-*`，
 不再作为设计参考。详见 `DESIGN.md` 与 `docs/backend-split.md`。
+
+## 小程序（患者端）
+
+| 术语 | 含义 | 代码位置 |
+|---|---|---|
+| 小程序令牌通道（Bearer） | 与 Cookie 会话并行的第二条身份通道：小程序请求带 `Authorization: Bearer <token>`，过滤器解出 `userId` 写进请求属性；没有 Bearer 头的请求原样走原 Cookie 分支，`web/` 语义不变 | `miniapp/MiniAppTokenFilter.java` / `constant/MiniAppConstant.java` |
+| 令牌认证豁免 | 只有两类请求跳过 `SameOriginFilter` 的同源校验：令牌认证通过的请求，以及 `/mp/auth/login`（换令牌入口，本身不写 Cookie）。小程序的 Referer 被平台固定为 `servicewechat.com`，同源校验不可能通过 | `config/SameOriginFilter.java` |
+| 微信绑定（t_user_wechat） | `(appid, openid)` → `userId` 的绑定行；`session_key` 不落库、不进日志、不返回客户端 | `model/entity/UserWechat.java` / `V35` |
+| 首登建号 | 绑定不存在时自动建 `t_user`（`userAccount = wx_<openid>`、随机 BCrypt 密码占位、`role = user`），不与既有密码账号合并；并发首登由唯一键兜底并回读赢家 | `miniapp/MiniAppAuthService.java` |
+| 令牌会话（mp:token） | 32 字节随机令牌，Redis 只存其 SHA-256，30 天滑动续期；登出删键 | `miniapp/MiniAppTokenService.java` |

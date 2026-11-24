@@ -224,6 +224,8 @@ describe("AgentPage 未登录", () => {
       ],
       hasMore: false,
       nextCursor: null,
+      hasNewer: false,
+      newerCursor: null,
     })
 
     stubMatchMedia()
@@ -247,6 +249,58 @@ describe("AgentPage 未登录", () => {
     await act(async () => historyA.resolve(history("A 的旧消息")))
     expect(screen.queryByText("A 的旧消息")).toBeNull()
     expect(screen.getByText("B 的新消息")).toBeTruthy()
+  })
+
+  it("更早一页有序接到开头，切换会话后丢弃在途的旧页", async () => {
+    sessionState.status = "authed"
+    sessionState.user = { id: 1, userAccount: "tester" }
+    const session = (sessionId: string): AgentSessionVO => ({
+      sessionId, title: `会话 ${sessionId}`, lastMessage: "", messageCount: 101,
+      summaryContent: "", createdTime: nowStamp(), updatedTime: nowStamp(),
+    })
+    const page = (id: string, content: string, nextCursor: string | null): ChatHistoryVO => ({
+      messages: [{ id, role: "USER", subType: "", content, isSummary: false, createdTime: nowStamp() }],
+      hasMore: nextCursor !== null,
+      nextCursor,
+      hasNewer: false,
+      newerCursor: id,
+    })
+    const latestCursor = "2120565650562129924"
+    const olderCursor = "2120565650562129923"
+    let resolveOldPage!: (value: ChatHistoryVO) => void
+    const inFlight = new Promise<ChatHistoryVO>((resolve) => { resolveOldPage = resolve })
+    vi.mocked(getSessions).mockResolvedValue([session("A"), session("B")])
+    vi.mocked(getChatHistory)
+      .mockResolvedValueOnce(page(latestCursor, "A 最近的消息", latestCursor))
+      .mockResolvedValueOnce(page(olderCursor, "A 更早的消息", olderCursor))
+      .mockReturnValueOnce(inFlight)
+      .mockResolvedValueOnce(page("2120565650562129930", "B 最近的消息", null))
+
+    stubMatchMedia()
+    render(
+      <ThemeProvider>
+        <MemoryRouter initialEntries={["/agent"]}>
+          <Routes>
+            <Route path="/agent" element={<AgentPage />} />
+          </Routes>
+        </MemoryRouter>
+      </ThemeProvider>,
+    )
+    fireEvent.click(await screen.findByRole("button", { name: /^会话 A/ }))
+    const recent = await screen.findByText("A 最近的消息")
+    fireEvent.click(screen.getByRole("button", { name: "加载更早消息" }))
+    const older = await screen.findByText("A 更早的消息")
+    expect(older.compareDocumentPosition(recent) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(getChatHistory).toHaveBeenLastCalledWith("A", latestCursor, 100)
+    expect(screen.queryByText(/条新消息/)).toBeNull()
+
+    fireEvent.click(screen.getByRole("button", { name: "加载更早消息" }))
+    expect(getChatHistory).toHaveBeenLastCalledWith("A", olderCursor, 100)
+    fireEvent.click(screen.getByRole("button", { name: /^会话 B/ }))
+    expect(await screen.findByText("B 最近的消息")).toBeTruthy()
+    await act(async () => resolveOldPage(page("2120565650562129922", "A 迟到的旧消息", null)))
+    expect(screen.queryByText("A 迟到的旧消息")).toBeNull()
+    expect(screen.queryByRole("button", { name: "加载更早消息" })).toBeNull()
   })
 
   it("非安全上下文没有 crypto.randomUUID 时也能发送", async () => {
@@ -336,6 +390,8 @@ describe("AgentPage 未登录", () => {
       ],
       hasMore: false,
       nextCursor: null,
+      hasNewer: false,
+      newerCursor: null,
     })
     stubMatchMedia()
 
@@ -363,14 +419,10 @@ describe("AgentPage 未登录", () => {
     ).toHaveLength(1)
   })
 
-  it("历史还有下一页时核对无依据：停在「送达未确认」", async () => {
+  it("最新一页还有更早记录时，仍可核对消息送达", async () => {
     sessionState.status = "authed"
     sessionState.user = { id: 1, userAccount: "tester" }
     sendMock.mockRejectedValueOnce(new Error("stream interrupted before headers"))
-    // 不带游标返回的是**最早**一页：hasMore 为真说明后面还有消息，
-    // 刚发的那条不可能在这一页里，内容相同只是巧合。
-    // 时间必须取「刚刚」——否则单靠时间差守卫就会 return，这条用例变成恒真，
-    // 删掉 hasMore 守卫也照样绿。
     vi.mocked(getChatHistory).mockResolvedValueOnce({
       messages: [
         {
@@ -384,6 +436,8 @@ describe("AgentPage 未登录", () => {
       ],
       hasMore: true,
       nextCursor: "cursor-2",
+      hasNewer: false,
+      newerCursor: null,
     })
     stubMatchMedia()
 
@@ -404,15 +458,13 @@ describe("AgentPage 未登录", () => {
     fireEvent.keyDown(textarea, { key: "Enter" })
 
     await waitFor(() => expect(getChatHistory).toHaveBeenCalled())
-    expect(await screen.findByText(/送达未确认/)).toBeTruthy()
+    await waitFor(() => expect(screen.queryByText(/送达未确认/)).toBeNull())
   })
 
-  it("这一页就是整段会话且时间吻合时，核对才升级为已受理", async () => {
+  it("短会话的最新消息时间吻合时，核对升级为已受理", async () => {
     sessionState.status = "authed"
     sessionState.user = { id: 1, userAccount: "tester" }
     sendMock.mockRejectedValueOnce(new Error("stream interrupted before headers"))
-    // 与上一条互为反证：唯一差别是 hasMore=false。守卫若被删掉，两条仍然一绿一红，
-    // 但上一条会变成恒真——两条一起才钉得住「没有下一页才敢下结论」。
     vi.mocked(getChatHistory).mockResolvedValueOnce({
       messages: [
         {
@@ -426,6 +478,8 @@ describe("AgentPage 未登录", () => {
       ],
       hasMore: false,
       nextCursor: null,
+      hasNewer: false,
+      newerCursor: null,
     })
     stubMatchMedia()
 
@@ -459,6 +513,8 @@ describe("AgentPage 未登录", () => {
       messages: [],
       hasMore: false,
       nextCursor: null,
+      hasNewer: false,
+      newerCursor: null,
     })
     stubMatchMedia()
 
@@ -584,6 +640,8 @@ describe("AgentPage 未登录", () => {
       messages: [],
       hasMore: false,
       nextCursor: null,
+      hasNewer: false,
+      newerCursor: null,
     })
     stubMatchMedia()
 
@@ -697,6 +755,8 @@ describe("AgentPage 未登录", () => {
         ],
         hasMore: false,
         nextCursor: null,
+        hasNewer: false,
+        newerCursor: null,
       })
     })
 
@@ -924,6 +984,8 @@ describe("AgentPage 发送互斥", () => {
       ],
       hasMore: false,
       nextCursor: null,
+      hasNewer: false,
+      newerCursor: null,
     })
     // 第一条流挂起不返回，模拟「已受理、还在生成」的窗口
     let release: (value: unknown) => void = () => {}

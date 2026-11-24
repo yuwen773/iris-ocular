@@ -19,9 +19,8 @@ export const HISTORY_PAGE_SIZE = 100
  */
 export const RECONCILE_CLOCK_SKEW_MS = 10 * 60 * 1000
 
-/** 历史接口返回的一页：本模块只认这三件事。 */
+/** 送达核对只需要首屏的消息内容与时间。 */
 export type HistoryPageLike = {
-  hasMore: boolean
   messages?: { role?: string; content?: string; createdTime?: string }[]
 }
 
@@ -85,8 +84,7 @@ export function applyDelivery(
 /**
  * 用历史接口核对这条提问到底有没有落库。
  *
- * <p>不带游标返回的是**最早**一页；hasMore 为真说明后面还有消息，刚发的那条
- * 不可能在这一页里——没有判断依据。只认「最后一条 USER 且内容一致、时间不早于
+ * <p>不带游标时返回最新一页。只认「最后一条 USER 且内容一致、时间不早于
  * 发起时刻减去时钟偏差」。
  *
  * <p>只能「升级」不能「证伪」：查不到 ≠ 没送到（落库还在队列里），
@@ -96,7 +94,6 @@ export function reconcileAcceptedUser(
   page: HistoryPageLike,
   draft: { text: string; sentAt: number },
 ): boolean {
-  if (page.hasMore) return false
   const lastUser = [...(page.messages ?? [])]
     .reverse()
     .find((message) => (message.role ?? "").toUpperCase() === "USER")

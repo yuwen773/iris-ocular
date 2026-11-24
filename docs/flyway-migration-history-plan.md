@@ -105,13 +105,58 @@ Python service does not send the fields. Old rows are not backfilled: the
 historical values are not recoverable, and inventing them would be
 fabricating evidence.
 
+## V35 (2026-11-24)
+
+One migration from the WeChat mini-program (patient client) work. No edits to
+V1--V34; it only creates a new table, so every existing row and query is
+untouched. Per-target upgrade paths stay in
+`docs/architecture/migration-matrix.md`.
+
+- **V35** `t_user_wechat`: `(appid, openid)` unique key mapping a WeChat
+  identity to a `t_user.id`, backing the Bearer token channel that the
+  mini-program uses (`wx.login` code -> `jscode2session` -> binding -> token).
+  First login creates a `t_user` row (`userAccount = wx_<openid>`, random
+  BCrypt password, `role = user`) instead of merging into a password account.
+  `session_key` is deliberately absent: it is neither stored nor returned.
+  `COLLATE utf8mb4_unicode_ci` matches the V15 baseline tables.
+
+Two consequences:
+
+1. Nothing in the Java cookie-session path reads this table; dropping the
+   binding rows would only force a re-login, never create a new account for an
+   existing one.
+2. The next branch that needs a version takes V36 -- taken by the Control
+   Center work below.
+
+## V36 / V37 (2026-11-24)
+
+Two migrations from the Iris Control Center (config drafts, publish, approval)
+work. No edits to V1--V35; both only create new tables, so every existing row
+and query is untouched. Per-target upgrade paths stay in
+`docs/architecture/migration-matrix.md`.
+
+- **V36** `t_config_draft`, `t_config_release`, `t_config_active_pointer`,
+  `t_config_request`, `t_config_audit_event`: the config center core, plus one
+  seeded active-pointer row `(1, NULL)`. No foreign keys.
+- **V37** `t_config_publish_request`: pins the draft revision, payload digest,
+  validation digest and expected active version a publish was requested
+  against; unique key `(actorId, requestId)`. No foreign keys.
+
+Two consequences:
+
+1. The Control Center is gated by `eye-diagnosis.control-center.enabled`,
+   which defaults to `false`, and the publisher allow-list defaults to empty.
+   Upgrading alone grants nobody the right to publish.
+2. The next branch that needs a version takes V38 -- claimed by the
+   user-feedback work below.
+
 ## V38 / V39 (2026-11-24)
 
 Two migrations from the user-feedback and in-app-notification work (branch
-`t3/add-feedback-feature`). No edits to V1--V34; each script only creates one
-new table, so existing rows need no backfill. Per-target upgrade paths stay in
-`docs/architecture/migration-matrix.md`; §1.1 there records the numbering
-decision.
+`t3/add-feedback-feature`, PR #166). No edits to V1--V37; each script only
+creates one new table, so existing rows need no backfill. Per-target upgrade
+paths stay in `docs/architecture/migration-matrix.md`; section 1.1 there
+records the numbering decision.
 
 - **V38** `t_user_feedback`: the product-feedback channel — body, category,
   optional link to a diagnosis task / agent session, status machine, admin
@@ -121,16 +166,9 @@ decision.
 
 Two consequences to know before writing the next migration:
 
-1. V35 is owned by the in-flight miniapp branch (PR #160); V36--V37 by the in-flight
-   Iris Control Center branch (PR #164).
-   This branch took V38/V39 to avoid a clash, which creates an ordering
-   constraint: with `spring.flyway.out-of-order=false`, a database that already
-   applied V38/V39 rejects V35--V37 arriving later. Merge the Control Center
-   branch first, or renumber it to V39+ inside the same release window.
-2. Renumbering is cheap: change the file name plus the version / migration-count
-   assertions in `FlywayMySqlIntegrationTest`; the scripts contain no version
-   number of their own (V35→V38 was rehearsed once).
-
-Also still binding for every new script: never edit an applied script, only
-append a higher version.
-
+1. V32--V34 landed with #156, V35 with #160, V36--V37 with #164, V38/V39 with
+   this branch. With `spring.flyway.out-of-order=false`, merge in version
+   order: a database that already applied a higher version rejects the lower
+   one arriving later.
+2. The next branch that needs a version takes V40: the news line's planned
+   V39--V41 must shift to V40--V42 before it opens a PR.

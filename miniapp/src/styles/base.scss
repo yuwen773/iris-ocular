@@ -1,0 +1,217 @@
+/**
+ * 全局基础样式。
+ *
+ * 画布是**品牌画布**（浅 `#f2f6fc` / 深 `#0b1425`），不是 web/ 的骨白纸面——
+ * 骨白 + 墨色是 `RecordSheet` 那张报告纸的语言，它浮在画布上，不是整站底色。
+ * 主操作是钴蓝 `--brand-primary`（深色自动翻成 `#85b5ff`），不再用墨色实心按钮：
+ * 墨色在深色下会变成近白，而按钮文字用的是 `--paper-surface`（恒为白），字就看不见了。
+ *
+ * 只引用 tokens.scss 生成的令牌，不写死色值。
+ */
+page {
+  background: var(--brand-canvas);
+  color: var(--brand-text);
+  font-family: var(--font-sans);
+  font-size: 28rpx;
+  line-height: 1.6;
+}
+
+view,
+text,
+button,
+input,
+image {
+  box-sizing: border-box;
+}
+
+.mp-page {
+  min-height: 100vh;
+  padding: 32rpx 32rpx 64rpx;
+  background: var(--brand-canvas);
+}
+
+/* 单子：浅色下是浮在画布上的一层白纸，深色下是 `#17263d` 的面板，同一个令牌翻转。 */
+.mp-card {
+  background: var(--brand-surface);
+  border: 1rpx solid var(--brand-line);
+  border-radius: var(--radius-none);
+  padding: 32rpx;
+}
+
+.mp-card + .mp-card {
+  margin-top: 24rpx;
+}
+
+.mp-title {
+  font-family: var(--font-serif);
+  font-size: 40rpx;
+  line-height: 1.35;
+  color: var(--brand-text);
+}
+
+.mp-subtitle {
+  margin-top: 8rpx;
+  font-size: 26rpx;
+  color: var(--brand-muted);
+}
+
+.mp-label {
+  font-family: var(--font-mono);
+  font-size: 22rpx;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--brand-muted);
+}
+
+.mp-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.mp-hairline {
+  height: 1rpx;
+  background: var(--brand-line);
+  margin: 24rpx 0;
+}
+
+.mp-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+}
+
+.mp-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+}
+
+/* 按钮：微信原生 button 会带 ::after 边框，这里统一抹掉，按设计系统重画。
+   主操作 = 钴蓝；文字色用 `--brand-primary-fg`，深色下自动翻成深色字压浅蓝底。 */
+.mp-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 88rpx;
+  padding: 0 32rpx;
+  border-radius: var(--radius-none);
+  border: 1rpx solid var(--brand-primary);
+  background: var(--brand-primary);
+  color: var(--brand-primary-fg);
+  font-size: 30rpx;
+  line-height: 1.2;
+
+  &::after {
+    border: none;
+  }
+
+  &[disabled] {
+    opacity: 0.45;
+  }
+}
+
+.mp-btn--ghost {
+  background: transparent;
+  color: var(--brand-text);
+  border: 1rpx solid var(--brand-line-strong);
+}
+
+.mp-btn--danger {
+  background: transparent;
+  color: var(--risk-critical-ink);
+  border: 1rpx solid var(--risk-critical);
+}
+
+/* 状态标签：颜色不是唯一信息载体，永远同时给出文字；只描边着色，不铺底色。 */
+.mp-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 6rpx 16rpx;
+  border-radius: var(--radius-none);
+  border: 1rpx solid var(--brand-line-strong);
+  font-size: 24rpx;
+  color: var(--brand-muted);
+}
+
+.mp-tag--normal {
+  border-color: var(--risk-normal);
+  color: var(--risk-normal-ink);
+}
+
+.mp-tag--attention {
+  border-color: var(--risk-attention);
+  color: var(--risk-attention-ink);
+}
+
+.mp-tag--critical {
+  border-color: var(--risk-critical);
+  color: var(--risk-critical-ink);
+}
+
+.mp-tag--signal {
+  border-color: var(--signal);
+  color: var(--signal-text);
+}
+
+.mp-note {
+  font-size: 24rpx;
+  color: var(--brand-muted);
+}
+
+.mp-disclaimer {
+  margin-top: 24rpx;
+  padding: 24rpx;
+  border-left: 4rpx solid var(--signal);
+  background: var(--signal-soft);
+  font-size: 24rpx;
+  line-height: 1.7;
+  color: var(--brand-muted);
+}
+
+.mp-empty {
+  padding: 96rpx 32rpx;
+  text-align: center;
+  color: var(--brand-muted);
+  font-size: 26rpx;
+}
+
+.mp-fault {
+  padding: 24rpx;
+  border: 1rpx solid var(--risk-critical);
+  color: var(--risk-critical-ink);
+  font-size: 26rpx;
+}
+
+.mp-fault--info {
+  border-color: var(--brand-line-strong);
+  color: var(--brand-muted);
+}
+
+/* 底部弹层（隐私授权等确认）：全幅画布 + 顶部发丝线，不用半透明遮罩——
+   遮罩需要一层不与主题联动的颜色，而这里所有色值都必须来自令牌。 */
+.mp-sheet-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: flex-end;
+  background: var(--brand-canvas);
+}
+
+.mp-sheet {
+  width: 100%;
+  padding: 40rpx 32rpx 48rpx;
+  background: var(--brand-surface);
+  border-top: 1rpx solid var(--brand-line-strong);
+}
+
+.mp-sheet__actions {
+  display: flex;
+  gap: 16rpx;
+  margin-top: 32rpx;
+}
+
+.mp-sheet__actions .mp-btn {
+  flex: 1;
+}

@@ -42,13 +42,13 @@ CI 的 MySQL 作业使用 `mysql:8.0` / `mysql:8.0.36`，`scripts/verify.sh` 与
 | V32 | 无 | 无 | `V32__knowledge_candidate_index_version.sql`（`t_knowledge_document` 增加可空 `pendingIndexVersion`、`pendingUpdatedTime`：文档更新先写候选版本，成功后再原子切换 `indexVersion` 与文件元数据；候选失败则文档行仍完整描述旧文件、新对象被删除） |
 | V33 | 无 | 无 | `V33__diagnosis_task_restrict_reason.sql`（`t_diagnosis_task` 增加可空 `restrictReason`：任务进入 `RESTRICTED` 时记录准入拒绝的原因码） |
 | V34 | 无 | 无 | `V34__diagnosis_evidence_semantics.sql`（`t_diagnosis` 与 `t_inference_cache` 各增加六个可空列：`classificationProbability`、`calibrationVersion`、`imageQualityState`、`imageQualityVersion`、`imageQualityCalibrationState`、`patientConclusionAllowed`——把分类概率/校准/图像质量/能否面向患者呈现拆成互不冒充的字段） |
-| V35 | 无 | 无 | 无（编号由在途的小程序后端分支占用：PR #160 `V35__miniapp_wechat_binding.sql`，见 §1.1） |
-| V36 | 无 | 无 | 无（编号由在途的 Iris Control Center 占用：PR #164 `V36__control_center_core.sql`，见 §1.1） |
-| V37 | 无 | 无 | 无（同上：`V37__control_center_publish_approval.sql`） |
+| V35 | 无 | 无 | `V35__miniapp_wechat_binding.sql`（新增 `t_user_wechat`：`(appid, openid)` 唯一键 → `userId` 的小程序身份绑定表，供 Bearer 令牌通道首登建号；不改动任何既有表，`session_key` 不落库） |
+| V36 | 无 | 无 | `V36__control_center_core.sql`（配置中心核心：新增 `t_config_draft`、`t_config_release`、`t_config_active_pointer`、`t_config_request`、`t_config_audit_event` 五张表，并预置活跃指针单例行 `(1, NULL)`；不改动任何既有表，不建外键） |
+| V37 | 无 | 无 | `V37__control_center_publish_approval.sql`（发布审批：新增 `t_config_publish_request`，把「申请时的草稿 revision + 载荷摘要 + 验证摘要 + 期望活跃版本」钉死；唯一键 `(actorId, requestId)`；不改动任何既有表，不建外键） |
 | V38 | 无 | 无 | `V38__user_feedback.sql`（新增 `t_user_feedback`：用户反馈的正文、分类、关联对象、状态机、回复与私有截图 key；不改动任何既有表） |
 | V39 | 无 | 无 | `V39__user_notification.sql`（新增 `t_user_notification`：站内通知的类型、发送时定稿的文案、关联指针与已读时间；不改动任何既有表） |
 
-整合后的唯一链为 **V1–V9 + V15–V27**，其后追加 **V28、V29、V30、V31、V32、V33、V34** 与本分支的 **V38、V39**（V35 留给在途的小程序后端分支，V36/V37 留给在途的 Iris Control Center，见 §1.1）。目录里不再存在同号迁移。
+整合后的唯一链为 **V1–V9 + V15–V27**，其后追加 **V28、V29、V30、V31、V32、V33、V34、V35、V36、V37**，本分支再追加 **V38、V39**。目录里不再存在同号迁移。
 V28 只新增 `t_agent_tool_audit`，不修改此前任何已应用脚本；该表独立于 `t_agent_message`，
 不存原始工具参数、Prompt 或患者文本。V29 只给既有表加一列可空列，不改写任何既有行；
 历史行的 `indexVersion` 为 NULL，**在按版本准入的检索里等于「不能证明处理完整」**，
@@ -60,30 +60,56 @@ V31 只新增 `t_diagnosis_run` 一张表，不碰任何既有表；升级前已
 V32 只给 `t_knowledge_document` 加两列可空列：既有行 `pendingIndexVersion` 为 NULL，
 读侧按「没有候选版本」处理，检索行为不变。V33 只给 `t_diagnosis_task` 加一列可空列：
 既有 `RESTRICTED` 任务的原因码为 NULL，前端退回只显示「受限」。
+V34 只给 `t_diagnosis` 与 `t_inference_cache` 各加六个可空列，既有行全部为 NULL，
+读侧按「旧口径」处理。
+V36 只新增配置中心五张表并插入一行活跃指针，不碰任何既有表；配置中心由
+`eye-diagnosis.control-center.enabled` 控制，**默认关闭**，升级后不开启即与升级前行为一致。
+V37 只新增 `t_config_publish_request` 一张空表，不碰任何既有表；审批与发布能力同样受
+`eye-diagnosis.control-center.enabled` 控制，且发布人白名单默认为空——升级本身不会
+让任何人获得发布权。
 V38、V39 同样只新增表（`t_user_feedback`、`t_user_notification`），既有表一行未改：
 升级前已存在的用户、判读与资讯数据在升级后行为与升级前一致；这两个功能在空历史库上
 就是两张空表。
 
+> **V36 列注释漂移（WP-01D 审计 A-08，不改迁移）**：`t_config_request.action` 的列注释
+> 只列了 `DRAFT_CREATE / DRAFT_UPDATE / DRAFT_VALIDATE`，而 WP-01C 起实际还会写入
+> `PUBLISH_REQUEST / PUBLISH_APPROVE / PUBLISH_REJECT / ROLLBACK`（列宽 `VARCHAR(32)` 足够）。
+> 同表 `resultCode` 的注释「首次执行的结果码（0 表示成功）」也不准确：失败时整行随事务
+> 回滚，因此该列**只会是 0**（失败不消耗 `requestId` 是设计目标）。两处都只是注释，不影响
+> 行为；**已应用的迁移不得改 checksum**，故在此登记而不修改 V36。
+
+> **配置中心迁移的编号变更（2026-11-24，已处理两次）**：WP-01 分支最初把这两条迁移写作
+> V32 / V33，当时（审计基线 `5dc2eac5`，迁移头 V31）这两个号确实空闲。但 master 已前进到
+> `c90b0caa`，V32–V34 被占用（`V32__knowledge_candidate_index_version.sql`、
+> `V33__diagnosis_task_restrict_reason.sql`、`V34__diagnosis_evidence_semantics.sql`）。
+> 第一次改号为 V35 / V36；同日核对在途分支时发现**小程序后端分支（PR #160）也占用 V35**
+> （`V35__miniapp_wechat_binding.sql`），同号两脚本会让 Flyway 直接启动失败，
+> 因此第二次改号为 **V36 / V37**，**DDL 内容一字未改**，两个迁移文件头部留了
+> 「重编号记录」注释以便追溯。
+> 若目标库已跑过本分支旧编号的 V32/V33 或 V35/V36（本地/演示库），按重建处理，
+> **不得 `repair` 掩盖**。
+> 详见 `docs/product/wp-01/wp-01d-final-audit.md` §8.4。
+
 ### 1.1 编号协调：V35–V42 的全局分配（2026-11-24）
 
-本分支（`t3/add-feedback-feature`）新增 **V38**（用户反馈）与 **V39**（站内通知）。
-V35–V37 已被其它在途分支占用，它们不在本分支的目录里：
+同一时刻有多条分支在飞，Flyway 版本号必须全局唯一且**逐号递增**（`out-of-order=false`）。
+当前分配如下，任何分支要新增迁移前先对照本表取号：
 
-| 编号 | 占用方 | 脚本 |
+| 版本 | 归属 | 状态 |
 | --- | --- | --- |
-| V35 | 小程序后端（PR #160，未合并） | `V35__miniapp_wechat_binding.sql` |
-| V36 / V37 | Iris Control Center WP-01D（PR #164，未合并） | `V36__control_center_core.sql`、`V37__control_center_publish_approval.sql` |
-| V38 / V39 | 本分支 | `V38__user_feedback.sql`、`V39__user_notification.sql` |
-| ~~V39–V41~~ | 新闻线 `t3/plan-iris-news-engine`（无 PR，在途）**当前也占 V39，与本分支撞号** | `V39__news_ingestion_pool.sql`、`V40__news_curation_and_receipts.sql`、`V41__news_editorial_publish_and_revisions.sql` |
+| V35 | 小程序后端微信绑定（PR #160，`V35__miniapp_wechat_binding.sql`） | 已合入 master |
+| V36 / V37 | 配置中心核心五表 + 发布审批单（PR #164） | 已合入 master |
+| V38 / V39 | 用户反馈 + 站内通知（本分支，PR #166） | 本分支 |
+| V40+ | 新闻摄取与回执（无 PR，在途开发；原计划的 V39–V41 必须整体让号） | 在途 |
 
-V32–V34 已随 PR #156 合入 master，V35 最早被本分支占用（当时叫 V35__user_feedback），
-随后让给小程序分支、配置中心也让开 V35 后取 V36/V37，本分支因此落在 V38/V39。由此产生
-一条顺序约束：
+V32–V34 已随 PR #156 合入 master。V35 最早被反馈分支占用（当时叫
+`V35__user_feedback.sql`），随后让给小程序分支；配置中心也让开 V35 后取 V36/V37，
+反馈分支因此落到 V38/V39。由此产生一条顺序约束：
 
-- **`spring.flyway.out-of-order` 保持 `false`**，所以一旦某个库先应用了 V38/V39，
-  随后到达的 V35–V37 会被 Flyway 判为 out-of-order 而拒绝启动。
-- 因此**合并顺序必须是 V35（小程序）→ V36/V37（配置中心）→ V38/V39（本分支）**；
-  不能靠打开 out-of-order 掩盖。
+- **`spring.flyway.out-of-order` 保持 `false`**，所以一旦某个库先应用了高版本，
+  随后到达的低版本会被 Flyway 判为 out-of-order 而拒绝启动。
+- 因此**合并顺序必须是 V35（小程序）→ V36/V37（配置中心）→ V38/V39（反馈）**；
+  不能靠打开 out-of-order 掩盖。若某个库已经越过顺序，**重建库**。
 - **新闻线还没开 PR，它开 PR 前必须把 V39–V41 整体后移到 V40–V42**（它的 V39 与本分支的
   V39 同号，同号两脚本会让 Flyway 启动失败）。按「谁先合谁保留」，本分支已进入评审、
   新闻线仍在开发，故由新闻线让号。
@@ -94,10 +120,10 @@ V32–V34 已随 PR #156 合入 master，V35 最早被本分支占用（当时�
 
 | 目标库状态 | 识别方式 | 动作 |
 | --- | --- | --- |
-| 空库 | 无 `flyway_schema_history` | 正常启动，Flyway 顺序执行 V1–V9、V15–V34、V38、V39；等价于 `FlywayMySqlIntegrationTest#migratesAnEmptyMySqlDatabaseThroughTheCurrentSafetySchema` |
-| master 生产/主线库 | history 最高版本 V17，V15–V17 checksum 与 master 一致 | 直接启动，追加执行 V18–V34、V38 与 V39；V15 的 `CREATE TABLE IF NOT EXISTS` 不会改动既有 `t_user`；等价于 `#preservesExistingAccountsWhenUpgradingFromMasterV17` |
+| 空库 | 无 `flyway_schema_history` | 正常启动，Flyway 顺序执行 V1–V9、V15–V39；等价于 `FlywayMySqlIntegrationTest#migratesAnEmptyMySqlDatabaseThroughTheCurrentSafetySchema` |
+| master 生产/主线库 | history 最高版本 V17，V15–V17 checksum 与 master 一致 | 直接启动，追加执行 V18–V39；V15 的 `CREATE TABLE IF NOT EXISTS` 不会改动既有 `t_user`；等价于 `#preservesExistingAccountsWhenUpgradingFromMasterV17` |
 | Java 线旧开发库 | history 含 V10–V20，且 V10–V14 的 checksum 对应原脚本 | **重建**。这些库不在生产序列；旧文件已从 `db/migration` 移出，Flyway 会把 V10–V14 判为 missing。不要用 `repair`/`ignoreMigrationPatterns` 掩盖，按 `db/migration` 全量重建后再灌测试数据 |
-| 迁移中途库 | history 最高版本在 V18–V34 之间，或为 V38/V39，且校验和一致 | 直接启动续跑；Flyway 只执行缺失的高版本。**先应用过 V38/V39 的库不能再接受 V35–V37**（见 §1.1） |
+| 迁移中途库 | history 最高版本在 V18–V39 之间且校验和一致 | 直接启动续跑；Flyway 只执行缺失的高版本 |
 | `flyway_schema_history` 校验和不一致 | `Validate failed: checksum mismatch` | 停止发布，先比对实际脚本与 history；不得修改已应用脚本或删除 history 强行通过 |
 
 `spring.flyway.out-of-order` 必须保持 `false`。本整合方案不依赖 out-of-order，也不允许把它当作跳过版本缺口的开关。
@@ -109,7 +135,7 @@ V32–V34 已随 PR #156 合入 master，V35 最早被本分支占用（当时�
 
 | 库的 history | 更旧的 jar（只认到 V17）能否直接启动 | 依据 |
 | --- | --- | --- |
-| 升到 V34 / V39 之后（master V17 线上来的） | **能启动**。V18–V34、V38、V39 对它记为 `FUTURE_SUCCESS`，Flyway 默认 `ignoreMigrationPatterns=*:future` 放行，迁移数 0；对既有表只有 V22 加的一列可空 `patientTaskId`、V29 的一列可空 `indexVersion`、V30 的三列可空版本字段、V32 的两列可空候选版本字段、V33 的一列可空 `restrictReason`、V34 的六列可空证据字段，以及 V31 的 `t_diagnosis_run`、V38 的 `t_user_feedback`、V39 的 `t_user_notification` 三张新表 | `#oldMigrationSetAcceptsFutureVersionsWithoutCertifyingArtifactSafety` |
+| 升到 V39 之后（master V17 线上来的） | **能启动**。V18–V39 对它记为 `FUTURE_SUCCESS`，Flyway 默认 `ignoreMigrationPatterns=*:future` 放行，迁移数 0；对既有表只有 V22 加的一列可空 `patientTaskId`、V29 的一列可空 `indexVersion`、V30 的三列可空版本字段、V32 的两列可空候选版本字段、V33 的一列可空 `restrictReason`、V34 的六列可空证据字段，以及 V31 的 `t_diagnosis_run`、V35 的 `t_user_wechat`、V36 的配置中心五表（空表）、V37 的审批单表（空表）、V38 的 `t_user_feedback`、V39 的 `t_user_notification` 等新表 | `#oldMigrationSetAcceptsFutureVersionsWithoutCertifyingArtifactSafety` |
 | history 里含本 jar 解析不了、且低于其已知最高版本的版本（如旧 release 线 V10–V14） | **不能**。Flyway 判 missing 并拒绝启动 | `#aJarRejectsAHistoryThatContainsVersionsItDoesNotResolve` |
 
 > 该用例的名字是刻意写成的：它只证明**迁移解析**对 future 版本放行，
@@ -149,13 +175,20 @@ JAVA_HOME=/c/Users/yuwen/.jdks/corretto-21.0.7 \
 mvn -o -B -Dtest=FlywayMySqlIntegrationTest test
 ```
 
-三个用例分别覆盖：master V17 → V39、空库 → V39、V23 → V24 历史行标注不改写冻结消息。
+六个用例分别覆盖：master V17 → V39、空库 → V39、V23 → V24 历史行标注不改写冻结消息、V31 → V39 升级（V32–V39 八条建在已落到 V31 的库上）。
 另有两个回滚方向用例（旧迁移集合能否接受 future 版本、history 含无法解析版本时是否拒绝启动，见 §2.1）。
 测试会为每次运行创建并删除独立 schema，不触碰现有库。
 
 ## 5. 约束
 
 - 已应用迁移的内容不得修改；只能追加更高版本。
-- 新迁移必须大于 V39（master 为 V34，本分支加 V38/V39）；跨分支编号协调见 §1.1。
+- 新迁移必须大于 V39；跨分支编号协调见 §1.1。
 - 不得删除或手工编辑 `flyway_schema_history` 来绕过冲突。
+- **改过迁移文件名后必须 `mvn clean` 再跑门禁。** Maven 的 resources 插件只复制、不清除，
+  `target/classes/db/migration/` 会留下改名前的旧脚本（例如改名前的
+  `V32__control_center_core.sql`），Flyway 启动时直接报
+  `Found more than one migration with version 32`（并把两个脚本都列成 offender）。
+  这类失败是**构建残留**，不是 schema 冲突：CI 是全新检出，不会命中；
+  本地复跑前先 `mvn -o clean`。（2026-11-24 WP-01 改号时实测命中过一次，
+  清理后同一批门禁全绿。）
 - 历史冻结脚本 `scripts/product_acceptance_inputs.py` 记录过已删除的 `V15__bootstrap_user_table.sql` 作为 `additionalDependency`；该字段只描述 2026-11-12 的输入快照，不参与当前迁移链。重新封存验收证据时应改为引用 master V15，而不是恢复旧文件。

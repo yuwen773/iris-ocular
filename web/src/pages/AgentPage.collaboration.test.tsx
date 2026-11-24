@@ -62,6 +62,8 @@ vi.mock("@/lib/api", async (importOriginal) => {
       messages: [],
       hasMore: false,
       nextCursor: null,
+      hasNewer: false,
+      newerCursor: null,
     }),
     generateTitle: vi.fn().mockResolvedValue(true),
   }
@@ -117,6 +119,8 @@ beforeEach(() => {
     messages: [],
     hasMore: false,
     nextCursor: null,
+    hasNewer: false,
+    newerCursor: null,
   })
   sessionState.status = "authed"
   sessionState.user = { id: 1, userAccount: "tester" }
