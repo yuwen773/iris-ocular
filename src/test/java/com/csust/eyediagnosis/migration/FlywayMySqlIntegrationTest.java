@@ -105,6 +105,8 @@ class FlywayMySqlIntegrationTest {
                         "t_news_audit", "t_diagnosis_task", "t_patient_draft_run",
                         "t_doctor_review", "t_patient_authorization", "t_agent_tool_audit",
                         "t_diagnosis_run",
+                        // V35：小程序微信绑定表
+                        "t_user_wechat",
                         // V36：配置中心五表（默认关闭，但表必须在空库迁移后存在）
                         "t_config_draft", "t_config_release", "t_config_active_pointer",
                         "t_config_request", "t_config_audit_event",

@@ -2,6 +2,8 @@ package com.csust.eyediagnosis.config;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
+import com.csust.eyediagnosis.constant.MiniAppConstant;
+import com.csust.eyediagnosis.miniapp.MiniAppPaths;
 import com.csust.eyediagnosis.security.SecurityEventSink;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -16,6 +18,7 @@ import java.io.IOException;
 import java.net.URI;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 /**
  * 评审 P1-06：Cookie 会话应用的状态变更请求必须校验 Origin。
@@ -56,6 +59,17 @@ public class SameOriginFilter extends OncePerRequestFilter {
     private static final List<String> SAFE_METHODS = List.of("GET", "HEAD", "OPTIONS");
 
     /**
+     * 无需 Origin/Referer 的路径（相对 context-path）。
+     *
+     * <p>目前只有小程序登录：它本身就是「换令牌」的入口，此刻还没有令牌可携带；它也不写
+     * Cookie、只把令牌放在响应体里，跨站请求读不到响应，构不成登录 CSRF 的收益。
+     *
+     * <p>路径判定与 MVC 路由同源（{@link MiniAppPaths#withinApp} 走 UrlPathHelper），
+     * 因此 {@code /mp/auth/login;x=1} 这类带矩阵参数的请求在过滤器与控制器里判定一致。
+     */
+    private static final Set<String> EXEMPT_PATHS = Set.of(MiniAppConstant.LOGIN_PATH);
+
+    /**
      * 与 MVC 计算 lookup path 同源的路径解析器：默认解码 URI 并剥掉 {@code ;} 矩阵参数。
      * 无状态，可并发复用。
      */
@@ -80,10 +94,18 @@ public class SameOriginFilter extends OncePerRequestFilter {
             chain.doFilter(request, response);
             return;
         }
+        // 控制中心写请求走严格同源，且**不参与**下面的令牌通道豁免：
+        // 它是管理面，不能被「调用方显式携带凭证」的宽松口径放过。
         if (controlCenter.isEnabled() && isControlCenterPath(request)) {
             if (!allowsStrictOrigin(request, response)) {
                 return;
             }
+            chain.doFilter(request, response);
+            return;
+        }
+        // 小程序令牌通道：凭证由调用方显式携带，不走浏览器自动附带的 Cookie，CSRF 不成立。
+        if (Boolean.TRUE.equals(request.getAttribute(MiniAppConstant.REQUEST_ATTR_TOKEN_AUTH))
+                || EXEMPT_PATHS.contains(MiniAppPaths.withinApp(request))) {
             chain.doFilter(request, response);
             return;
         }

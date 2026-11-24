@@ -1,5 +1,6 @@
 package com.csust.eyediagnosis.config;
 
+import com.csust.eyediagnosis.constant.MiniAppConstant;
 import jakarta.servlet.FilterChain;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -119,6 +120,48 @@ class SameOriginFilterTest {
         stale.setServerName("localhost");
         stale.setServerPort(5199);
         filter.doFilter(stale, response, chain);
+        assertEquals(403, response.getStatus());
+        verify(chain, never()).doFilter(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void wechatLoginPathIsExemptFromOriginCheck() throws Exception {
+        // 小程序登录本身就是「换令牌」的入口，此刻还没有令牌可携带。
+        MockHttpServletRequest login = new MockHttpServletRequest("POST", "/api/mp/auth/login");
+        login.setContextPath("/api");
+        login.setServerName("localhost");
+        login.setServerPort(8081);
+        filter.doFilter(login, response, chain);
+        verify(chain).doFilter(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void wechatLoginPathWithMatrixParametersIsStillExempt() throws Exception {
+        // 路径判定必须与 MVC 路由同源：MVC 会把 `;name=value` 从路径里剥掉，
+        // `/api/mp/auth/login;x=1` 仍路由到登录入口。过滤器若按原始 URI 判定，
+        // 就会把这条请求当成普通接口要求 Origin，小程序拿不到令牌。
+        MockHttpServletRequest login = new MockHttpServletRequest("POST", "/api/mp/auth/login;x=1");
+        login.setContextPath("/api");
+        login.setServerName("localhost");
+        login.setServerPort(8081);
+        filter.doFilter(login, response, chain);
+        verify(chain).doFilter(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void tokenAuthenticatedRequestSkipsOriginCheck() throws Exception {
+        // 令牌由调用方显式携带，不依赖浏览器自动附带的 Cookie，CSRF 前提不成立。
+        MockHttpServletRequest tokenRequest = request("POST", null, null);
+        tokenRequest.setAttribute(MiniAppConstant.REQUEST_ATTR_TOKEN_AUTH, Boolean.TRUE);
+        filter.doFilter(tokenRequest, response, chain);
+        verify(chain).doFilter(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void wechatRefererWithoutTokenIsStillRejected() throws Exception {
+        // 小程序未带令牌时 Referer 固定为 servicewechat.com；不能因为它长得「像微信」就放行。
+        filter.doFilter(request("POST", null, "https://servicewechat.com/wx123/0/page-frame.html"),
+                response, chain);
         assertEquals(403, response.getStatus());
         verify(chain, never()).doFilter(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
     }

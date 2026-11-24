@@ -201,6 +201,7 @@ public class AgentController {
     public BaseResponse<ChatHistoryVO> getHistory(
             @PathVariable String threadId,
             @RequestParam(required = false) Long beforeId,
+            @RequestParam(required = false) Long afterId,
             @RequestParam(defaultValue = "40") int limit,
             HttpServletRequest httpRequest) {
         User loginUser = userService.getLoginUser(httpRequest);
@@ -213,7 +214,8 @@ public class AgentController {
         if (!chatHistoryService.isSessionOwner(threadId, loginUser.getId())) {
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
         }
-        return ResultUtils.success(chatHistoryService.loadHistory(threadId, beforeId, Math.min(limit, agentConstants.getMaxHistoryPageSize())));
+        int pageSize = Math.min(limit, agentConstants.getMaxHistoryPageSize());
+        return ResultUtils.success(chatHistoryService.loadHistory(threadId, beforeId, afterId, pageSize));
     }
 
     public record SessionCreate(String sessionId) {}

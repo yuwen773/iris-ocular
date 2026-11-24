@@ -1,0 +1,374 @@
+/**
+ * 记录页 = 一条竖轴穿起全部判读单据。
+ *
+ * 延续定稿 04 的时间竖轴母题（方向 C），右侧每条判读落在清晰的白纸单据卡上，
+ * 与品牌画布拉开层次：标题 > 严重度语义 > 等宽读数 > 结局眉标，不让方框抢走视线。
+ * 1px = 2rpx。
+ */
+
+.records-page {
+  padding-bottom: 72rpx;
+}
+
+.dochead {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 24rpx;
+  padding-bottom: 20rpx;
+  border-bottom: 1rpx solid var(--brand-line);
+  font-family: var(--font-mono);
+  font-size: 26rpx;
+  letter-spacing: 0.12em;
+  color: var(--brand-muted);
+}
+
+/* ── 两段筛选条：清晰表达当前范围与可点击性 ─────────────────── */
+.filter-tabs {
+  display: flex;
+  margin-top: 24rpx;
+  background: var(--brand-glass);
+  border: 1rpx solid var(--brand-line);
+}
+
+.filter-tab {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10rpx;
+  min-height: 88rpx;
+  padding: 0 20rpx;
+  font-size: 28rpx;
+  color: var(--brand-muted);
+}
+
+.filter-tab + .filter-tab {
+  border-left: 1rpx solid var(--brand-line);
+}
+
+.filter-tab.is-active {
+  background: var(--brand-surface);
+  color: var(--brand-text);
+  font-weight: 600;
+}
+
+.filter-tab.is-active::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 4rpx;
+  background: var(--brand-primary);
+}
+
+.filter-tab:active {
+  background: var(--brand-soft);
+}
+
+.filter-tab__count {
+  font-family: var(--font-mono);
+  font-size: 26rpx;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--brand-muted);
+}
+
+.filter-tab.is-active .filter-tab__count {
+  color: var(--brand-primary);
+}
+
+/* ── 月份组 ───────────────────────────────────────────── */
+.mgroup {
+  margin-top: 44rpx;
+}
+
+.mgh {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 24rpx;
+  padding-bottom: 14rpx;
+  border-bottom: 1rpx solid var(--brand-line-strong);
+}
+
+.mgh__m {
+  font-family: var(--font-serif);
+  font-size: 34rpx;
+  font-weight: 600;
+  color: var(--brand-text);
+}
+
+.mgh__n {
+  font-family: var(--font-mono);
+  font-size: 26rpx;
+  font-variant-numeric: tabular-nums;
+  color: var(--brand-muted);
+}
+
+/* ── 竖轴与单据行 ──────────────────────────────────────── */
+.vrows {
+  position: relative;
+  padding-top: 12rpx;
+}
+
+/* 竖线穿起整组节点：日期列 104rpx + 轴列 36rpx 的一半 = 122rpx。 */
+.vrows::before {
+  content: '';
+  position: absolute;
+  left: 122rpx;
+  top: 28rpx;
+  bottom: 28rpx;
+  width: 1rpx;
+  background: var(--brand-line-strong);
+}
+
+.vrow {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  padding: 12rpx 0;
+}
+
+/* 左侧时间列：日期主、时刻次，形成清晰节奏。 */
+.ad {
+  flex: none;
+  width: 104rpx;
+  padding-top: 22rpx;
+  padding-right: 16rpx;
+  text-align: right;
+}
+
+.ad__d {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 28rpx;
+  font-weight: 600;
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+  color: var(--brand-text);
+}
+
+.ad__t {
+  display: block;
+  margin-top: 4rpx;
+  font-family: var(--font-mono);
+  font-size: 26rpx;
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+  color: var(--brand-muted);
+}
+
+.vrow.is-now .ad__d {
+  color: var(--signal-text);
+}
+
+.vrow.is-now .ad__t {
+  color: var(--signal-text);
+}
+
+/* 轴节点列：普通记录画细刻度，最新记录画带画布描边的信号橙圆点（不再被横线劈开）。 */
+.ax {
+  flex: none;
+  width: 36rpx;
+  position: relative;
+}
+
+.ax::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 39rpx;
+  width: 16rpx;
+  height: 2rpx;
+  background: var(--brand-line-strong);
+  transform: translateX(-50%);
+}
+
+.vrow.is-now .ax::after {
+  display: none;
+}
+
+.vrow.is-now .ax::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 30rpx;
+  z-index: 2;
+  width: 20rpx;
+  height: 20rpx;
+  border-radius: 50%;
+  background: var(--signal);
+  box-shadow: 0 0 0 6rpx var(--brand-canvas);
+  transform: translateX(-50%);
+}
+
+/* 右侧单据卡：0 圆角白纸浮在品牌画布上，提供清晰的点击边界与层级。 */
+.am {
+  flex: 1;
+  min-width: 0;
+  padding-left: 16rpx;
+}
+
+.am-card {
+  padding: 20rpx 24rpx 22rpx;
+  background: var(--brand-surface);
+  border: 1rpx solid var(--brand-line);
+}
+
+.vrow.is-now .am-card {
+  border-left: 4rpx solid var(--signal);
+  box-shadow: var(--brand-shadow);
+}
+
+.vrow:active .am-card {
+  background: var(--brand-soft);
+}
+
+.am-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+}
+
+.am-outcome {
+  display: inline-flex;
+  align-items: center;
+  gap: 10rpx;
+}
+
+.am-outcome__mark {
+  flex: none;
+  width: 10rpx;
+  height: 10rpx;
+  background: var(--brand-text);
+}
+
+.am-outcome__mark.is-hollow {
+  background: transparent;
+  border: 2rpx solid var(--brand-muted);
+}
+
+.am-outcome__text {
+  font-family: var(--font-mono);
+  font-size: 26rpx;
+  letter-spacing: 0.04em;
+  color: var(--brand-muted);
+}
+
+.am-chevron {
+  flex: none;
+  width: 12rpx;
+  height: 12rpx;
+  margin-right: 4rpx;
+  border-right: 2rpx solid var(--brand-muted);
+  border-top: 2rpx solid var(--brand-muted);
+  transform: rotate(45deg);
+}
+
+.am-body {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20rpx;
+  margin-top: 12rpx;
+}
+
+.am-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.am-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8rpx 14rpx;
+}
+
+.al {
+  font-size: 32rpx;
+  font-weight: 600;
+  line-height: 1.38;
+  color: var(--brand-text);
+}
+
+/* 严重度语义词：颜色做第二信息载体，文字永远完整出现。 */
+.am-sev {
+  font-size: 26rpx;
+  font-weight: 600;
+  line-height: 1.38;
+  color: var(--brand-muted);
+}
+
+.am-sev.is-normal {
+  color: var(--risk-normal-ink);
+}
+
+.am-sev.is-attention {
+  color: var(--risk-attention-ink);
+}
+
+.am-sev.is-critical {
+  color: var(--risk-critical-ink);
+}
+
+.am-reading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2rpx 10rpx;
+  margin-top: 10rpx;
+}
+
+.am-reading__k {
+  font-size: 26rpx;
+  line-height: 1.38;
+  color: var(--brand-muted);
+}
+
+.am-reading__v {
+  font-family: var(--font-mono);
+  font-size: 28rpx;
+  font-weight: 600;
+  line-height: 1.38;
+  font-variant-numeric: tabular-nums;
+  color: var(--brand-text);
+}
+
+.as {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 26rpx;
+  line-height: 1.5;
+  color: var(--brand-muted);
+}
+
+/* 眼底影像缩略图：暗场承托，aspectFit 保证眼底圆不被裁切变形。 */
+.am-thumb-wrap {
+  flex: none;
+  align-self: center;
+  width: 88rpx;
+  height: 88rpx;
+  overflow: hidden;
+  border: 1rpx solid var(--brand-line);
+  background: #0b1425;
+}
+
+.am-thumb {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.records-foot {
+  margin-top: 32rpx;
+  padding: 24rpx 0;
+  border-top: 1rpx solid var(--brand-line);
+  text-align: center;
+  font-size: 26rpx;
+  color: var(--brand-muted);
+}

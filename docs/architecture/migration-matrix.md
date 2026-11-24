@@ -42,11 +42,11 @@ CI 的 MySQL 作业使用 `mysql:8.0` / `mysql:8.0.36`，`scripts/verify.sh` 与
 | V32 | 无 | 无 | `V32__knowledge_candidate_index_version.sql`（`t_knowledge_document` 增加可空 `pendingIndexVersion`、`pendingUpdatedTime`：文档更新先写候选版本，成功后再原子切换 `indexVersion` 与文件元数据；候选失败则文档行仍完整描述旧文件、新对象被删除） |
 | V33 | 无 | 无 | `V33__diagnosis_task_restrict_reason.sql`（`t_diagnosis_task` 增加可空 `restrictReason`：任务进入 `RESTRICTED` 时记录准入拒绝的原因码） |
 | V34 | 无 | 无 | `V34__diagnosis_evidence_semantics.sql`（`t_diagnosis` 与 `t_inference_cache` 各增加六个可空列：`classificationProbability`、`calibrationVersion`、`imageQualityState`、`imageQualityVersion`、`imageQualityCalibrationState`、`patientConclusionAllowed`——把分类概率/校准/图像质量/能否面向患者呈现拆成互不冒充的字段） |
-| V35 | 无 | 无 | 无（**编号由在途的小程序后端分支占用**：PR #160 `V35__miniapp_wechat_binding.sql`，未合并，见 §1.1） |
+| V35 | 无 | 无 | `V35__miniapp_wechat_binding.sql`（新增 `t_user_wechat`：`(appid, openid)` 唯一键 → `userId` 的小程序身份绑定表，供 Bearer 令牌通道首登建号；不改动任何既有表，`session_key` 不落库） |
 | V36 | 无 | 无 | `V36__control_center_core.sql`（配置中心核心：新增 `t_config_draft`、`t_config_release`、`t_config_active_pointer`、`t_config_request`、`t_config_audit_event` 五张表，并预置活跃指针单例行 `(1, NULL)`；不改动任何既有表，不建外键） |
 | V37 | 无 | 无 | `V37__control_center_publish_approval.sql`（发布审批：新增 `t_config_publish_request`，把「申请时的草稿 revision + 载荷摘要 + 验证摘要 + 期望活跃版本」钉死；唯一键 `(actorId, requestId)`；不改动任何既有表，不建外键） |
 
-整合后的唯一链为 **V1–V9 + V15–V27**，其后追加 **V28、V29、V30、V31、V32、V33、V34**，本分支再追加 **V36、V37**（V35 留给在途的小程序后端分支，见 §1.1）。目录里不再存在同号迁移。
+整合后的唯一链为 **V1–V9 + V15–V27**，其后追加 **V28、V29、V30、V31、V32、V33、V34、V35**，本分支再追加 **V36、V37**。目录里不再存在同号迁移。
 V28 只新增 `t_agent_tool_audit`，不修改此前任何已应用脚本；该表独立于 `t_agent_message`，
 不存原始工具参数、Prompt 或患者文本。V29 只给既有表加一列可空列，不改写任何既有行；
 历史行的 `indexVersion` 为 NULL，**在按版本准入的检索里等于「不能证明处理完整」**，
@@ -92,7 +92,7 @@ V37 只新增 `t_config_publish_request` 一张空表，不碰任何既有表；
 
 | 版本 | 归属 | 状态 |
 | --- | --- | --- |
-| V35 | 小程序后端微信绑定（PR #160，`V35__miniapp_wechat_binding.sql`） | 在途 |
+| V35 | 小程序后端微信绑定（PR #160，`V35__miniapp_wechat_binding.sql`） | 已合入 master |
 | V36 / V37 | 配置中心核心五表 + 发布审批单（本分支） | 本分支 |
 | V38 / V39 | 用户反馈 + 站内通知（PR #166） | 在途 |
 | V40 / V41 | 新闻摄取与回执（无 PR，在途开发） | 在途 |
@@ -120,7 +120,7 @@ V37 只新增 `t_config_publish_request` 一张空表，不碰任何既有表；
 
 | 库的 history | 更旧的 jar（只认到 V17）能否直接启动 | 依据 |
 | --- | --- | --- |
-| 升到 V37 之后（master V17 线上来的） | **能启动**。V18–V37 对它记为 `FUTURE_SUCCESS`，Flyway 默认 `ignoreMigrationPatterns=*:future` 放行，迁移数 0；对既有表只有 V22 加的一列可空 `patientTaskId`、V29 的一列可空 `indexVersion`、V30 的三列可空版本字段、V32 的两列可空候选版本字段、V33 的一列可空 `restrictReason`、V34 的六列可空证据字段、V31 新建的 `t_diagnosis_run` 表，以及 V36 新建的配置中心五表（均为空表）、V37 新建的审批单表（空表） | `#oldMigrationSetAcceptsFutureVersionsWithoutCertifyingArtifactSafety` |
+| 升到 V37 之后（master V17 线上来的） | **能启动**。V18–V37 对它记为 `FUTURE_SUCCESS`，Flyway 默认 `ignoreMigrationPatterns=*:future` 放行，迁移数 0；对既有表只有 V22 加的一列可空 `patientTaskId`、V29 的一列可空 `indexVersion`、V30 的三列可空版本字段、V32 的两列可空候选版本字段、V33 的一列可空 `restrictReason`、V34 的六列可空证据字段、V31 新建的 `t_diagnosis_run` 表、V35 新建的 `t_user_wechat` 表，以及 V36 新建的配置中心五表（均为空表）、V37 新建的审批单表（空表） | `#oldMigrationSetAcceptsFutureVersionsWithoutCertifyingArtifactSafety` |
 | history 里含本 jar 解析不了、且低于其已知最高版本的版本（如旧 release 线 V10–V14） | **不能**。Flyway 判 missing 并拒绝启动 | `#aJarRejectsAHistoryThatContainsVersionsItDoesNotResolve` |
 
 > 该用例的名字是刻意写成的：它只证明**迁移解析**对 future 版本放行，
