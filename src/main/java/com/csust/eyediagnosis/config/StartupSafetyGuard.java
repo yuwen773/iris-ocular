@@ -72,6 +72,7 @@ public class StartupSafetyGuard {
                     + " DIAGNOSIS_GRPC_PLAINTEXT_ALLOWED=true）");
         }
         verifyNewsIngestion(violations);
+        verifyNewsCuration(violations);
         if (violations.isEmpty()) {
             log.info("部署安全基线检查通过（profiles={}）", active);
             return;
@@ -118,6 +119,33 @@ public class StartupSafetyGuard {
         if (!requireHttps && !plaintextAllowed) {
             violations.add("eye-diagnosis.news-ingestion.enabled=true 且 require-https=false"
                     + "（部署环境必须设 require-https=true，或由内网 TLS 终止覆盖并显式设置 plaintext-allowed=true）");
+        }
+    }
+
+    private void verifyNewsCuration(List<String> violations) {
+        if (!environment.getProperty("eye-diagnosis.news-curation.enabled", Boolean.class, false)) {
+            return;
+        }
+        int maxCalls = environment.getProperty("eye-diagnosis.news-curation.daily-max-calls", Integer.class, 0);
+        if (maxCalls <= 0) {
+            violations.add("eye-diagnosis.news-curation.daily-max-calls 必须大于 0");
+        }
+        long maxTokens = environment.getProperty("eye-diagnosis.news-curation.daily-max-tokens", Long.class, 0L);
+        if (maxTokens <= 0L) {
+            violations.add("eye-diagnosis.news-curation.daily-max-tokens 必须大于 0");
+        }
+        long maxCostMicros = environment.getProperty(
+                "eye-diagnosis.news-curation.daily-max-cost-micros", Long.class, 0L);
+        if (maxCostMicros <= 0L) {
+            violations.add("eye-diagnosis.news-curation.daily-max-cost-micros 必须大于 0");
+        }
+        String policyVersion = environment.getProperty("eye-diagnosis.news-curation.policy-version", "");
+        if (policyVersion.isBlank()) {
+            violations.add("eye-diagnosis.news-curation.policy-version 不能为空");
+        }
+        String modelName = environment.getProperty("eye-diagnosis.news-curation.model-name", "");
+        if (modelName.isBlank()) {
+            violations.add("eye-diagnosis.news-curation.model-name 不能为空");
         }
     }
 }

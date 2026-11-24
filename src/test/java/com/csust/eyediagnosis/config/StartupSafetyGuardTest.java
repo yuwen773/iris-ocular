@@ -149,4 +149,43 @@ class StartupSafetyGuardTest {
         privateNet.setActiveProfiles("server");
         assertDoesNotThrow(() -> new StartupSafetyGuard(privateNet).verify());
     }
+
+    @Test
+    void newsCurationDisabledPassesWithoutBudgetConfig() {
+        MockEnvironment env = deployment()
+                .withProperty("eye-diagnosis.news-curation.enabled", "false");
+        env.setActiveProfiles("prod");
+        assertDoesNotThrow(() -> new StartupSafetyGuard(env).verify());
+    }
+
+    @Test
+    void newsCurationEnabledWithMissingOrZeroBudgetsBlocksStartup() {
+        MockEnvironment env = deployment()
+                .withProperty("eye-diagnosis.news-curation.enabled", "true")
+                .withProperty("eye-diagnosis.news-curation.daily-max-calls", "0")
+                .withProperty("eye-diagnosis.news-curation.daily-max-tokens", "0")
+                .withProperty("eye-diagnosis.news-curation.daily-max-cost-micros", "-1");
+        env.setActiveProfiles("server");
+        IllegalStateException failure = assertThrows(IllegalStateException.class,
+                () -> new StartupSafetyGuard(env).verify());
+        String msg = failure.getMessage();
+        assertTrue(msg.contains("daily-max-calls"), msg);
+        assertTrue(msg.contains("daily-max-tokens"), msg);
+        assertTrue(msg.contains("daily-max-cost-micros"), msg);
+        assertTrue(msg.contains("policy-version"), msg);
+        assertTrue(msg.contains("model-name"), msg);
+    }
+
+    @Test
+    void newsCurationEnabledWithValidCeilingsAndMetadataPasses() {
+        MockEnvironment env = deployment()
+                .withProperty("eye-diagnosis.news-curation.enabled", "true")
+                .withProperty("eye-diagnosis.news-curation.daily-max-calls", "100")
+                .withProperty("eye-diagnosis.news-curation.daily-max-tokens", "500000")
+                .withProperty("eye-diagnosis.news-curation.daily-max-cost-micros", "5000000")
+                .withProperty("eye-diagnosis.news-curation.policy-version", "news-curation-v1")
+                .withProperty("eye-diagnosis.news-curation.model-name", "qwen3.5-plus");
+        env.setActiveProfiles("prod");
+        assertDoesNotThrow(() -> new StartupSafetyGuard(env).verify());
+    }
 }

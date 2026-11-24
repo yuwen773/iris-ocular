@@ -155,8 +155,8 @@ public class NewsIngestionService {
                     """, source, sourceConfigVersion, trimmedQuery);
             jdbc.update("""
                     INSERT INTO t_news_collection_task
-                        (taskId, source, sourceConfigVersion, queryText, windowStartOn, windowEndBefore, maxAttempts)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                        (taskId, source, sourceConfigVersion, queryText, windowStartOn, windowEndBefore, maxAttempts, nextAttemptAt)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP(6))
                     """,
                     taskId, source, sourceConfigVersion, trimmedQuery,
                     startOn.toString(), endBefore.toString(), maxAttempts);
@@ -561,7 +561,8 @@ public class NewsIngestionService {
                 FROM t_news_collection_task t
                 WHERE t.source = ?
                   AND (
-                        (t.status IN ('PENDING', 'RETRY_SCHEDULED') AND t.nextAttemptAt <= UTC_TIMESTAMP(6))
+                        t.status = 'PENDING'
+                     OR (t.status = 'RETRY_SCHEDULED' AND t.nextAttemptAt <= UTC_TIMESTAMP(6))
                      OR (t.status = 'LEASED' AND t.leaseExpiresAt <= UTC_TIMESTAMP(6))
                   )
                   AND t.attemptCount < t.maxAttempts

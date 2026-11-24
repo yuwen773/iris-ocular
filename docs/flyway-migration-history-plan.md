@@ -116,3 +116,10 @@ WP-02 News Engine scheduling, lease fencing, idempotency receipts, and material 
 
 - Creates nine additive tables: `t_news_source` (pre-seeded with `pubmed`, `europe-pmc`, `clinicaltrials-gov`), `t_news_source_cursor`, `t_news_collection_task`, `t_news_collection_lease`, `t_news_collection_batch`, `t_news_batch_item`, `t_news_worker_receipt`, `t_news_material`, and `t_news_material_revision`.
 - Existing `t_news` and `t_news_audit` tables are untouched; partial batches stay isolated in `t_news_batch_item` until `complete()` promotes materials and advances the cursor in a single MySQL transaction.
+
+## V40 (2026-11-24)
+
+WP-03 News Engine curation candidates, evidence snapshots, paid model call receipts, daily budget caps, and NewsBench evaluation reports (`V40__news_curation_and_receipts.sql`). No edits to V1--V39; V35--V38 remain reserved.
+
+- Creates four additive tables: `t_news_curation_budget`, `t_news_model_call_receipt`, `t_news_curation_candidate`, and `t_news_bench_run`.
+- Leaves `t_news` and `t_news_audit` untouched; publication and Redis cache invalidation stay isolated for WP-04.

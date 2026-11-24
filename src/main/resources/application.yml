@@ -197,3 +197,16 @@ eye-diagnosis:
     retry-base-delay: 30s
     retry-max-delay: 15m
     default-max-attempts: 3
+  # Iris News Engine WP-03 资讯精选、证据规则与付费模型预算门（默认 fail-closed 关闭）
+  news-curation:
+    enabled: false
+    policy-version: news-curation-v1
+    provider: dashscope
+    model-name: qwen3.5-plus
+    call-timeout: 20s
+    daily-max-calls: 100
+    daily-max-tokens: 500000
+    daily-max-cost-micros: 5000000
+    estimated-tokens-per-call: 4000
+    estimated-cost-micros-per-call: 50000
+    max-response-chars: 16000
