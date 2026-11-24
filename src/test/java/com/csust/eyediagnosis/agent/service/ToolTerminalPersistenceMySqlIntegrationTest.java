@@ -6,10 +6,14 @@ import com.csust.eyediagnosis.agent.ToolStepContract;
 import com.csust.eyediagnosis.agent.ToolStepSink;
 import com.csust.eyediagnosis.agent.config.AgentConstants;
 import com.csust.eyediagnosis.agent.queue.SessionMessageQueue;
+import com.csust.eyediagnosis.exception.BusinessException;
+import com.csust.eyediagnosis.exception.ErrorCode;
 import com.csust.eyediagnosis.mapper.AgentMessageMapper;
 import com.csust.eyediagnosis.mapper.AgentSessionMapper;
 import com.csust.eyediagnosis.mapper.AgentToolAuditMapper;
+import com.csust.eyediagnosis.model.dto.agent.ChatHistoryVO;
 import com.csust.eyediagnosis.model.dto.agent.MessageDTO;
+import com.csust.eyediagnosis.model.dto.agent.MessageVO;
 import com.csust.eyediagnosis.utils.JsonUtils;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Assumptions;
@@ -24,10 +28,12 @@ import org.springframework.transaction.annotation.AnnotationTransactionAttribute
 import org.springframework.transaction.interceptor.TransactionInterceptor;
 
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.LongStream;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -86,18 +92,18 @@ class ToolTerminalPersistenceMySqlIntegrationTest {
             assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM t_agent_message", Integer.class));
             // 恢复失败时历史仍然要能读：读得到多少给多少，但必须**标出它不完整**，
             // 不能把陈旧历史冒充完整历史，更不能让整个会话 500。
-            var incomplete = history.loadHistory("failure", null, 100);
+            var incomplete = history.loadHistory("failure", null, null, 100);
             assertTrue(incomplete.isUncommittedTerminal(), "recovery failed: history must be marked incomplete");
             assertEquals(0, incomplete.getMessages().size());
             assertEquals("TIMEOUT", jdbc.queryForObject("SELECT errorCategory FROM t_agent_tool_audit "
                     + "WHERE sessionId='failure' AND toolStatus='failed'", String.class));
             jdbc.execute("DROP TRIGGER fail_terminal");
-            var recovered = history.loadHistory("failure", null, 100);
+            var recovered = history.loadHistory("failure", null, null, 100);
             assertEquals(1, recovered.getMessages().size());
             assertTrue(recovered.getMessages().getFirst().getContent().contains("TIMEOUT"));
             sink.finished("call-failed", "searchDocuments", true, ToolStepContract.ErrorCategory.NONE);
             sink.closePending();
-            assertEquals(1, history.loadHistory("failure", null, 100).getMessages().size(), "late success cannot replace TIMEOUT");
+            assertEquals(1, history.loadHistory("failure", null, null, 100).getMessages().size(), "late success cannot replace TIMEOUT");
 
             for (ToolStepContract.ErrorCategory category : new ToolStepContract.ErrorCategory[]{
                     ToolStepContract.ErrorCategory.TIMEOUT, ToolStepContract.ErrorCategory.CANCELLED,
@@ -109,7 +115,7 @@ class ToolTerminalPersistenceMySqlIntegrationTest {
                 disconnected.started("disconnected", "searchDocuments", "digest", "query");
                 disconnected.finished("disconnected", "searchDocuments", false, category);
                 disconnected.closePending();
-                var replay = history.loadHistory(session, null, 100).getMessages();
+                var replay = history.loadHistory(session, null, null, 100).getMessages();
                 assertEquals(1, replay.size());
                 assertTrue(replay.getFirst().getContent().contains(category.name()));
             }
@@ -119,7 +125,7 @@ class ToolTerminalPersistenceMySqlIntegrationTest {
             cancelled.started("late", "searchDocuments", "digest", "query");
             cancelled.closePending();
             cancelled.finished("late", "searchDocuments", true, ToolStepContract.ErrorCategory.NONE);
-            assertTrue(history.loadHistory("cancel", null, 100).getMessages().getFirst().getContent().contains("cancelled"));
+            assertTrue(history.loadHistory("cancel", null, null, 100).getMessages().getFirst().getContent().contains("cancelled"));
             writer.claimOrValidateSession("success", 42L, "synthetic");
             ToolStepSink success = sink("success", history, audit);
             var successfulFrames = new ArrayList<MessageDTO>();
@@ -127,7 +133,7 @@ class ToolTerminalPersistenceMySqlIntegrationTest {
             success.started("positive", "searchDocuments", "digest", "query");
             success.finished("positive", "searchDocuments", true, ToolStepContract.ErrorCategory.NONE);
             assertEquals("succeeded", successfulFrames.getLast().getToolStatus());
-            assertTrue(history.loadHistory("success", null, 100).getMessages().getFirst().getContent().contains("succeeded"));
+            assertTrue(history.loadHistory("success", null, null, 100).getMessages().getFirst().getContent().contains("succeeded"));
 
             writer.claimOrValidateSession("ack-loss", 42L, "synthetic");
             long stableId = com.baomidou.mybatisplus.core.toolkit.IdWorker.getId();
@@ -137,7 +143,7 @@ class ToolTerminalPersistenceMySqlIntegrationTest {
                 if (attempts.getAndIncrement() == 0) throw new IllegalStateException("synthetic acknowledgement loss");
                 return null;
             }));
-            assertEquals(1, history.loadHistory("ack-loss", null, 100).getMessages().size());
+            assertEquals(1, history.loadHistory("ack-loss", null, null, 100).getMessages().size());
             assertEquals(1, jdbc.queryForObject("SELECT messageCount FROM t_agent_session WHERE sessionId='ack-loss'", Integer.class));
             assertEquals(2, attempts.get(), "one initial attempt and one explicit read recovery");
 
@@ -146,6 +152,7 @@ class ToolTerminalPersistenceMySqlIntegrationTest {
             verifyBudgetTurn(history, audit, writer, jdbc);
 
             verifyVariantHistory(history, writer, jdbc);
+            verifyHistoryPagination(history, writer, jdbc);
 
             verifyLegacyTurnAdoption(history, writer);
         } finally {
@@ -173,11 +180,11 @@ class ToolTerminalPersistenceMySqlIntegrationTest {
                     () -> history.saveAssistantMessage("poisoned", "{\"output\":\"poison\"}", MessagePart.TOOL_RESULT),
                     "a failing terminal write must surface to the caller");
             // 两次读取各触发一次恢复重试：第三次失败后这个键被淘汰，不再堵队列。
-            history.loadHistory("poisoned", null, 100);
-            history.loadHistory("poisoned", null, 100);
+            history.loadHistory("poisoned", null, null, 100);
+            history.loadHistory("poisoned", null, null, 100);
             // 之后的写照常落库：失败的那一条被淘汰，不再挡住后面的消息。
             history.saveAssistantMessage("poisoned", "later message", MessagePart.ANSWER);
-            var after = history.loadHistory("poisoned", null, 100);
+            var after = history.loadHistory("poisoned", null, null, 100);
             assertTrue(after.getMessages().stream().anyMatch(message -> "later message".equals(message.getContent())),
                     "a permanently failing write must not block later messages");
             assertTrue(after.isUncommittedTerminal(), "the dropped write must be reported as uncommitted");
@@ -230,13 +237,69 @@ class ToolTerminalPersistenceMySqlIntegrationTest {
         assertEquals(1, calls.get());
         var terminal = events.stream().filter(event -> "MODEL_BUDGET_EXHAUSTED".equals(event.getFinishReason()))
                 .findFirst().orElseThrow();
-        var replay = history.loadHistory("budget-preamble", null, 100).getMessages();
+        var replay = history.loadHistory("budget-preamble", null, null, 100).getMessages();
         var notice = replay.stream().filter(message -> "turn-end".equals(message.getSubType())).findFirst().orElseThrow();
         assertEquals(terminal.getContent(), notice.getContent());
         assertEquals(terminal.getFinishReason(), notice.getFinishReason());
         assertTrue(replay.stream().anyMatch(message -> "我先查询资料。".equals(message.getContent())));
         assertTrue(jdbc.queryForObject("SELECT content FROM t_agent_message WHERE sessionId='budget-preamble' "
                 + "AND subType='turn-end'", String.class).contains("MODEL_BUDGET_EXHAUSTED"));
+    }
+
+    private static void verifyHistoryPagination(ChatHistoryService history, ChatMessageWriter writer,
+                                                JdbcTemplate jdbc) {
+        String session = "history-pagination";
+        String otherSession = "history-pagination-other";
+        long first = 2_120_565_650_562_129_921L;
+        writer.claimOrValidateSession(session, 42L, "synthetic");
+        writer.claimOrValidateSession(otherSession, 42L, "synthetic");
+        for (long id = first; id < first + 81; id++) {
+            writer.writeUserMessage(session, 42L, "synthetic", null, id);
+        }
+        writer.writeUserMessage(otherSession, 42L, "different session", null, first + 100);
+
+        var latest = history.loadHistory(session, null, null, 40);
+        assertPageIds(latest, first + 41, first + 81);
+        assertTrue(latest.isHasMore());
+        assertEquals(first + 41, latest.getNextCursor());
+        assertFalse(latest.isHasNewer());
+        assertEquals(first + 80, latest.getNewerCursor());
+
+        writer.writeUserMessage(session, 42L, "appended", null, first + 81);
+        var middle = history.loadHistory(session, latest.getNextCursor(), null, 40);
+        assertPageIds(middle, first + 1, first + 41);
+        assertTrue(middle.isHasNewer());
+        assertEquals(first + 40, middle.getNewerCursor());
+        assertEquals(middle, history.loadHistory(session, latest.getNextCursor(), null, 40));
+
+        var oldest = history.loadHistory(session, middle.getNextCursor(), null, 40);
+        assertPageIds(oldest, first, first + 1);
+        assertFalse(oldest.isHasMore());
+        assertNull(oldest.getNextCursor());
+
+        var forward = history.loadHistory(session, null, middle.getNewerCursor(), 40);
+        assertPageIds(forward, first + 41, first + 81);
+        assertTrue(forward.isHasNewer());
+        assertEquals(first + 80, forward.getNewerCursor());
+        var appended = history.loadHistory(session, null, forward.getNewerCursor(), 40);
+        assertPageIds(appended, first + 81, first + 82);
+        assertFalse(appended.isHasNewer());
+        assertTrue(history.loadHistory(session, null, appended.getNewerCursor(), 40).getMessages().isEmpty());
+        assertFalse(history.loadHistory(session, latest.getNextCursor(), null, 41).isHasMore(),
+                "an exact full page with no earlier rows has no next cursor");
+
+        assertEquals(ErrorCode.PARAMS_ERROR.getCode(), assertThrows(BusinessException.class,
+                () -> history.loadHistory(otherSession, latest.getNextCursor(), null, 40)).getCode());
+        assertEquals(ErrorCode.PARAMS_ERROR.getCode(), assertThrows(BusinessException.class,
+                () -> history.loadHistory(session, null, first + 200, 40)).getCode());
+        jdbc.update("DELETE FROM t_agent_message WHERE id = ? AND sessionId = ?", latest.getNextCursor(), session);
+        assertEquals(ErrorCode.PARAMS_ERROR.getCode(), assertThrows(BusinessException.class,
+                () -> history.loadHistory(session, latest.getNextCursor(), null, 40)).getCode());
+    }
+
+    private static void assertPageIds(ChatHistoryVO page, long start, long end) {
+        assertEquals(LongStream.range(start, end).boxed().toList(),
+                page.getMessages().stream().map(MessageVO::getId).toList());
     }
 
     /**
@@ -259,7 +322,7 @@ class ToolTerminalPersistenceMySqlIntegrationTest {
                 com.baomidou.mybatisplus.core.toolkit.IdWorker.getId(), userRow, "v2");
 
         // 还没选中：两版都返回，用户行带上按生成顺序排列的版本列表
-        var all = history.loadHistory("variants", null, 100).getMessages();
+        var all = history.loadHistory("variants", null, null, 100).getMessages();
         assertTrue(all.stream().anyMatch(m -> "第一版回答".equals(m.getContent())));
         assertTrue(all.stream().anyMatch(m -> "第二版回答".equals(m.getContent())));
         var userBefore = all.stream().filter(m -> "USER".equals(m.getRole())).findFirst().orElseThrow();
@@ -268,7 +331,7 @@ class ToolTerminalPersistenceMySqlIntegrationTest {
 
         // 选中 v2：SQL 过滤掉 v1 的行，选中状态回到用户行
         history.selectVariant("variants", 42L, userRow, "v2");
-        var selected = history.loadHistory("variants", null, 100).getMessages();
+        var selected = history.loadHistory("variants", null, null, 100).getMessages();
         assertTrue(selected.stream().noneMatch(m -> "第一版回答".equals(m.getContent())),
                 "未选中的版本不能出现在历史里");
         assertTrue(selected.stream().anyMatch(m -> "第二版推理".equals(m.getContent())),
@@ -277,7 +340,7 @@ class ToolTerminalPersistenceMySqlIntegrationTest {
         assertEquals("v2", userAfter.getSelectedVariantId());
 
         // 游标分页与版本过滤一致：小页也不被隐藏版本占位
-        var firstPage = history.loadHistory("variants", null, 2).getMessages();
+        var firstPage = history.loadHistory("variants", null, null, 2).getMessages();
         assertEquals(2, firstPage.size());
         assertTrue(firstPage.stream().noneMatch(m -> "第一版回答".equals(m.getContent())));
 
@@ -326,7 +389,7 @@ class ToolTerminalPersistenceMySqlIntegrationTest {
         writer.writeAssistantMessage("legacy", "重新生成的回答", MessagePart.ANSWER,
                 com.baomidou.mybatisplus.core.toolkit.IdWorker.getId(), userRow, "v2");
         history.selectVariant("legacy", 42L, userRow, "v2");
-        var page = history.loadHistory("legacy", null, 100).getMessages();
+        var page = history.loadHistory("legacy", null, null, 100).getMessages();
         assertTrue(page.stream().noneMatch(m -> "升级前的回答".equals(m.getContent())),
                 "收养后旧回答可以被隐藏");
         assertTrue(page.stream().anyMatch(m -> "重新生成的回答".equals(m.getContent())));

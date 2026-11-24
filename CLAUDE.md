@@ -5,6 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project Overview
 
 Iris — **Spring Boot 3.5.6** (Java 21) + **React 19** 产品前端（`web/`）+
+**微信小程序**患者端（`miniapp/`，Taro 4 + React，体验版）+
 **Vue 3** 已弃用前端（`frontend/`，deprecated）+ **Python** algorithm service.
 Base package: `com.csust.eyediagnosis`
 
@@ -27,7 +28,8 @@ Base package: `com.csust.eyediagnosis`
 ## Build & Verify
 
 后端构建脚本看 `pom.xml`，产品前端脚本看 `web/package.json`（`typecheck` / `test` / `build` / `lint`，
-CI 里是根 `verify.yml` 的 `web` job），Vue 已弃用线看 `frontend/package.json`，算法服务看
+CI 里是根 `verify.yml` 的 `web` job），小程序看 `miniapp/package.json`（`typecheck` / `test` / `build:weapp` /
+`gen:tokens`，CI 里是 `miniapp` job），Vue 已弃用线看 `frontend/package.json`，算法服务看
 `algorithm/requirements.txt` 与 `run_mcp_server.py` / `grpc_server.py`；`docker-compose.yml` 起 ChromaDB :8000。
 
 **日常改动走分级验证 `scripts/verify-fast.sh`**（L0 / L1 / L2 / L3，**默认 L1**）：
@@ -62,11 +64,19 @@ Java 21 与本机 MySQL 实例的环境事实见主检出目录的 `CLAUDE.local
 
 **Frontend (deprecated)** (`frontend/`): Vue 3 + TypeScript + Ant Design Vue 4 + Tailwind CSS v4 + Pinia + ECharts. API clients generated via `@umijs/openapi`. **已弃用（deprecated，2026-11-10 起）**：不再开发、不再作为设计参考，仅保留可运行以作回溯；新功能与修复一律进 `web/`。
 
+**Mini Program (patient)** (`miniapp/`): Taro 4 + React + TypeScript + Sass。tabBar 四页（判读 / 记录 / 咨询 / 我的），
+判读走同步 `/api/diagnosis/diagnosis`，Agent 用 `wx.request` 的 `enableChunked` 消费 SSE。
+样式令牌由 `scripts/gen-tokens.mjs` 从 `web/src/styles/tokens.css` 生成到 `src/styles/tokens.scss`（勿手改）。
+后端配套：`miniapp/` 包提供 `/api/mp/auth/*` Bearer 令牌通道（`MiniAppTokenFilter` @Order(0)、
+`t_user_wechat` 绑定表、V35 迁移），绕过 `SameOriginFilter` 对小程序请求的 403；Cookie 通道语义不变。
+规则与未决项见 `docs/product/wechat-miniapp/README.md`。
+
 ## API Endpoints
 
 | Controller | Path | Purpose |
 |------------|------|---------|
 | UserController | `/api/user/*` | Auth, CRUD |
+| MiniAppAuthController | `/api/mp/auth/*` | 小程序：`login`（code→Bearer 令牌，同源校验的**按路径唯一**豁免项）、`logout` |
 | AdminStatsController | `/api/stats/*` | 管理端：`overview` 供仪表盘（当前态/环比），`analytics` 供数据分析（复核、拒识归因、模型与质量、数据质量自检；复核维度为 HISTORICAL_ONLY） |
 | DiagnosisController | `/api/diagnosis/*` | Upload image, gRPC diagnosis, page query, cancel an in-flight run |
 | DiagnosisTaskController / PatientAuthorizationController / PatientExplanationController / PatientFollowUpController | `/api/diagnosis-tasks/*` | 患者影像任务、保存授权、分层解释与随访 |
@@ -79,10 +89,11 @@ Java 21 与本机 MySQL 实例的环境事实见主检出目录的 `CLAUDE.local
 | ControlledReferenceController | `/api/controlled-references/*` | 受控参考资料上传、治理与检索 |
 | DoctorReviewController | `/api/doctor-reviews/*` | 医生复核冻结草稿 |
 | PatientDraftTestController / PatientDraftSeedController | `/api/patient-draft-test/*` | 仅管理员、需显式开启的草稿校验 |
+| ControlCenterController / ControlCenterCsrfController | `/api/admin/control-center/*` | 配置中心草稿/发布/审批/回滚 + CSRF 令牌；默认关闭（`eye-diagnosis.control-center.enabled=false`） |
 
 ## Database (MySQL `diagnosis`)
 
-Schema: `src/main/resources/db/migration/V*.sql` (Flyway migrations — authoritative; `db/callback/` bootstraps fresh installs). Never edit an applied migration; add a new one. Current head is V34; upgrade paths per target database are in `docs/architecture/migration-matrix.md`. Key tables: `t_user`, `t_diagnosis`, `t_diagnosis_task`, `t_agent_session`, `t_agent_message`, `t_agent_tool_audit`, `t_mcp_server`, `t_knowledge_document`, `t_news`, `t_controlled_reference`, `t_patient_draft_run`, `t_doctor_review`, `t_patient_authorization`, `t_diagnosis_run`.
+Schema: `src/main/resources/db/migration/V*.sql` (Flyway migrations — authoritative; `db/callback/` bootstraps fresh installs). Never edit an applied migration; add a new one. Current head is V37; upgrade paths per target database are in `docs/architecture/migration-matrix.md`. Key tables: `t_user`, `t_user_wechat`, `t_diagnosis`, `t_diagnosis_task`, `t_agent_session`, `t_agent_message`, `t_agent_tool_audit`, `t_mcp_server`, `t_knowledge_document`, `t_news`, `t_controlled_reference`, `t_patient_draft_run`, `t_doctor_review`, `t_patient_authorization`, `t_diagnosis_run`, `t_config_draft`, `t_config_release`, `t_config_active_pointer`, `t_config_request`, `t_config_audit_event`, `t_config_publish_request`.
 
 **命名规范**: 数据库列名统一使用**小驼峰**命名（如 `userId`, `fileName`, `isDelete`），与 Java 实体类字段保持一致。MyBatis Plus 配置 `map-underscore-to-camel-case: false`，不会自动转换下划线。
 

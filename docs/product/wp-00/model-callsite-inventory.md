@@ -167,3 +167,52 @@ Python 侧**没有** Chat / Embedding / Rerank 调用；这些全部在 Java。M
 3. 连接测试不得复用生产模型客户端；必须是独立、受限的探测请求。
 4. 未来 Model Router 的接入点已登记（§2），但第一期不建空接口。
 5. 多 Agent 分支合并后必须重跑本清单，并把 `DraftAgents.Transport` 纳入登记。
+
+---
+
+## 9. 2026-11-23 增量（基线 `5dc2eac5`）
+
+> 以上第 0–8 节按历史基线 `f42065e4` 读取，不删除。完整上下文见
+> [`wp-00-5-baseline-audit.md`](wp-00-5-baseline-audit.md) §5。
+
+### 9.1 多 Agent 已入主干：补齐登记
+
+| callSite | taskType | providerSource / modelSource | credentialSource | lifecycle | runtimeBinding | medicalRisk |
+|---|---|---|---|---|---|---|
+| `patientdraft/DraftAgents.java:47-88` | Chat（结构化 JSON） | 注入的 `ChatModel`；`OpenAiChatModel` / `DashScopeChatModel` 走 `mutate().retryTemplate(maxAttempts=1)` | 与主 Chat 相同（`spring.ai.openai.api-key` → `DASHSCOPE_API_KEY`） | 每次协作运行复用注入实例 | **否** | 是：医学解释草稿 |
+| `patientdraft/PatientDraftCoordinator.java:68-73` | Agent 编排 | 同一个 `ChatModel`；`maxTokens=4000` 硬编码；`Budget(8, 90s, 20s)` 硬编码 | 同上 | 单例 Service | 否 | 是 |
+| `collaboration/*`（5 类） | 无直接模型调用 | — | — | — | — | 否（事件/游标/流） |
+
+`DraftAgents.Transport` 的严格 JSON（重复键、尾随内容、缺失字段全部拒绝）与
+`maxTokens=4000` 都是硬编码，**不属于可动态配置项**。
+
+### 9.2 单 Agent 护栏已接线
+
+上文 §4.1「`ReactAgent.builder()` 未设迭代/工具调用上限」**已过期**：
+
+- `ToolCallBudgetInterceptor(maxIterations)` 每请求重建并挂入拦截器链（`DiagnosisAgent.java:122-145`）；
+- `CompileConfig.recursionLimit = modelCallLimit * 2 + 2`（`:167-174`）；
+- `CountingChatModel` 只计数（`:217`）；
+- 单测：`AgentGuardrailWiringTest`、`AgentBudgetExhaustionTest`、`ToolCallBudgetInterceptorTest`。
+
+`agent.max-iterations` / `agent.model-call-limit` 因此是**真实运行时策略**，登记为
+`STATIC_POLICY`，不进入 MVP 动态集。
+
+### 9.3 视觉异常输出已修复
+
+上文 §7 第 9 条「视觉失败会产出合成医学结论」**已关闭（代码层）**：
+
+- `EyeImageAnalyzerTool.parseAnalysisResult` 只接受完整 JSON + 七字段 + `urgency` 枚举
+  （`EyeImageAnalyzerTool.java:237-262`）；
+- 非法输出 → `InvalidToolOutputException` → 工具终态 `INVALID_OUTPUT`；基础设施异常 →
+  `SYSTEM_ERROR`，不再返回 `urgency=attention` 的兜底结果（`:138-150`）；
+- 回归：`EyeImageAnalyzerToolOutputValidationTest`、`AgentEyeImageInvalidOutputEndToEndTest`。
+
+### 9.4 结论不变
+
+- 仍无 `@RefreshScope`、无 `ModelResolver`、无运行时模型切换；
+- 视觉 `OpenAiApi` / `OpenAiChatModel` / `ChatClient` 仍是 `@PostConstruct` 手工构造，无替换缝隙；
+- `VectorStoreConfig` 仍在构造时捕获 `EmbeddingModel`；
+- 三条 DashScope 凭据来源仍可静默分叉；
+- `TitleGenerationService` 仍是截断占位，不是模型调用；
+- Provider 连接元数据仍**不接执行路径**（且代码尚未实现）。
