@@ -17,7 +17,7 @@
 | 阶段 | 内容 | 状态 |
 |---|---|---|
 | 0 | WP-01A 定向安全复核（路由匹配、执行顺序、AOP 边界、CSRF 端点缓存） | 完成，1 项 P1 缺陷已修（CORS 未放行 `X-CSRF-Token`） |
-| 1 | V35 五张表最小结构 + 并发/幂等/事务语义 | 完成 |
+| 1 | V36 五张表最小结构 + 并发/幂等/事务语义 | 完成 |
 | 2 | 配置读取 + 草稿生命周期 API（无发布/回滚引擎） | 完成 |
 | 3 | 结构化审计持久化 + 测试矩阵 + 完整验证 | 完成（见 §5、§6） |
 
@@ -43,7 +43,7 @@ Agent / 临床推理 / 模型客户端调用路径、`@AuthCheck` 角色语义�
 
 ---
 
-## 3. 阶段 1：持久化（`V35__control_center_core.sql`）
+## 3. 阶段 1：持久化（`V36__control_center_core.sql`）
 
 ### 3.1 编号复核
 
@@ -52,9 +52,11 @@ CI 的 `FlywayMySqlIntegrationTest` 按目录顺序校验连续性。故新迁�
 未修改 V1–V31 任何文件。
 
 > **编号变更（2026-11-24，合并前核对 `master c90b0caa`）**：master 已前进到迁移头
-> **V34**，V32–V34 已被占用（知识库候选索引版本 / 判读任务受限原因 / 判读证据语义）。
-> 本迁移改号为 **V35**（配套的发布审批迁移由 V33 改为 V36），**DDL 内容一字未改**。
-> 本文其余出现 V32 的地方均指这条迁移，按 V35 读。
+> **V34**，V32–V34 已被占用（知识库候选索引版本 / 判读任务受限原因 / 判读证据语义），
+> V35 又被在途的小程序后端分支占用（PR #160 微信绑定表）。
+> 本迁移因此改号为 **V36**（配套的发布审批迁移由 V33 改为 V37），**DDL 内容一字未改**。
+> 本文其余出现 V32 的地方均指这条迁移，按 V36 读。
+> 全局编号分配见 `docs/architecture/migration-matrix.md` §1.1。
 
 ### 3.2 结构
 
@@ -161,7 +163,7 @@ CI 的 `FlywayMySqlIntegrationTest` 按目录顺序校验连续性。故新迁�
 
 | 测试类 | 用例数 | 层次 | 覆盖 |
 |---|---|---|---|
-| `ControlCenterPersistenceIntegrationTest` | 17 | `@SpringBootTest` + 真 MySQL（`ci` profile） | V35 结构、默认值回落、创建/冲突、条件更新、只记改动键名、过期 revision、失败审计存活于回滚、校验固化与失效、非法载荷、未知键、部署保护前缀、schemaVersion、幂等重放/不一致/跨请求号隔离、10 轮并发仅一人成功、脱敏 |
+| `ControlCenterPersistenceIntegrationTest` | 17 | `@SpringBootTest` + 真 MySQL（`ci` profile） | V36 结构、默认值回落、创建/冲突、条件更新、只记改动键名、过期 revision、失败审计存活于回滚、校验固化与失效、非法载荷、未知键、部署保护前缀、schemaVersion、幂等重放/不一致/跨请求号隔离、10 轮并发仅一人成功、脱敏 |
 | `ControlCenterAcceptanceTest` | 11 | `@SpringBootTest(RANDOM_PORT)` 真 Tomcat + HTTP 客户端 | 匿名 40100、非管理员 40301、读取端点、跨站 403 且无写入、`Origin: null` + 合法 Referer 仍拒、CSRF_MISSING / CSRF_MISMATCH 且留痕主体、Origin 先于 CSRF、CSRF 端点 `no-store` 且仅管理员、草稿全流程、过期 revision 的统一信封、写操作留痕且无泄漏 |
 | `ControlCenterDisabledAcceptanceTest` | 3 | RANDOM_PORT | 默认关闭时端点不注册（既有 catch-all 返回 200/50000，不是 403）、不做 CSRF 拦截、既有接口不受影响 |
 | `SameOriginFilterControlCenterTest` | 21 | Mock | 严格 Origin 全矩阵（同源、尾斜杠、跨站、null、缺失、空串、scheme/port 不符、带 path、Referer 回退、白名单精确匹配、子域不匹配、旧白名单不适用、代理头开关、安全方法、非控制中心路径保持旧语义、前缀边界） |
@@ -233,7 +235,7 @@ schema 上加跑的两次（又落在 `processDeathRestoresOnlyCommittedNodesAnd
 | R-2 | 单例草稿：全局只有一份 | 两个管理员同时编辑会互相覆盖 revision 冲突（设计如此，ADR D3），不是缺陷；但 WP-04 UI 必须给出「他人正在编辑」的提示，否则体验上像 bug | WP-04 落地时处理 |
 | R-3 | 失败/拒绝审计走 `REQUIRES_NEW` | 需要第二条数据库连接；连接池耗尽时审计写入失败被吞掉（只打 warn），该次拒绝仍生效 | 接受：不让审计拖垮主流程；运维需监控该 warn |
 | R-4 | CSRF token 绑定 Session，**登录/登出不轮换**；既有登录流程也没有 `changeSessionId()` | 会话被固定（session fixation）时可继承 token。既有代码层面的会话固定缺口，不在本轮授权范围内修改（改登录流程属认证行为变更） | 登记为安全债；WP-05 安全回归时一并评估 |
-| R-5 | V35 在 CI 一次性 MySQL 8 上验过「空库 → V35」与「**V31 → V35**」（新增用例；原为 V31→V32 只执行 1 条，2026-11-24 改号后为 V31→V36 执行 5 条，含 master 的 V32–V34） | 真实目标库副本尚未演练（`docs/architecture/migration-matrix.md` 要求逐库确认） | 发布前在目标库副本上跑一次；CI 路径已同构覆盖 |
+| R-5 | V36 在 CI 一次性 MySQL 8 上验过「空库 → V36」与「**V31 → V36**」（新增用例；原为 V31→V32 只执行 1 条，2026-11-24 改号后为 V31→V37 执行 5 条，含 master 的 V32–V34） | 真实目标库副本尚未演练（`docs/architecture/migration-matrix.md` 要求逐库确认） | 发布前在目标库副本上跑一次；CI 路径已同构覆盖 |
 | R-6 | 发布 / 回滚零实现 | `t_config_release`、`t_config_active_pointer` 无写入路径，`GET /active` 永远返回默认值；`PUBLISH` / `ROLLBACK` 枚举与 `publisher-user-ids` 配置暂无调用方 | 设计如此（WP-01C 范围） |
 | R-7 | 部署前提：反代未改写 Host / scheme 时，控制中心写请求全部 403 | 默认 `trust-proxy-headers=false`，必须在 `allowed-origins` 显式登记外部 origin，且 nginx 需 `proxy_set_header Host $host`（与 `SameOriginFilter` 既有部署前提一致） | 部署清单里写明；开启前先验一次真实 origin |
 | R-8 | 前端只交付管道（`csrf.ts` / `controlCenterApi.ts`），没有页面 | 浏览器端到端只有 vitest 单测与后端 `RANDOM_PORT` 验收，没有「真浏览器 + 真 CSRF 头」的证据 | WP-04 后补；届时必须补一条真实浏览器链路 |
@@ -257,8 +259,8 @@ schema 上加跑的两次（又落在 `processDeathRestoresOnlyCommittedNodesAnd
 
 1. **R-1 幂等语义**：发布端点是不可重复的动作，不能沿用「提交后记录」的写法。
    WP-01C 第一件事是把幂等改成占位先行，或在设计文档里明确接受重复发布并给出检测手段。
-2. **R-5 升级路径**：V31 → V35 已在 CI 的真实 MySQL 8 上验过（新增用例；2026-11-24
-   改号后为 V31 → V36，执行 5 条迁移）；
+2. **R-5 升级路径**：V31 → V36 已在 CI 的真实 MySQL 8 上验过（新增用例；2026-11-24
+   改号后为 V31 → V37，执行 5 条迁移）；
    发布前仍需在目标库副本上跑一次。
 3. **R-7 部署配置**：开启控制中心前确认反代头与 `allowed-origins`，否则第一个写请求就会 403。
 
@@ -269,7 +271,7 @@ schema 上加跑的两次（又落在 `processDeathRestoresOnlyCommittedNodesAnd
 该类，但「与本轮无关」不等于「可以带红合并」——合并前需要在安静机器或 CI 上取一次
 `303/303`，并把日志存证。
 
-已具备的基线事实：V35 五表在真 MySQL 8 上可迁移、可写；草稿并发只有一个赢家；
+已具备的基线事实：V36 五表在真 MySQL 8 上可迁移、可写；草稿并发只有一个赢家；
 成功审计与业务同事务、失败审计存活于回滚；默认关闭时端点一枚不注册、既有接口行为不变。
 
 ---
@@ -308,7 +310,7 @@ schema 上加跑的两次（又落在 `processDeathRestoresOnlyCommittedNodesAnd
 
 | 文件 | 说明 |
 |---|---|
-| `src/main/resources/db/migration/V35__control_center_core.sql` | 五表 + 指针单例行（91 行） |
+| `src/main/resources/db/migration/V36__control_center_core.sql` | 五表 + 指针单例行（91 行） |
 | `web/src/lib/csrf.ts` | token 获取 / 缓存 / 单飞 / 失效，`csrfRequest`（95 行） |
 | `web/src/lib/controlCenterApi.ts` | 5 个端点类型化封装（154 行） |
 | `docs/product/wp-01/wp-01b-persistence-and-config-api.md` | 本文件 |
@@ -321,10 +323,10 @@ schema 上加跑的两次（又落在 `processDeathRestoresOnlyCommittedNodesAnd
 | `config/CorsConfig.java` | `allowedHeaders` 放行 `X-CSRF-Token`（阶段 0 修复） |
 | `exception/ErrorCode.java` | 40301、40900/40901/40902/40903/40904/40905/40908 |
 | `src/main/resources/application.yml` | `eye-diagnosis.control-center.*` 配置块（默认关） |
-| `src/test/java/.../migration/FlywayMySqlIntegrationTest.java` | 版本钉更新到 V32（2026-11-24 改号后为 V35/V36、迁移数 19、头 36）；空库断言加 5 张表；**新增 V31 → V32 升级用例**（改号后为 V31 → V36） |
+| `src/test/java/.../migration/FlywayMySqlIntegrationTest.java` | 版本钉更新到 V32（2026-11-24 改号后为 V36/V37、迁移数 19、头 36）；空库断言加 5 张表；**新增 V31 → V32 升级用例**（改号后为 V31 → V37） |
 | `src/test/java/.../EyeDiagnosisApplicationTests.java` | 默认关闭时 CSRF 过滤器与端点不注册 |
 | `web/src/lib/http.ts` | 非 2xx 解析统一信封 |
-| `docs/README.md` / `docs/architecture/migration-matrix.md` | 索引条目；V32 行、升级路径与「新迁移必须大于 V32」（2026-11-24 改号后为 V35 行、大于 V36） |
+| `docs/README.md` / `docs/architecture/migration-matrix.md` | 索引条目；V32 行、升级路径与「新迁移必须大于 V32」（2026-11-24 改号后为 V36 行、大于 V37） |
 
 
 

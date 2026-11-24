@@ -8,7 +8,7 @@ import lombok.Data;
 import java.util.Date;
 
 /**
- * 请求级幂等记录（V35）。
+ * 请求级幂等记录（V36）。
  *
  * <p>唯一键 {@code (actorId, requestId)} 是判重点；{@code requestDigest} 区分
  * 「同一请求重放」与「同一 requestId 换了内容」。后者必须拒绝（40908），

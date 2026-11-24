@@ -35,7 +35,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * 配置中心持久化与事务边界的真 MySQL 门禁（WP-01B）。
  *
- * <p>跑在 ci profile 的 MySQL 8 上，走真实 Flyway（含 V35）、真实 Spring 事务
+ * <p>跑在 ci profile 的 MySQL 8 上，走真实 Flyway（含 V36）、真实 Spring 事务
  * 与真实 AOP 代理。覆盖：迁移结构、空库回落、草稿生命周期、revision 冲突、
  * 校验失效、审计同事务与失败审计独立事务、幂等重放、并发唯一赢家。
  *

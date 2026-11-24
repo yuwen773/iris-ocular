@@ -8,7 +8,7 @@ import lombok.Data;
 import java.util.Date;
 
 /**
- * 单行活跃指针（V35）。
+ * 单行活跃指针（V36）。
  *
  * <p>发布事务的第一步是 {@code SELECT ... FOR UPDATE} 本行，把并发发布串行化；
  * 没有这行就无法在一个事务里同时做「校验当前版本 → 插入 release → 切换指针」。

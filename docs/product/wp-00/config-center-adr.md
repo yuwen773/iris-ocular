@@ -304,7 +304,7 @@ PRD 要求：强类型注册、草稿/校验/发布/回滚、审计、品牌资�
 |---|---|---|
 | 头部 | 基线 `f42065e4`、`feat/system-config-center` | 历史基线；现行基线 `origin/master` = `5dc2eac5`（340 个提交之后）。旧分支与 `ui` 分支均不存在，`6ba65478` 已并入主干 |
 | **D6 权限载体** | 「现有 `UserRole` 只有 `user/admin`」 | `UserRole` 现有 4 个值（`USER/ADMIN/DOCTOR/EVIDENCE_REVIEWER`），但 `UserServiceImpl.ASSIGNABLE_ROLES` 仍只允许 `user/ban/admin`。**裁决不变**：发布者 = 部署期 yml 的 **admin userId 白名单**；`DOCTOR/EVIDENCE_REVIEWER` 不可指派，也不得作为权限载体。`@AuthCheck` 不能扩成细粒度（`mustRole="doctor"` 会对任意已登录用户放行） |
-| **D9 迁移版本** | 「本分支止于 V17；从 V29 起」 | **作废**：V29–V34 已被占用（知识索引版本、消息多版本、判读取消、知识库候选索引版本、判读任务受限原因、判读证据语义）。WP-01 从 **V35** 起（V35 核心五表、V36 发布审批单）；2026-11-24 核对 master `c90b0caa` 后由原拟的 V32/V33 改号，**迁移内容未改**。约束不变：只新增、不改已执行迁移 |
+| **D9 迁移版本** | 「本分支止于 V17；从 V29 起」 | **作废**：V29–V35 已被占用（知识索引版本、消息多版本、判读取消、知识库候选索引版本、判读任务受限原因、判读证据语义、小程序微信绑定）。WP-01 从 **V36** 起（V36 核心五表、V37 发布审批单）；2026-11-24 核对 master `c90b0caa` 后由原拟的 V32/V33 改号为 V35/V36，再因小程序分支占用 V35 改号为 V36/V37，**迁移内容未改**。约束不变：只新增、不改已执行迁移 |
 | **D10 UI 解冻** | 「Iris 2.1 UI 冻结继续有效，需解冻例外」 | **不再适用**：冻结已于 2026-11-21 结束（Iris 2.2）。WP-04 不需要解冻授权；但 `AdminNav` 第 7 项与 `index.html` title/favicon 改写仍须遵守 `DESIGN.md`（管理端场景、双主题、可访问性） |
 | **D11 Same-Origin** | 「本分支没有任何 CSRF/Same-Origin 过滤器；配置中心自带独立实现」 | **前提失效**：主干已有全局 `SameOriginFilter`（`config/SameOriginFilter.java`，`@Order(1)`，覆盖所有非安全方法，10 个单测）。**修订为实现方式**：不建第二套过滤器，在现有过滤器上加「控制中心严格模式」+ CSRF Token。与 D11 九条的差异：不比较 scheme、`Origin: null` 可回退合法 Referer、无 CSRF、无 `reasonCode`、Cookie 未设 `Secure`。详见审计 §3.4 |
 | **D5 品牌资产** | 「沿用腾讯 COS，公开访问走后端代理」 | 仍是目标，但**现状未实现**：品牌资源在 `web/public/brand/` 静态文件里，COS 中没有任何品牌对象；`CosClientConfig` 不设置对象 ACL，bucket ACL/生命周期无法从仓库证明。WP-02 开工前必须实测 bucket ACL、未发布访问控制与对象生命周期 |

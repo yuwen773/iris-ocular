@@ -44,7 +44,7 @@ import static org.mockito.Mockito.doAnswer;
 /**
  * 发布审批 / 原子发布 / 回滚 / 一致性的真 MySQL 门禁（WP-01C）。
  *
- * <p>跑在 ci profile 的 MySQL 8 上：真实 Flyway（含 V36）、真实 Spring 事务、
+ * <p>跑在 ci profile 的 MySQL 8 上：真实 Flyway（含 V37）、真实 Spring 事务、
  * 真实行锁。这里验证的不是「代码看起来对」，而是：
  * <ul>
  *   <li>重复发布不重复生效（幂等重放 + 唯一键）；</li>

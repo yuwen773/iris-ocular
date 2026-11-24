@@ -8,7 +8,7 @@ import lombok.Data;
 import java.util.Date;
 
 /**
- * 配置中心审计事件（V35）。
+ * 配置中心审计事件（V36）。
  *
  * <p>只追加：没有 update/delete 路径。与业务写在同一事务内落库（ADR D4），
  * 因此「已发布但没有审计」在结构上不可能出现。

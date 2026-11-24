@@ -3,8 +3,10 @@
 > 状态：**本地验收候选**——未提交、未推送、未合并、未部署
 > 基线：`master` @ `5dc2eac5`；迁移头 **V33**（本轮新增；V1–V32 未改动）
 > 编号变更（2026-11-24，合并前核对 `master c90b0caa`）：master 已到迁移头 **V34**，
-> V32–V34 已被占用，本轮的 V33 改号为 **V36**（配套的 V32 改号为 V35），
+> V32–V34 已被占用，本轮的 V33 先改名为 V36；同日发现 V35 与在途的小程序后端分支
+> 撞号（PR #160 微信绑定表），再改名为 **V37**（配套的 V32 → **V36**），
 > **DDL 内容一字未改**；本文其余 V32/V33 均指这两条迁移。
+> 全局编号分配见 `docs/architecture/migration-matrix.md` §1.1。
 > 设计裁决：`docs/product/wp-01/wp-01c-publish-approval-design.md`（编码前完成，本文只记录落地结果）
 > 工作树：本分支（`feat/control-center-wp01`，原名 `t3/wp-00-5-baseline-audit`），承接 WP-01A / WP-01B 全部改动
 
@@ -88,7 +90,7 @@ COMMIT
 
 | 文件 | 说明 |
 |---|---|
-| `src/main/resources/db/migration/V36__control_center_publish_approval.sql` | 新增 `t_config_publish_request`（唯一键 `(actorId, requestId)`；两个查询索引） |
+| `src/main/resources/db/migration/V37__control_center_publish_approval.sql` | 新增 `t_config_publish_request`（唯一键 `(actorId, requestId)`；两个查询索引） |
 | `controlcenter/model/entity/ConfigPublishRequest.java` | 审批单实体 + 状态常量 |
 | `controlcenter/model/dto/PublishRequestBody.java`、`ApprovalDecisionRequest.java`、`RollbackRequestBody.java` | 三个写请求体 |
 | `controlcenter/model/vo/PublishRequestVO.java`、`ReleaseVO.java`、`PageVO.java` | 三个返回视图 |
@@ -120,7 +122,7 @@ COMMIT
 | `src/test/java/.../ControlCenterAcceptanceTest.java` | 清理/收尾补 `t_config_publish_request` |
 | `src/test/java/.../FlywayMySqlIntegrationTest.java` | 迁移头 32→33、迁移数 15→16、空库表清单 + 审批表、V31 升级用例改为「差两条」并新增审批表空表断言（2026-11-24 改号后：迁移头 33→36、迁移数 16→19、「差五条」） |
 | `web/src/lib/controlCenterApi.ts` | 新增发布/审批/拒绝/回滚/版本查询 7 个函数与类型 |
-| `docs/architecture/migration-matrix.md` | V33 行、链与升级路径、回滚方向、新迁移必须大于 V33（2026-11-24 改号后为 V36 行、大于 V36） |
+| `docs/architecture/migration-matrix.md` | V33 行、链与升级路径、回滚方向、新迁移必须大于 V33（2026-11-24 改号后为 V37 行、大于 V37） |
 | `docs/product/wp-00/mvp-api-contract.md` | §6 WP-01C 增量：40909–40911、审批路径、回滚语义 |
 | `docs/README.md` | WP-01C 设计 + 交付索引 |
 
@@ -196,13 +198,13 @@ com.csust.eyediagnosis.collaboration.GraphExecutionTest
 
 ### 7.2 迁移（真实 MySQL 8）
 
-- 空库：V1–V9 + V15–V36 全量迁移，`FlywayMySqlIntegrationTest` 断言迁移头 `36`、表清单含
+- 空库：V1–V9 + V15–V37 全量迁移，`FlywayMySqlIntegrationTest` 断言迁移头 `36`、表清单含
   `t_config_publish_request`；
-- master V17 库 → V36：迁移数 19，附 `t_user` 既有账号保留断言；
-- **V31 库 → V36**：执行 V32–V36 五条（V32–V34 是 master 的迁移，V35、V36 是配置中心两条），
+- master V17 库 → V37：迁移数 19，附 `t_user` 既有账号保留断言；
+- **V31 库 → V37**：执行 V32–V37 五条（V32–V34 是 master 的迁移，V36、V37 是配置中心两条），
   活跃指针单例行存在且 `releaseId IS NULL`，
   审批表为空表（`upgradesAnExistingV31SchemaToTheControlCenterSchema`）；
-- 回滚方向：旧 jar（只认到 V17）在 V36 history 上仍可启动（`FUTURE_SUCCESS`），但不作为回退候选——该用例只证明迁移解析放行，不证明旧产物安全。
+- 回滚方向：旧 jar（只认到 V17）在 V37 history 上仍可启动（`FUTURE_SUCCESS`），但不作为回退候选——该用例只证明迁移解析放行，不证明旧产物安全。
 
 ---
 

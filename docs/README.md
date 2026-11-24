@@ -93,9 +93,9 @@ git show <commit>:<path> > <file>
 - `product/iris-control-center-1.0-mvp-prd.md` — 系统配置中心 MVP PRD（V0.1；WP-01A–D 已有**分支候选实现（未推送、未合并、未启用）**，契约裁决见 §11.1）
 - `product/wp-00/` — WP-00 源代码审计交付物（配置项清单、模型调用清单、配置边界、ADR、API 契约、审计结论）；原始基线 `f42065e4`
 - `product/wp-00/wp-00-5-baseline-audit.md` — **WP-00.5 增量审计（2026-11-23，基线 `5dc2eac5`）**：最新基线变更、过期契约勘误、WP-01 开发计划与验收矩阵、READY/BLOCKED 结论
-- `product/wp-01/wp-01b-persistence-and-config-api.md` — **WP-01B 交付记录（分支候选，未推送/未合并）**：V35 五表、配置读取/草稿 API、审计、测试矩阵与 WP-01C 准入
+- `product/wp-01/wp-01b-persistence-and-config-api.md` — **WP-01B 交付记录（分支候选，未推送/未合并）**：V36 五表、配置读取/草稿 API、审计、测试矩阵与 WP-01C 准入
 - `product/wp-01/wp-01c-publish-approval-design.md` — **WP-01C 设计裁决**：幂等插入先行（修复 R-1）、绑定链、状态机、事务顺序、并发与 STALE 落点
-- `product/wp-01/wp-01c-publish-approval-delivery.md` — **WP-01C 交付记录（分支候选，未推送/未合并）**：V36、审批/发布/回滚 API、并发与失败恢复证据、验证报告与剩余风险
+- `product/wp-01/wp-01c-publish-approval-delivery.md` — **WP-01C 交付记录（分支候选，未推送/未合并）**：V37、审批/发布/回滚 API、并发与失败恢复证据、验证报告与剩余风险
 - `product/wp-01/wp-01d-final-audit.md` — **WP-01D 最终审计与验收（分支候选，未推送/未合并，基线 `5dc2eac5`）**：P0/P1/P2 清单、跨进程并发与故障注入证据、契约裁决（批准即发布 / 40906）、L3 复跑与合并准入判断
 - `plans/` — 2026-04 的移植、Admin UI、gRPC、MCP、find-lock、用户中心、会话管理设计/实施计划
 - `superpowers/specs/`、`superpowers/plans/` — P2 系列与 React 管理后台的设计规格与实施计划

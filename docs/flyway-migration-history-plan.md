@@ -104,7 +104,7 @@ Two consequences to know before writing the next migration:
 
 1. V32--V34 are owned by `fix/p1-audit-remediation-2026-11-23`. Work in flight
    on other branches (Control Center WP-01C already drafts a V33) must
-   re-number to V35 or higher; two branches cannot claim the same version.
+   re-number to V36 or higher; two branches cannot claim the same version.
 2. `DiagnosisEvidence` deliberately leaves all six V34 columns NULL when the
    Python service does not send the fields. Old rows are not backfilled: the
    historical values are not recoverable, and inventing them would be

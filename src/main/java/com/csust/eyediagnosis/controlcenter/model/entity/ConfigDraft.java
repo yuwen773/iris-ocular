@@ -8,7 +8,7 @@ import lombok.Data;
 import java.util.Date;
 
 /**
- * 配置中心单例草稿（V35）。
+ * 配置中心单例草稿（V36）。
  *
  * <p>全局只有一行（{@code id = 1}）：这是 ADR D3 的结构化表达，服务层不提供
  * 多草稿语义。{@code revision} 是乐观并发判据，任何更新都必须带

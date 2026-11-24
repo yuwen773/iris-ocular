@@ -2,7 +2,7 @@
 
 > 基线：`origin/master` @ `5dc2eac5`；迁移头 **V32**（本轮新增 V33，V1–V32 不动）
 > 编号变更（2026-11-24，合并前核对 `master c90b0caa`）：master 已到迁移头 **V34**，
-> V32–V34 已被占用，本轮的 V33 改号为 **V36**（配套的 V32 改号为 V35），
+> V32–V34 已被占用，本轮的 V33 改号为 **V37**（配套的 V32 改号为 V36），
 > **DDL 内容一字未改**；本文其余 V32/V33 均指这两条迁移。
 > 前置：`docs/product/wp-00/config-center-adr.md`（D2–D4、D6、D12）、
 > `docs/product/wp-00/mvp-api-contract.md`、WP-01B 交付记录

@@ -29,10 +29,12 @@
 > **增量勘误（2026-11-24，合并前核对 `master c90b0caa`）**
 > 上文「迁移头为 V31，WP-01 从 V32 起」已过期：master 已前进到 `c90b0caa`，
 > 迁移头 **V34**，V32–V34 已被占用（知识库候选索引版本 / 判读任务受限原因 /
-> 判读证据语义）。配置中心两条迁移改号为 **V35 / V36**
-> （`V35__control_center_core.sql`、`V36__control_center_publish_approval.sql`），
+> 判读证据语义），V35 又被在途的小程序后端分支占用（PR #160 微信绑定表）。
+> 配置中心两条迁移因此改号为 **V36 / V37**
+> （`V36__control_center_core.sql`、`V37__control_center_publish_approval.sql`），
 > **迁移内容未改**，只改编号。带重复版本号合入会让 Flyway 启动失败，故必须在
-> 合入前处理。详见 `wp-01/wp-01d-final-audit.md` §8.4。
+> 合入前处理。编号分配见 `docs/architecture/migration-matrix.md` §1.1。
+> 详见 `wp-01/wp-01d-final-audit.md` §8.4。
 
 ---
 

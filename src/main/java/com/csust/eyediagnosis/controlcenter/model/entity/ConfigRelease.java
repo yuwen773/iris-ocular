@@ -8,7 +8,7 @@ import lombok.Data;
 import java.util.Date;
 
 /**
- * 不可变发布快照（V35）。
+ * 不可变发布快照（V36）。
  *
  * <p>只插入，不更新、不删除：回滚同样是插入一条新 release（ADR D2 / PRD FR-02）。
  * 因此本实体没有 update 路径，服务层也不应出现 {@code UPDATE t_config_release}。

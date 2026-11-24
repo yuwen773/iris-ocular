@@ -18,7 +18,7 @@
 |---|---|---|
 | 最新 master | `5dc2eac5`；本地 `master` 引用停在 `c3808e4c`，落后 1 个提交 | `git rev-parse`；§1.1 |
 | 工作区 | 干净；当前工作树 `t3/wp-00-5-baseline-audit` 恰好等于 `origin/master` | `git status --porcelain` 为空 |
-| 迁移头 | **V31**（基线事实）；WP-01 从 **V35** 起（2026-11-24 改号，见 §12） | `src/main/resources/db/migration/` |
+| 迁移头 | **V31**（基线事实）；WP-01 从 **V36** 起（2026-11-24 改号，见 §12） | `src/main/resources/db/migration/` |
 | 配置中心代码 | **零行**：无 `t_config_*` / `t_brand_asset` / `t_provider_*`，无 Controller | `git grep` 无命中 |
 | Same-Origin | 已有 `SameOriginFilter`（全局、默认启用、有 10 个单测），但**无 CSRF Token**，且与 ADR D11 有 4 处语义差异 | `config/SameOriginFilter.java`；§3.4 |
 | Agent 护栏 | 预算与递归步数上限**已真实接线**，有单测 | `DiagnosisAgent.java:122-174`；`AgentGuardrailWiringTest` |
@@ -106,16 +106,16 @@ origin/master        5dc2eac50da33b5a0dd359499d291aa5066bd758
 - 仓库是 public，**任何提交进仓库的品牌资产都等于公开资产**；这与 ADR D5「未发布资产不得公开」
   的方向相反，WP-02 起品牌资产必须走 COS + 后端代理，不能把上传物直接放进 `web/public/`。
 
-### 3.2 V29–V31 已占用：新迁移从 V32 起（编号已改为 V35，见 §12）
+### 3.2 V29–V31 已占用：新迁移从 V32 起（编号已改为 V36，见 §12）
 
 **已确认。** 迁移目录头为 `V31__diagnosis_run_cancellation.sql`；`V32*` 不存在。
 
-- WP-01 核心表迁移命名为 `V35__control_center_core.sql`（原拟 V32，见 §12）；
+- WP-01 核心表迁移命名为 `V36__control_center_core.sql`（原拟 V32，见 §12）；
 - 仍遵守 `docs/flyway-migration-history-plan.md`：只新增、不改已执行迁移；
 - V10–V14 是历史空洞（其他线曾占用），**不要**用它们补号；
 - 部署前仍要按 `docs/architecture/migration-matrix.md` 核对目标库的 history。
 
-**原 ADR D9「从 V29 起」作废**，改为 V32（2026-11-24 进一步改为 V35，见 §12 与 ADR 增量勘误）。
+**原 ADR D9「从 V29 起」作废**，改为 V32（2026-11-24 进一步改为 V36，见 §12 与 ADR 增量勘误）。
 
 ### 3.3 UI 冻结结束：Iris 2.2
 
@@ -364,7 +364,7 @@ origin/master        5dc2eac50da33b5a0dd359499d291aa5066bd758
 |---|---|---|
 | 头部 | 基线 `f42065e4`、`feat/system-config-center` | 标注历史基线；现行基线 `5dc2eac5` |
 | D6 | 「`UserRole` 只有 user/admin」 | 现有 4 个枚举值，但可指派仍只有 `user/ban/admin`；发布者 = **admin 且 userId 在白名单** |
-| D9 | 「本分支止于 V17，从 V29 起」 | **V29–V34 已占用 → V35** |
+| D9 | 「本分支止于 V17，从 V29 起」 | **V29–V35 已占用 → V36**（V35 由小程序后端分支占用） |
 | D10 | 「UI 冻结，需解冻例外」 | 冻结已于 2026-11-21 结束；不需要例外，按 Iris 2.2 执行 |
 | D11 | 「本分支没有任何 CSRF/Same-Origin 过滤器；配置中心自带」 | 主干已有 `SameOriginFilter`；改为**在现有过滤器上加严格模式 + CSRF**，不建第二套 |
 | D5 | 「品牌资产存 COS」 | 仍是目标；现状品牌资产在 `web/public/brand`，COS 里没有品牌对象；WP-02 前验证 bucket ACL/生命周期 |
@@ -386,10 +386,10 @@ origin/master        5dc2eac50da33b5a0dd359499d291aa5066bd758
 | 条目 | 过期内容 | 修订 |
 |---|---|---|
 | §1/§8 范围 | 只覆盖 `f42065e4`；多 Agent 未合并 | 现覆盖 `5dc2eac5`；多 Agent 已入主干，本文件为其补审 |
-| 准入 #6 | 迁移 V29、认证只有 user/admin、冻结 tag | V35；角色 4 个但可指派 3 个；冻结已结束 |
+| 准入 #6 | 迁移 V29、认证只有 user/admin、冻结 tag | V36；角色 4 个但可指派 3 个；冻结已结束 |
 | P0-02 | 「仓库内没有任何 CSRF/Same-Origin 过滤器」 | 前提已失效：过滤器存在；遗留问题改为「缺 CSRF + 严格模式」 |
 | P1-03 | 解冻例外 | **关闭**（冻结结束） |
-| P1-04 | 迁移版本 | **关闭**：V35 |
+| P1-04 | 迁移版本 | **关闭**：V36 |
 | P1-05 | tracked yml 占位 api-key | **仍开放**（`application.yml:129`） |
 | P1-06 | 本地 profile 真实凭据 | **仍开放**（本工作树无该文件；主检出存在） |
 | P1-12 | 多 Agent 合并前补审 | **已执行**（本文 §3.7/§5） |
@@ -421,7 +421,7 @@ origin/master        5dc2eac50da33b5a0dd359499d291aa5066bd758
 **不做：** 品牌资产上传/公开资源端点（WP-02）、Provider 表与连接测试（WP-03）、
 前端页面（WP-04）、任何模型客户端改动、任何 `V1–V31` 修改。
 
-### 7.2 数据表（V35）
+### 7.2 数据表（V36）
 
 | 表 | 关键列 | 约束 |
 |---|---|---|
@@ -517,7 +517,7 @@ origin/master        5dc2eac50da33b5a0dd359499d291aa5066bd758
 
 | 类型 | 路径 |
 |---|---|
-| 新增 | `src/main/resources/db/migration/V35__control_center_core.sql` |
+| 新增 | `src/main/resources/db/migration/V36__control_center_core.sql` |
 | 新增 | `src/main/java/com/csust/eyediagnosis/controlcenter/**`（上表） |
 | 修改 | `src/main/java/com/csust/eyediagnosis/exception/ErrorCode.java`（只加枚举） |
 | 修改 | `src/main/java/com/csust/eyediagnosis/config/SameOriginFilter.java`（严格模式分支） |
@@ -605,7 +605,7 @@ origin/master        5dc2eac50da33b5a0dd359499d291aa5066bd758
 
 **理由（已确认）：**
 
-1. 迁移版本确定：V31 是头，V35 空闲（`db/migration/`）。
+1. 迁移版本确定：V31 是头，V36 空闲（V35 已被在途的小程序后端分支占用，见 `docs/architecture/migration-matrix.md` §1.1）。
 2. 配置中心零代码，不存在需要先拆掉的半成品（`git grep` 零命中）。
 3. 数据层先例可用：`NewsLifecycleService` 的「业务 + 审计同事务」模式仍在
    （`NewsLifecycleService.java:48,100,233-243`）。
@@ -645,7 +645,7 @@ origin/master        5dc2eac50da33b5a0dd359499d291aa5066bd758
 **下一轮（WP-01 首个 PR）必须补：**
 
 1. `scripts/verify-fast.sh --db` 或 `scripts/verify.sh` 作为基线绿；
-2. V35 在空 MySQL 8 上从 callback 起完整 migrate；
+2. V36 在空 MySQL 8 上从 callback 起完整 migrate；
 3. 控制中心 Origin/CSRF 的负例集成测试（八条用例逐条）；
 4. 发布并发/幂等/事务失败三条集成测试；
 5. 若采纳方案 A，`http.ts` 的非 2xx 信封解析要有前端单测。
@@ -668,16 +668,16 @@ origin/master        5dc2eac50da33b5a0dd359499d291aa5066bd758
 
 | 原编号 | 新编号 | 文件 |
 | --- | --- | --- |
-| V32 | **V35** | `V35__control_center_core.sql` |
-| V33 | **V36** | `V36__control_center_publish_approval.sql` |
+| V32 | **V36** | `V36__control_center_core.sql` |
+| V33 | **V37** | `V37__control_center_publish_approval.sql` |
 
 **迁移内容没有任何改动**，只是编号；两个文件头部都留了「重编号记录」注释以便追溯。
 本文正文已随改号更新（§0 摘要、§3.2、§6.1、§6.3、§7.2、§7.9、§11）；
 §3.2 里「`V32*` 不存在」是 2026-11-23 当时为真的**基线事实**，按审计记录要求不改写。
 
-配套变更：`docs/architecture/migration-matrix.md` 的 V32/V33 行改为 V35/V36；
+配套变更：`docs/architecture/migration-matrix.md` 的 V32/V33 行改为 V36/V37；
 `FlywayMySqlIntegrationTest` 的迁移数断言 16→19、迁移头 33→36、V31 升级用例改为
-「V31 → V36 执行 5 条」（V32–V34 是 master 的三条）。完整清单与门禁复跑结果见
+「V31 → V37 执行 5 条」（V32–V34 是 master 的三条）。完整清单与门禁复跑结果见
 `docs/product/wp-01/wp-01d-final-audit.md` §8.4。
 
 ## 13. 分支更名（2026-11-24）
