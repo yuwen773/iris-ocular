@@ -3,13 +3,14 @@ import {
   ChartColumn,
   LayoutDashboard,
   Library,
+  MessageSquareText,
   Newspaper,
   Stethoscope,
   Users,
   type LucideIcon,
 } from "lucide-react"
 
-/** 侧栏六项。导出供测试/复用；路由与占位页编号同源。 */
+/** 侧栏七项。导出供测试/复用；路由与占位页编号同源。 */
 export const ADMIN_NAV = [
   { to: "/admin/dashboard", code: "01", label: "仪表盘", icon: LayoutDashboard },
   { to: "/admin/users", code: "02", label: "用户管理", icon: Users },
@@ -17,6 +18,7 @@ export const ADMIN_NAV = [
   { to: "/admin/diagnosis", code: "04", label: "诊断管理", icon: Stethoscope },
   { to: "/admin/knowledge", code: "05", label: "知识库", icon: Library },
   { to: "/admin/data-analysis", code: "06", label: "数据分析", icon: ChartColumn },
+  { to: "/admin/feedback", code: "07", label: "意见反馈", icon: MessageSquareText },
 ] as const satisfies ReadonlyArray<{ to: string; code: string; label: string; icon: LucideIcon }>
 
 /**
@@ -25,7 +27,7 @@ export const ADMIN_NAV = [
  */
 const ADMIN_GROUPS = [
   { label: "概览", codes: ["01"] },
-  { label: "业务管理", codes: ["02", "04"] },
+  { label: "业务管理", codes: ["02", "04", "07"] },
   { label: "内容与知识", codes: ["03", "05"] },
   { label: "分析", codes: ["06"] },
 ] as const
@@ -89,9 +91,12 @@ export function AdminBrand() {
  *
  * <p>桌面侧栏与窄屏抽屉共用这一份——路由、编号、分组只有一处真源，
  * 窄屏不再另写一套横向标签条。
+ *
+ * <p>`pendingFeedback` 由外壳传入（数据只有外层取一次）：侧栏只负责显示，
+ * 不在导航组件里自己发请求，这样它仍然是可单独渲染的纯组件。
  */
-export function AdminNav(props: { onNavigate?: () => void }) {
-  const { onNavigate } = props
+export function AdminNav(props: { onNavigate?: () => void; pendingFeedback?: number }) {
+  const { onNavigate, pendingFeedback = 0 } = props
   return (
     <nav className="admin-side__nav" aria-label="系统管理导航">
       {ADMIN_GROUPS.map((group) => (
@@ -109,6 +114,14 @@ export function AdminNav(props: { onNavigate?: () => void }) {
                   <item.icon size={16} strokeWidth={1.75} />
                 </span>
                 <span className="admin-side__label">{item.label}</span>
+                {item.code === "07" && pendingFeedback > 0 ? (
+                  <span
+                    className="admin-side__badge num"
+                    title={`${pendingFeedback} 条待处理反馈`}
+                  >
+                    {pendingFeedback > 99 ? "99+" : pendingFeedback}
+                  </span>
+                ) : null}
               </NavLink>
             ),
           )}

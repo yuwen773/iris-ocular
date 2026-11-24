@@ -1,0 +1,366 @@
+/**
+ * 站内通知：顶栏铃铛（用户端 / 管理端）与通知页（Clinical）。
+ *
+ * 通知不是医疗记录，也不承载结论：页面沿用判读记录 / 反馈页的 Layered Glass
+ * 工作区语言（发丝线分区、等宽读数、衬线标题），不出现医学语义色。
+ *
+ * 颜色一律来自 tokens.css；本文件不写任何字面色（hardcoded-colors 棘轮）。
+ * 响应式只用 768 一个断点（web/DESIGN.md 规则：新写样式只允许 390 / 768 / 900）。
+ */
+
+/* ── 铃铛 ─────────────────────────────────────────────── */
+
+.notif-bell {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  color: var(--fg-2);
+  transition:
+    color var(--fast) ease,
+    background var(--fast) ease;
+}
+
+.notif-bell:hover {
+  color: var(--fg);
+  background: var(--field);
+}
+
+.notif-bell:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+}
+
+.notif-bell__badge {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: var(--signal-soft);
+  color: var(--signal-text);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 管理端顶栏：外壳是紫白 / 深紫蓝，铃铛跟着管理文字色，不抢管理紫主操作 */
+.notif-bell--admin {
+  color: var(--admin-text-muted);
+}
+
+.notif-bell--admin:hover {
+  color: var(--admin-text);
+  background: var(--admin-surface-deep);
+}
+
+/* 管理端侧栏的待办徽标（「意见反馈」项的待处理数） */
+.admin-side__badge {
+  margin-left: auto;
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: var(--admin-primary-soft);
+  color: var(--admin-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 页面 ─────────────────────────────────────────────── */
+
+.notif {
+  padding-bottom: clamp(56px, 9vh, 110px);
+}
+
+.notif__intro {
+  display: grid;
+  gap: 10px;
+  padding: clamp(20px, 3.4vh, 34px) 0 clamp(18px, 2.4vh, 26px);
+}
+
+.notif__title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: clamp(28px, 2.6vw, 38px);
+  line-height: 1.18;
+  letter-spacing: -0.02em;
+}
+
+.notif__panel {
+  padding: clamp(20px, 2.6vw, 32px);
+  border: 1px solid var(--brand-glass-layered-edge);
+  border-radius: var(--radius-lg);
+  background: var(--brand-glass-layered);
+  box-shadow: var(--brand-shadow);
+  -webkit-backdrop-filter: blur(var(--brand-glass-layered-blur)) saturate(1.2);
+  backdrop-filter: blur(var(--brand-glass-layered-blur)) saturate(1.2);
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  .notif__panel {
+    background: var(--brand-glass-fallback);
+  }
+}
+
+.notif__panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 14px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--hr);
+}
+
+.notif__panel-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--fg);
+}
+
+.notif__panel-note {
+  font-size: 11px;
+  color: var(--fg-3);
+}
+
+/* ── 工具栏：页签 + 类型筛选 + 全部已读 ───────────────── */
+
+.notif__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.notif__tabs {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--hr);
+}
+
+.notif__tab {
+  padding: 6px 14px;
+  border: 0;
+  background: none;
+  color: var(--fg-3);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.notif__tab[aria-selected="true"] {
+  background: var(--brand-soft);
+  color: var(--fg);
+}
+
+.notif__types {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex: 1 1 320px;
+}
+
+.notif__chip {
+  padding: 5px 10px;
+  border: 1px solid var(--hr);
+  background: none;
+  color: var(--fg-3);
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    color var(--fast) ease,
+    border-color var(--fast) ease;
+}
+
+.notif__chip:hover {
+  color: var(--fg-2);
+  border-color: var(--brand-line);
+}
+
+.notif__chip[aria-pressed="true"] {
+  border-color: var(--brand-line-strong);
+  color: var(--fg);
+}
+
+.notif__hint {
+  margin: 10px 0 0;
+  font-size: 11px;
+  color: var(--fg-3);
+}
+
+.notif__state {
+  margin: 18px 0 0;
+  font-size: 12px;
+  color: var(--fg-3);
+}
+
+/* ── 列表 ─────────────────────────────────────────────── */
+
+.notif__list {
+  display: grid;
+  gap: 0;
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.notif__item + .notif__item {
+  border-top: 1px solid var(--hr);
+}
+
+.notif__item[data-unread="true"] {
+  box-shadow: inset 2px 0 0 var(--signal);
+}
+
+.notif__item-body {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  padding: 14px 12px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--fast) ease;
+}
+
+.notif__item-body:hover {
+  background: var(--brand-soft);
+}
+
+.notif__item-body:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: -2px;
+}
+
+.notif__item-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.notif__dot {
+  width: 5px;
+  height: 5px;
+  background: var(--signal);
+  flex: none;
+}
+
+.notif__item[data-unread="false"] .notif__dot {
+  background: var(--hr);
+}
+
+.notif__item-title {
+  font-size: 14px;
+  color: var(--fg);
+}
+
+.notif__item[data-unread="false"] .notif__item-title {
+  color: var(--fg-2);
+}
+
+.notif__item-type {
+  font-size: 11px;
+  color: var(--fg-3);
+}
+
+.notif__item-time {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--fg-3);
+}
+
+.notif__item-text {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--fg-2);
+}
+
+.notif__item-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--brand-primary);
+}
+
+/* ── 分页与空态 ───────────────────────────────────────── */
+
+.notif__pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--hr);
+}
+
+.notif__pager-step {
+  padding: 6px 10px;
+  border: 1px solid var(--hr);
+  background: none;
+  color: var(--fg-2);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.notif__pager-step:disabled {
+  color: var(--fg-3);
+  cursor: not-allowed;
+}
+
+.notif__pager-state {
+  font-size: 11px;
+  color: var(--fg-3);
+}
+
+.notif__empty {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  padding: 28px 0 8px;
+}
+
+.notif__empty-title {
+  margin: 0;
+  font-size: 15px;
+  color: var(--fg);
+}
+
+.notif__empty-body {
+  margin: 0;
+  font-size: 13px;
+  color: var(--fg-2);
+}
+
+@media (max-width: 768px) {
+  .notif__toolbar {
+    align-items: stretch;
+  }
+
+  .notif__types {
+    flex-basis: 100%;
+  }
+
+  .notif__item-time {
+    margin-left: 0;
+    flex-basis: 100%;
+  }
+}

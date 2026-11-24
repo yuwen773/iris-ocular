@@ -1,0 +1,256 @@
+/**
+ * 管理端 · 意见反馈（Management）
+ *
+ * 台账页沿用管理端既有词汇：`.admin-filter` / `.admin-ledger__*` / `.admin-btn` /
+ * `.admin-dt__*` 都在别处定义，这里只补本页自己的表单、表格单元格与详情弹层。
+ * 主操作是管理紫（`--admin-*`），状态语义交给 RiskTag，不在这里另造颜色。
+ *
+ * 颜色一律来自 tokens.css；本文件不写任何字面色（hardcoded-colors 棘轮）。
+ */
+
+.admin-feedback {
+  max-width: var(--admin-maxw);
+  margin: 0 auto;
+  padding: clamp(28px, 4vw, 48px) var(--gutter) clamp(56px, 8vh, 96px);
+}
+
+/* ── 筛选表单 ─────────────────────────────────────────── */
+
+.admin-filter .admin-feedback__form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 14px;
+  width: 100%;
+}
+
+.admin-feedback__field {
+  display: grid;
+  gap: 6px;
+  flex: 1 1 240px;
+  max-width: 420px;
+}
+
+.admin-feedback__field--narrow {
+  flex: 0 1 168px;
+  max-width: 168px;
+}
+
+.admin-feedback__label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--admin-text-faint);
+}
+
+.admin-feedback__input {
+  height: 42px;
+  padding-inline: 13px;
+  border: 1px solid var(--admin-line);
+  border-radius: var(--admin-radius-control);
+  background: var(--admin-surface);
+  color: var(--admin-text);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  transition:
+    border-color var(--fast),
+    box-shadow var(--fast);
+}
+
+.admin-feedback__input:focus {
+  border-color: var(--admin-accent);
+  box-shadow: 0 0 0 3px var(--admin-primary-soft);
+  outline: none;
+}
+
+.admin-feedback__input--area {
+  height: auto;
+  min-height: 96px;
+  padding: 10px 13px;
+  line-height: 1.65;
+  resize: vertical;
+}
+
+.admin-feedback__input:disabled {
+  color: var(--admin-text-faint);
+  cursor: not-allowed;
+}
+
+.admin-feedback__hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--admin-text-faint);
+}
+
+.admin-feedback__fault {
+  margin: 0 0 16px;
+}
+
+.admin-feedback__note {
+  margin: 0 0 16px;
+  font-size: 12px;
+  color: var(--admin-text-muted);
+}
+
+/* ── 表格单元格 ───────────────────────────────────────── */
+
+.admin-feedback__table {
+  margin-top: 8px;
+}
+
+.admin-feedback__rowaction {
+  white-space: nowrap;
+}
+
+.admin-feedback__category {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.admin-feedback__category-name {
+  font-size: 13px;
+  color: var(--admin-text);
+}
+
+.admin-feedback__category-sub {
+  overflow: hidden;
+  font-size: 11px;
+  color: var(--admin-text-faint);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-feedback__content {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--admin-text);
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.admin-feedback__user {
+  font-size: 13px;
+  color: var(--admin-text-muted);
+}
+
+.admin-feedback__footer {
+  margin-top: 18px;
+  font-size: 11px;
+  color: var(--admin-text-faint);
+}
+
+/* ── 详情弹层 ─────────────────────────────────────────── */
+
+.admin-feedback__detail {
+  display: grid;
+  gap: 18px;
+}
+
+.admin-feedback__detail-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.admin-feedback__detail-cat {
+  font-size: 13px;
+  color: var(--admin-text-muted);
+}
+
+.admin-feedback__detail-id {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--admin-text-faint);
+}
+
+.admin-feedback__facts {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--admin-line-soft);
+  border-radius: var(--admin-radius-control);
+  background: var(--admin-surface-deep);
+}
+
+.admin-feedback__fact {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.admin-feedback__fact-label {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--admin-text-faint);
+}
+
+.admin-feedback__fact-value {
+  margin: 0;
+  font-size: 13px;
+  color: var(--admin-text);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.admin-feedback__section {
+  display: grid;
+  gap: 8px;
+}
+
+.admin-feedback__section-title {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--admin-text-faint);
+}
+
+.admin-feedback__body {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--admin-line-soft);
+  border-radius: var(--admin-radius-control);
+  background: var(--admin-canvas);
+  color: var(--admin-text);
+  font-size: 14px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.admin-feedback__reply-block .admin-feedback__body {
+  border-left: 2px solid var(--admin-primary);
+}
+
+/* 弹层里的字段占满整行：筛选条上的 420px 上限不适用于长文本。 */
+.admin-feedback__detail .admin-feedback__field {
+  max-width: none;
+}
+
+.admin-feedback__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--admin-line-soft);
+}
+
+@media (max-width: 768px) {
+  .admin-feedback__field,
+  .admin-feedback__field--narrow {
+    flex-basis: 100%;
+    max-width: none;
+  }
+}
