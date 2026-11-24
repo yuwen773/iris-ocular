@@ -10,6 +10,7 @@ import {
   enqueueWorkbenchTask,
   getWorkbenchCandidateDetail,
   getWorkbenchOverview,
+  getNewsIssuePreview,
   listTaskLeases,
   listWorkbenchBenchRuns,
   listWorkbenchBudgets,
@@ -34,6 +35,7 @@ vi.mock("@/lib/newsWorkbenchApi", async (importOriginal) => {
   return {
     ...actual,
     getWorkbenchOverview: vi.fn(),
+    getNewsIssuePreview: vi.fn(),
     listWorkbenchCandidates: vi.fn(),
     getWorkbenchCandidateDetail: vi.fn(),
     listWorkbenchTasks: vi.fn(),
@@ -342,6 +344,47 @@ afterEach(() => {
 })
 
 describe("AdminNewsWorkbenchPage", () => {
+  it("previews a date window with all published source revisions and refreshes it on demand", async () => {
+    const article = {
+      newsId: "9501",
+      revisionNo: 2,
+      title: "已发布资讯",
+      summary: "已审核的摘要",
+      publishTime: "2026-10-22 09:00:00",
+      materialRevisionId: "201",
+      source: "pubmed",
+      sourceRecordId: "PMID-1",
+      pmid: "123",
+      doi: null,
+    }
+    vi.mocked(getNewsIssuePreview).mockResolvedValueOnce({
+      startOn: "2026-10-22",
+      endOn: "2026-10-22",
+      articleCount: 2,
+      entries: [{
+        identifierConflict: false,
+        articles: [article, { ...article, newsId: "9502", title: "第二条来源", source: "europe-pmc", materialRevisionId: "202" }],
+      }],
+    }).mockResolvedValueOnce({
+      startOn: "2026-10-22", endOn: "2026-10-22", articleCount: 0, entries: [],
+    })
+
+    renderWorkbench("/admin/news-workbench?tab=issue")
+    expect(getNewsIssuePreview).not.toHaveBeenCalled()
+    fireEvent.change(screen.getByLabelText("开始发布日期"), { target: { value: "2026-10-22" } })
+    fireEvent.change(screen.getByLabelText("结束发布日期"), { target: { value: "2026-10-22" } })
+    fireEvent.click(screen.getByRole("button", { name: "生成预览" }))
+
+    await screen.findByText(/2 篇已发布资讯 · 1 个条目/)
+    expect(getNewsIssuePreview).toHaveBeenCalledWith("2026-10-22", "2026-10-22")
+    expect(screen.getByRole("link", { name: "第二条来源" }).getAttribute("href")).toBe("/admin/news/9502/edit")
+    expect(screen.getByText(/europe-pmc · PMID-1 · 发布修订 2 · 资料修订 202/)).toBeTruthy()
+
+    fireEvent.click(screen.getByRole("button", { name: "生成预览" }))
+    await screen.findByText("该日期范围内暂无可追溯的已发布资讯。")
+    expect(screen.queryByRole("link", { name: "第二条来源" })).toBeNull()
+  })
+
   it("renders honest curation disabled status, dash for unset budget, and candidate draft flow", async () => {
     renderWorkbench()
 

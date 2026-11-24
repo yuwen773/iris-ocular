@@ -1,6 +1,7 @@
 package com.csust.eyediagnosis.newsworkbench;
 
 import com.csust.eyediagnosis.annotation.AuthCheck;
+import com.csust.eyediagnosis.aop.AuthInterceptor;
 import com.csust.eyediagnosis.config.JsonConfig;
 import com.csust.eyediagnosis.config.SameOriginFilter;
 import com.csust.eyediagnosis.constant.AuthConstant;
@@ -11,6 +12,7 @@ import com.csust.eyediagnosis.model.entity.User;
 import com.csust.eyediagnosis.service.UserService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.aop.aspectj.annotation.AspectJProxyFactory;
 import org.springframework.http.MediaType;
 import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
@@ -26,6 +28,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 
 import java.lang.reflect.Method;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -52,12 +55,14 @@ class NewsWorkbenchControllerSecurityTest {
 
     private NewsWorkbenchService workbenchService;
     private UserService userService;
+    private NewsIssueService issueService;
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
         workbenchService = mock(NewsWorkbenchService.class);
         userService = mock(UserService.class);
+        issueService = mock(NewsIssueService.class);
 
         User admin = new User();
         admin.setId(1001L);
@@ -70,7 +75,12 @@ class NewsWorkbenchControllerSecurityTest {
         MappingJackson2HttpMessageConverter jsonConverter = new MappingJackson2HttpMessageConverter(
                 new JsonConfig().jacksonObjectMapper(Jackson2ObjectMapperBuilder.json()));
 
-        mockMvc = MockMvcBuilders.standaloneSetup(new NewsWorkbenchController(workbenchService, userService))
+        AuthInterceptor auth = new AuthInterceptor();
+        ReflectionTestUtils.setField(auth, "userService", userService);
+        AspectJProxyFactory proxy = new AspectJProxyFactory(
+                new NewsWorkbenchController(workbenchService, userService, issueService));
+        proxy.addAspect(auth);
+        mockMvc = MockMvcBuilders.standaloneSetup((NewsWorkbenchController) proxy.getProxy())
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .setMessageConverters(jsonConverter)
                 .addFilters(sameOriginFilter)
@@ -91,13 +101,41 @@ class NewsWorkbenchControllerSecurityTest {
                 mappedMethods.add(method);
             }
         }
-        assertEquals(16, mappedMethods.size());
+        assertEquals(17, mappedMethods.size());
         for (Method method : mappedMethods) {
             AuthCheck authCheck = method.getAnnotation(AuthCheck.class);
             assertNotNull(authCheck, () -> "Missing @AuthCheck on " + method.getName());
             assertEquals(AuthConstant.ADMIN_ROLE, authCheck.mustRole(),
                     () -> "Expected ADMIN_ROLE @AuthCheck on " + method.getName());
         }
+    }
+
+    @Test
+    void issuePreviewRequiresAdminAndDisablesHttpCaching() throws Exception {
+        LocalDate day = LocalDate.of(2026, 10, 22);
+        var previewRequest = get("/api/admin/news-workbench/issue-preview").contextPath("/api")
+                .param("startOn", day.toString()).param("endOn", day.toString());
+        when(userService.getLoginUser(any())).thenThrow(new BusinessException(ErrorCode.NOT_LOGIN_ERROR));
+        mockMvc.perform(previewRequest)
+                .andExpect(jsonPath("$.code").value(ErrorCode.NOT_LOGIN_ERROR.getCode()));
+
+        User user = new User();
+        user.setId(1001L);
+        user.setUserRole("user");
+        org.mockito.Mockito.doReturn(user).when(userService).getLoginUser(any());
+        mockMvc.perform(previewRequest)
+                .andExpect(jsonPath("$.code").value(ErrorCode.NO_AUTH_ERROR.getCode()));
+        verifyNoInteractions(issueService);
+
+        user.setUserRole(AuthConstant.ADMIN_ROLE);
+        when(issueService.preview(day, day))
+                .thenReturn(new NewsIssueService.Preview(day, day, 0, List.of()));
+        mockMvc.perform(previewRequest)
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header()
+                        .string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.data.articleCount").value(0))
+                .andExpect(jsonPath("$.data.entries").isEmpty());
     }
 
     @Test

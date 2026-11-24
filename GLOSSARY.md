@@ -18,6 +18,7 @@
 | 采集游标（Collection Cursor） | 按 `(source, sourceConfigVersion)` 独立维护的已提交日期上界，只随连续已完成的窗口单调前进，回填不回退 | `t_news_source_cursor` / `NewsIngestionService.java` |
 | 资讯精选候选（News Curation Candidate） | 仅针对可见 `t_news_material_revision` 产出并绑定不可变证据快照的精选候选结果；需通过证据/许可/临床/防注入门禁，不自动写入 `t_news` | `V40` / `newscuration/` |
 | 资讯内容修订（News Revision） | 编辑建稿、审批、发布、封面更新与软删时产出的不可变内容快照与证据摘要绑定记录，按 `(newsId, revisionNo)` 顺序持久化 | `V41` / `NewsLifecycleService` |
+| 资讯刊物预览（News Issue Preview） | 管理员按资讯发布日期生成的只读报告，依据已发布修订的 PMID 或 DOI 聚合，保留各条发布修订的溯源 | `newsworkbench/NewsIssueService.java` |
 | 资讯列表缓存纪元（News List Cache Epoch） | 持久化单调递增的缓存失效纪元；写事务提交前推进并于 `afterCommit()` 同步 Redis 世代，若 Redis 失效失败则读侧凭数据库纪元降级穿透并自愈 | `V41` / `NewsListCacheService` |
 | 模型调用回执（Model Call Receipt） | 付费模型调用前写入的预扣预算与外部请求台账，用于区分预检中止与 `OUTCOME_UNKNOWN` 并支持人工对账，禁止未知付费状态下自动重发 | `V40` / `newscuration/NewsCurationService.java` |
 | NewsBench（资讯精选离线评测） | 基于冻结夹具集验证眼科相关性筛选、逐字引文地面校验、摘要许可遵守与提示词注入拦截的离线评测基线 | `contracts/news/newsbench/` / `newscuration/NewsBenchRunner.java` |

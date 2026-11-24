@@ -47,6 +47,8 @@ export const queryKeys = {
       receipts: (q: { state?: string; budgetScope?: string; current: number; pageSize: number }) =>
         ["admin", "newsWorkbench", "receipts", q] as const,
       benchRuns: ["admin", "newsWorkbench", "benchRuns"] as const,
+      issuePreview: (startOn: string, endOn: string) =>
+        ["admin", "newsWorkbench", "issuePreview", startOn, endOn] as const,
     },
     diagnosis: (q: DiagnosisQuery) => ["admin", "diagnosis", q] as const,
     diagnosisAll: ["admin", "diagnosis"] as const,

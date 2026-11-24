@@ -49,8 +49,9 @@ import {
   type SourceDetail,
 } from "@/lib/newsWorkbenchApi"
 import { queryKeys } from "@/lib/queryKeys"
+import { AdminNewsIssuePreview } from "./AdminNewsIssuePreview"
 
-type WorkbenchTab = "candidates" | "tasks" | "sources" | "budgets" | "bench"
+type WorkbenchTab = "candidates" | "tasks" | "sources" | "budgets" | "bench" | "issue"
 
 const TABS: ReadonlyArray<{ key: WorkbenchTab; label: string }> = [
   { key: "candidates", label: "精选候选" },
@@ -58,6 +59,7 @@ const TABS: ReadonlyArray<{ key: WorkbenchTab; label: string }> = [
   { key: "sources", label: "信源与游标" },
   { key: "budgets", label: "预算与调用回执" },
   { key: "bench", label: "NewsBench 评测" },
+  { key: "issue", label: "刊物预览" },
 ]
 
 const SOURCES = ["pubmed", "europe-pmc", "clinicaltrials-gov"] as const
@@ -1193,6 +1195,8 @@ export function AdminNewsWorkbenchPage(): ReactElement {
           onPageChange={() => {}}
         />
       ) : null}
+
+      {activeTab === "issue" ? <AdminNewsIssuePreview /> : null}
 
       <p className="admin-workbench__footer">
         边界声明：工作台不开放实时付费 LLM 触发或外部网络抓取入口；所有发布门禁仍由 WP-04 服务层强制执行。

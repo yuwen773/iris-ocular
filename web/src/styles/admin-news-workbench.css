@@ -8,7 +8,11 @@
 
 .admin-workbench {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 22px;
+  max-width: var(--admin-maxw);
+  margin: 0 auto;
+  padding: clamp(28px, 4vw, 48px) var(--gutter) clamp(56px, 8vh, 96px);
 }
 
 .admin-workbench__statusbadge {
@@ -225,6 +229,18 @@
   gap: 10px;
   padding-top: 14px;
   border-top: 1px solid var(--admin-line);
+}
+
+.admin-workbench__issue {
+  overflow-wrap: anywhere;
+}
+
+.admin-workbench__issue input[type="date"] {
+  color-scheme: light;
+}
+
+html.dark .admin-workbench__issue input[type="date"] {
+  color-scheme: dark;
 }
 
 .admin-workbench__sectiontitle {

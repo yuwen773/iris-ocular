@@ -11,6 +11,9 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.CacheControl;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -19,6 +22,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -33,6 +37,17 @@ public class NewsWorkbenchController {
 
     private final NewsWorkbenchService workbenchService;
     private final UserService userService;
+    private final NewsIssueService issueService;
+
+    @GetMapping("/issue-preview")
+    @AuthCheck(mustRole = AuthConstant.ADMIN_ROLE)
+    @Operation(summary = "按发布日期预览资讯刊物")
+    public ResponseEntity<BaseResponse<NewsIssueService.Preview>> previewIssue(
+            @RequestParam("startOn") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startOn,
+            @RequestParam("endOn") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endOn) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(ResultUtils.success(issueService.preview(startOn, endOn)));
+    }
 
     @GetMapping("/overview")
     @AuthCheck(mustRole = AuthConstant.ADMIN_ROLE)

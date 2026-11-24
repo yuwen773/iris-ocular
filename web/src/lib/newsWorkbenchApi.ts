@@ -730,6 +730,34 @@ export async function listWorkbenchBenchRuns(limit = 20): Promise<BenchRunSummar
   return (rows ?? []).map(toBenchRun)
 }
 
+export type NewsIssueArticle = {
+  newsId: string
+  revisionNo: number
+  title: string
+  summary: string | null
+  publishTime: string
+  materialRevisionId: string
+  source: string
+  sourceRecordId: string
+  pmid: string | null
+  doi: string | null
+}
+
+type NewsIssuePreview = {
+  startOn: string
+  endOn: string
+  articleCount: number
+  entries: { identifierConflict: boolean; articles: NewsIssueArticle[] }[]
+}
+
+export function getNewsIssuePreview(startOn: string, endOn: string) {
+  const params = new URLSearchParams({ startOn, endOn })
+  return request<NewsIssuePreview>(`/admin/news-workbench/issue-preview?${params}`, {
+    method: "GET",
+    cache: "no-store",
+  })
+}
+
 export function formatMicrosUsd(micros?: number | null): string {
   if (micros === undefined || micros === null || !Number.isFinite(micros)) return "—"
   const usd = micros / 1_000_000

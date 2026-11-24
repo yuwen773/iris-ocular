@@ -41,6 +41,7 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.LinkedHashMap;
@@ -60,7 +61,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * L2 real-MySQL integration suite for WP-05 News Engine Workbench backend services.
  *
  * <p>Keeps {@code Assumptions.assumeTrue} in {@code @BeforeEach} so Surefire records exact
- * case/skip counts matching {@code scripts/check_surefire_skips.py} (5 cases).
+ * case/skip counts matching {@code scripts/check_surefire_skips.py}.
  */
 class NewsWorkbenchMySqlIntegrationTest {
 
@@ -471,6 +472,69 @@ class NewsWorkbenchMySqlIntegrationTest {
         assertEquals(10_000, latest.evidenceCatchBps());
         assertEquals(10_000, latest.licenseComplianceBps());
         assertEquals(10_000, latest.injectionCatchBps());
+    }
+
+    @Test
+    void issuePreviewGroupsPublishedRevisionsAndExcludesWithdrawnOrUnboundArticles() {
+        LocalDate day = LocalDate.of(2026, 10, 22);
+        LocalDateTime start = day.atStartOfDay();
+        putIssueArticle(1, "pubmed", "123", null, start);
+        putIssueArticle(2, "europe-pmc", "123", "https://doi.org/10.1234/STUDY", start.plusHours(1));
+        putIssueArticle(3, "europe-pmc", null, "doi:10.1234/study", start.plusHours(2));
+        putIssueArticle(4, "pubmed", "900", "10.1234/conflict", start.plusHours(3));
+        putIssueArticle(5, "europe-pmc", "901", "10.1234/conflict", start.plusHours(4));
+        putIssueArticle(6, "clinicaltrials-gov", null, null, start.plusHours(5));
+        putIssueArticle(7, "pubmed", "123", null, start.plusDays(1));
+        putIssueArticle(8, "pubmed", "123", null, start.plusHours(6));
+        putIssueArticle(9, "pubmed", "123", null, start.plusHours(7));
+        putIssueArticle(10, "pubmed", "123", null, start.plusHours(8));
+        jdbc.update("UPDATE t_news SET status = ? WHERE id = 8", NewsStatus.OFFLINE);
+        jdbc.update("UPDATE t_news SET isDelete = 1 WHERE id = 9");
+        jdbc.update("UPDATE t_news SET publishedRevisionNo = NULL WHERE id = 10");
+
+        NewsIssueService issue = new NewsIssueService(jdbc);
+        NewsIssueService.Preview report = issue.preview(day, day);
+        assertEquals(6, report.articleCount());
+        assertEquals(List.of(6L, 5L, 4L, 3L),
+                report.entries().stream().map(entry -> entry.articles().getFirst().newsId()).toList());
+        assertFalse(report.entries().getFirst().identifierConflict());
+        assertTrue(report.entries().get(1).identifierConflict());
+        assertTrue(report.entries().get(2).identifierConflict());
+        NewsIssueService.Entry joined = report.entries().getLast();
+        assertFalse(joined.identifierConflict());
+        assertEquals(List.of(3L, 2L, 1L), joined.articles().stream().map(NewsIssueService.Article::newsId).toList());
+        assertEquals("10.1234/study", joined.articles().getFirst().doi());
+        assertEquals("Published 3", joined.articles().getFirst().title());
+        assertEquals(1, joined.articles().getFirst().revisionNo());
+        assertEquals(3L, joined.articles().getFirst().materialRevisionId());
+
+        jdbc.update("UPDATE t_news SET status = ? WHERE id = 3", NewsStatus.OFFLINE);
+        assertEquals(5, issue.preview(day, day).articleCount());
+        assertTrue(issue.preview(day.minusDays(1), day.minusDays(1)).entries().isEmpty());
+        assertThrows(BusinessException.class, () -> issue.preview(day, day.plusDays(31)));
+        assertThrows(BusinessException.class, () -> issue.preview(day.plusDays(1), day));
+    }
+
+    private void putIssueArticle(long id, String source, String pmid, String doi, LocalDateTime publishTime) {
+        String digest = "a".repeat(64);
+        jdbc.update("""
+                INSERT INTO t_news_material_revision
+                    (id, materialId, source, sourceRecordId, contentDigest, url, title, pmid, doi,
+                     canonicalJson, firstTaskId, firstGeneration, visibleAt)
+                VALUES (?, ?, ?, ?, ?, 'https://example.test/study', 'Material', ?, ?,
+                        '{}', 'fixture', 1, UTC_TIMESTAMP(6))
+                """, id, id, source, "record-" + id, digest, pmid, doi);
+        jdbc.update("""
+                INSERT INTO t_news (id, title, userId, content, coverImg, status, publishTime,
+                                    publishedRevisionNo, currentRevisionNo)
+                VALUES (?, 'Mutable working title', 1001, '', '', ?, ?, 1, 2)
+                """, id, NewsStatus.PUBLISHED, publishTime);
+        jdbc.update("""
+                INSERT INTO t_news_revision
+                    (newsId, revisionNo, action, status, title, content, coverImg,
+                     materialRevisionId, evidenceSnapshotSha256, contentSha256)
+                VALUES (?, 1, 'PUBLISH', ?, ?, '', '', ?, ?, ?)
+                """, id, NewsStatus.PUBLISHED, "Published " + id, id, digest, digest);
     }
 
     private long ingestSingleMaterial(String taskId,
