@@ -113,6 +113,18 @@ eye-diagnosis:
     graph-enabled: false
     patient-progress-enabled: false
     clinician-detail-enabled: false
+  feedback:
+    # 用户反馈（/api/feedback、/api/admin/feedback）：产品意见通道，不是医疗记录。
+    # 默认开启；关闭时端点回 40300 +「反馈功能暂未启用」，不返回 404。
+    # 注意：前端入口（/feedback、/admin/feedback）不读这个开关，关闭后入口仍在，
+    # 页面会按 40300 显示权限类提示。要彻底下线需同时移除入口/路由。
+    enabled: true
+    # 每用户每分钟最多提交条数；Redis 不可用时放行（限流是防刷手段，不是业务前提）。
+    rate-limit-per-minute: 5
+  notification:
+    # 已读通知保留天数（物理删除）；未读通知永不清理。<=0 表示关闭清理。
+    # 没有开关：通知是主流程的旁路，写失败只记日志，不需要单独关停。
+    retention-days: 90
   agent:
     # Chat history uses the ordinary single-write persistence path. Do not
     # enable the legacy dispatcher or it can replay pre-existing Outbox rows.

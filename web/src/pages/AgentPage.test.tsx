@@ -29,6 +29,11 @@ vi.mock("@/lib/session", () => ({
   }),
 }))
 
+// 顶栏铃铛有独立用例；本文件不提供 QueryClientProvider。
+vi.mock("@/components/NotificationBell", () => ({
+  NotificationBell: () => null,
+}))
+
 const sendMock = vi.hoisted(() => vi.fn())
 // reset 必须整个会话稳定——否则初始化 effect 每次渲染都重跑，历史被反复拉取。
 const resetMock = vi.hoisted(() => vi.fn())

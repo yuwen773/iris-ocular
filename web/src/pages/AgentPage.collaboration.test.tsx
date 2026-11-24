@@ -27,6 +27,11 @@ vi.mock("@/lib/session", () => ({
   }),
 }))
 
+// 顶栏铃铛有独立用例；本文件不提供 QueryClientProvider。
+vi.mock("@/components/NotificationBell", () => ({
+  NotificationBell: () => null,
+}))
+
 vi.mock("@/lib/agentStream", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/agentStream")>()
   const React = await import("react")

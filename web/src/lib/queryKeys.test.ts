@@ -14,12 +14,15 @@ describe("queryKeys · 个人域按账号分键", () => {
     expect(queryKeys.records.mine("A", q)).not.toEqual(queryKeys.records.mine("B", q))
     expect(queryKeys.records.detail("A", "r1")).not.toEqual(queryKeys.records.detail("B", "r1"))
     expect(queryKeys.profile.user("A")).not.toEqual(queryKeys.profile.user("B"))
+    // 「我的反馈」是个人域：上一账号提交的反馈不能在新账号下闪一下。
+    expect(queryKeys.feedback.mine("A", q)).not.toEqual(queryKeys.feedback.mine("B", q))
   })
 
   it("scope 落在键里，且整域前缀能覆盖所有账号", () => {
     expect(queryKeys.records.mine("A", {}).slice(0, 3)).toEqual(["records", "mine", "A"])
     expect(queryKeys.records.detail("A", "r1").slice(0, 3)).toEqual(["records", "detail", "A"])
     expect(queryKeys.profile.user("A").slice(0, 3)).toEqual(["profile", "user", "A"])
+    expect(queryKeys.feedback.mine("A", {}).slice(0, 3)).toEqual(["feedback", "mine", "A"])
   })
 
   it("匿名与登录态是两把不同的钥匙", () => {
@@ -32,9 +35,28 @@ describe("queryKeys · 个人域按账号分键", () => {
   })
 
   it("私域根前缀就是身份变化时要作废的那几个域", () => {
-    expect([...PRIVATE_QUERY_ROOTS]).toEqual(["records", "profile", "admin"])
+    expect([...PRIVATE_QUERY_ROOTS]).toEqual([
+      "records",
+      "profile",
+      "admin",
+      "feedback",
+      "notifications",
+    ])
     for (const root of PRIVATE_QUERY_ROOTS) {
       expect(queryKeys.news.list()[0]).not.toBe(root)
     }
+  })
+
+  it("通知按账号分键：列表与未读数各一把，未读数是账号级读数", () => {
+    expect(queryKeys.notifications.unread("A")).toEqual(["notifications", "unread", "A"])
+    expect(queryKeys.notifications.list("A", { current: 1 })).toEqual([
+      "notifications",
+      "list",
+      "A",
+      { current: 1 },
+    ])
+    expect(queryKeys.notifications.list("A", {})).not.toEqual(
+      queryKeys.notifications.list("B", {}),
+    )
   })
 })

@@ -70,6 +70,8 @@ scripts/verify-fast.sh --level L3
 | 判读证据 / 概率口径 | `service/DiagnosisEvidenceTest`、`service/InferenceCacheTest` | 改 proto 字段、落库列或校准门控 → L2 + 前端 `web/src/lib/domain.test.ts` |
 | 公开影像孤儿审计 | `upload/audit/PublicImageOrphanAuditorTest` | 改前缀或归一规则 → 用例必须用**真实写入形态**的 key（`/public/…`，带前导斜杠） |
 | 新闻 / 管理端可见性 | `controller/News*Test`、`service/News*Test`、`AdminScopeVisibilityTest` | 发布生命周期涉及真实状态列 → L2 |
+| 用户反馈（`t_user_feedback`、`/feedback`、`/admin/feedback`） | `constant/UserFeedbackStatusTest`、`service/UserFeedbackLifecycleServiceTest`、`controller/UserFeedbackOwnershipTest`、`lib/userFeedbackDomain.test.ts`、`pages/FeedbackPage.test.tsx`、`pages/admin/AdminFeedbackPage.test.tsx` | 新增迁移 + 写库 + 状态机 + 归属/越权 + 截图上传归属 → **L2**（`FlywayMySqlIntegrationTest --db`） |
+| 站内通知（`t_user_notification`、`/notifications`、顶栏铃铛） | `service/NotificationServiceTest`、`controller/NotificationOwnershipTest`、`service/UserFeedbackLifecycleServiceTest`（通知触发）、`lib/notificationDomain.test.ts`、`components/NotificationBell.test.tsx`、`pages/NotificationsPage.test.tsx` | 新增迁移 + 写库 + 事务提交后写入 + 接收人归属 → **L2**（`FlywayMySqlIntegrationTest --db`、`EyeDiagnosisApplicationTests --db`） |
 | 上传状态机 | `upload/state/UploadStateMachineTest`、`UploadStatusTest`、`UploadCompensationServiceTest` | 真实表 + 补偿任务 → L2 |
 | 应用装配 / 配置 | `EyeDiagnosisApplicationTests`（`contextLoads`）——**它需要 DB + Redis + Chroma** | 直接 L2 |
 | Python 算法服务 | `algorithm/` 下 `python -m pytest ... -m "not slow"`（CI 的 `python` job 同口径） | 含子进程/watchdog → 那几条在 Linux 上跑（CI `watchdog` job） |

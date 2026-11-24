@@ -2,11 +2,13 @@ package com.csust.eyediagnosis.doctorreview;
 
 import com.csust.eyediagnosis.controlledreference.ControlledEvidenceRetriever;
 import com.csust.eyediagnosis.controlledreference.ControlledEvidenceRetriever.Citation;
+import com.csust.eyediagnosis.constant.NotificationType;
 import com.csust.eyediagnosis.diagnosistask.InferenceSnapshot;
 import com.csust.eyediagnosis.exception.BusinessException;
 import com.csust.eyediagnosis.exception.ErrorCode;
 import com.csust.eyediagnosis.grpc.DiagnosisProto;
 import com.csust.eyediagnosis.model.entity.User;
+import com.csust.eyediagnosis.service.NotificationService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -25,12 +27,21 @@ import java.util.*;
 public class DoctorReviewService {
     private final JdbcTemplate jdbc;
     private final ControlledEvidenceRetriever evidence;
+    /** 通知是旁路：为 null 时（纯单元测试）不发送。 */
+    private final NotificationService notifications;
     private final TransactionTemplate transactions;
     private final ObjectMapper json = new ObjectMapper().findAndRegisterModules();
 
-    public DoctorReviewService(JdbcTemplate jdbc, ControlledEvidenceRetriever evidence) {
-        this.jdbc = jdbc; this.evidence = evidence;
+    @org.springframework.beans.factory.annotation.Autowired
+    public DoctorReviewService(JdbcTemplate jdbc, ControlledEvidenceRetriever evidence,
+                               NotificationService notifications) {
+        this.jdbc = jdbc; this.evidence = evidence; this.notifications = notifications;
         transactions = new TransactionTemplate(new DataSourceTransactionManager(Objects.requireNonNull(jdbc.getDataSource())));
+    }
+
+    /** 测试用：不接通知服务。 */
+    public DoctorReviewService(JdbcTemplate jdbc, ControlledEvidenceRetriever evidence) {
+        this(jdbc, evidence, null);
     }
 
     public record Summary(String reviewId, String taskId, String status, Instant assignedAt) {}
@@ -119,6 +130,12 @@ public class DoctorReviewService {
                 decision.decision(), decision.note().trim(), doctor.getId(), id);
         jdbc.update("UPDATE t_diagnosis_task SET status=?,version=version+1,updatedAt=CURRENT_TIMESTAMP(6) WHERE taskId=?",
                 "REJECTED".equals(decision.decision()) ? "RESTRICTED" : "WAITING_REVIEW", review.taskId());
+        // 通知挂在「这一次真的落了决定」之后，而不是挂在 decide() 的返回上：
+        // 并发下 submit 可能因他人已决定而走 replay，那条路径不能再发一次。
+        // 注册在本事务的 afterCommit 上，回滚就不发（INVALIDATED 走不到这里）。
+        if (notifications != null) {
+            notifications.notifyTaskOwnerAfterCommit(review.taskId(), NotificationType.REVIEW_DONE);
+        }
         return find(id);
     }
 

@@ -79,10 +79,12 @@ Java 21 与本机 MySQL 实例的环境事实见主检出目录的 `CLAUDE.local
 | ControlledReferenceController | `/api/controlled-references/*` | 受控参考资料上传、治理与检索 |
 | DoctorReviewController | `/api/doctor-reviews/*` | 医生复核冻结草稿 |
 | PatientDraftTestController / PatientDraftSeedController | `/api/patient-draft-test/*` | 仅管理员、需显式开启的草稿校验 |
+| UserFeedbackController / AdminUserFeedbackController | `/api/feedback/*`、`/api/admin/feedback/*` | 用户反馈：提交 / 我的反馈 / 截图；管理端台账、状态流转与回复（产品意见通道，**非**医疗记录；开关 `eye-diagnosis.feedback.enabled`） |
+| NotificationController | `/api/notifications/*` | 站内通知：我的通知分页 / 未读数 / 标记已读 / 全部已读（接收人恒为会话用户；通知是旁路，写失败不阻断业务） |
 
 ## Database (MySQL `diagnosis`)
 
-Schema: `src/main/resources/db/migration/V*.sql` (Flyway migrations — authoritative; `db/callback/` bootstraps fresh installs). Never edit an applied migration; add a new one. Current head is V34; upgrade paths per target database are in `docs/architecture/migration-matrix.md`. Key tables: `t_user`, `t_diagnosis`, `t_diagnosis_task`, `t_agent_session`, `t_agent_message`, `t_agent_tool_audit`, `t_mcp_server`, `t_knowledge_document`, `t_news`, `t_controlled_reference`, `t_patient_draft_run`, `t_doctor_review`, `t_patient_authorization`, `t_diagnosis_run`.
+Schema: `src/main/resources/db/migration/V*.sql` (Flyway migrations — authoritative; `db/callback/` bootstraps fresh installs). Never edit an applied migration; add a new one. Current head is V38 (`t_user_notification`); V37 is this branch's 用户反馈 (`t_user_feedback`). Master head is V34, while V35–V36 are taken by the in-flight Iris Control Center branch — so **merge order matters** — see `docs/architecture/migration-matrix.md` §1.1. Upgrade paths per target database are in `docs/architecture/migration-matrix.md`. Key tables: `t_user`, `t_diagnosis`, `t_diagnosis_task`, `t_agent_session`, `t_agent_message`, `t_agent_tool_audit`, `t_mcp_server`, `t_knowledge_document`, `t_news`, `t_controlled_reference`, `t_patient_draft_run`, `t_doctor_review`, `t_patient_authorization`, `t_diagnosis_run`, `t_user_feedback`, `t_user_notification`.
 
 **命名规范**: 数据库列名统一使用**小驼峰**命名（如 `userId`, `fileName`, `isDelete`），与 Java 实体类字段保持一致。MyBatis Plus 配置 `map-underscore-to-camel-case: false`，不会自动转换下划线。
 

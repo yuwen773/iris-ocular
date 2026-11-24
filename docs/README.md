@@ -53,6 +53,8 @@ git show <commit>:<path> > <file>
 | `architecture/multi-agent-adr.md` | 查多 Agent 架构决策记录 |
 | `testing/2026-10-19-test-audit.md` | 质疑某个测试是否真的调用了被测实现 |
 | `testing/verification-levels.md` | 决定这次改动该跑 L0/L1/L2/L3 的哪一级，以及各模块至少跑什么（`scripts/verify-fast.sh`） |
+| `testing/2026-11-23-user-feedback-acceptance.md` | 查用户反馈（`t_user_feedback`、`/feedback`、`/admin/feedback`）的交付边界、接口与状态机、验证读数、合并顺序与已知限制 |
+| `testing/2026-11-24-user-notification-acceptance.md` | 查站内通知（`t_user_notification`、`/notifications`、铃铛）的四个触发点、接口、保留期清理、验证读数与已知边界 |
 | `testing/pr153-visual-20261123/README.md` | 查 PR #153 rebase 后 Dashboard / Analytics 的视觉回归证据、夹具边界与复现说明 |
 | `reproducibility/p1_f01_fold_repair.md` | 追溯 P1-F01 冻结折修复的来历 |
 | `security-governance-plan-2026-11-18.md` | 判断 MD5→BCrypt 存量迁移的退出条件、配置中心三条上线门禁、CSRF 判定口径 |
@@ -92,6 +94,8 @@ git show <commit>:<path> > <file>
 
 - `product/iris-control-center-1.0-mvp-prd.md` — 系统配置中心 MVP PRD（V0.1，待评审）
 - `product/wp-00/` — WP-00 源代码审计交付物
+- `plans/2026-11-23-user-feedback-plan.md` — 用户反馈功能的实施计划（已实施；保留命名、范围与验证门槛的决策依据）
+- `plans/2026-11-24-user-notification-plan.md` — 站内通知的实施计划（已实施；四个触发点、文案定稿策略与不做的清单）
 - `plans/` — 2026-04 的移植、Admin UI、gRPC、MCP、find-lock、用户中心、会话管理设计/实施计划
 - `superpowers/specs/`、`superpowers/plans/` — P2 系列与 React 管理后台的设计规格与实施计划
 
