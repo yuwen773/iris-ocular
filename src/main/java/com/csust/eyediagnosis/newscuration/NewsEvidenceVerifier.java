@@ -15,6 +15,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -282,38 +283,43 @@ public class NewsEvidenceVerifier {
         }
     }
 
+    public static Optional<String> findProhibitedClinicalMarker(String text) {
+        return findFirstMarker(text, PROHIBITED_CLINICAL_MARKERS);
+    }
+
+    public static Optional<String> findPromptInjectionMarker(String text) {
+        return findFirstMarker(text, INJECTION_MARKERS);
+    }
+
     private static void checkPromptInjection(List<NewsCurationModels.EvidenceViolation> violations,
                                              String target,
                                              String text) {
-        if (isBlank(text)) {
-            return;
-        }
-        String lower = text.toLowerCase(Locale.ROOT);
-        for (String marker : INJECTION_MARKERS) {
-            if (lower.contains(marker.toLowerCase(Locale.ROOT))) {
-                violations.add(new NewsCurationModels.EvidenceViolation(
+        findPromptInjectionMarker(text).ifPresent(marker -> violations.add(
+                new NewsCurationModels.EvidenceViolation(
                         "PROMPT_INJECTION_ARTIFACT", target,
-                        "Detected untrusted prompt-injection directive marker: " + marker));
-                return;
-            }
-        }
+                        "Detected untrusted prompt-injection directive marker: " + marker)));
     }
 
     private static void checkProhibitedClinical(List<NewsCurationModels.EvidenceViolation> violations,
                                                 String target,
                                                 String text) {
+        findProhibitedClinicalMarker(text).ifPresent(marker -> violations.add(
+                new NewsCurationModels.EvidenceViolation(
+                        "PROHIBITED_CLINICAL_CLAIM", target,
+                        "Detected prohibited diagnostic/prescribing/cure-guarantee phrasing: " + marker)));
+    }
+
+    private static Optional<String> findFirstMarker(String text, List<String> markers) {
         if (isBlank(text)) {
-            return;
+            return Optional.empty();
         }
         String lower = text.toLowerCase(Locale.ROOT);
-        for (String marker : PROHIBITED_CLINICAL_MARKERS) {
+        for (String marker : markers) {
             if (lower.contains(marker.toLowerCase(Locale.ROOT))) {
-                violations.add(new NewsCurationModels.EvidenceViolation(
-                        "PROHIBITED_CLINICAL_CLAIM", target,
-                        "Detected prohibited diagnostic/prescribing/cure-guarantee phrasing: " + marker));
-                return;
+                return Optional.of(marker);
             }
         }
+        return Optional.empty();
     }
 
     private static boolean containsMetadataLimitation(List<String> limitations) {

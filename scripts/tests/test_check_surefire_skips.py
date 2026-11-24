@@ -75,6 +75,7 @@ class SurefireSkipGateTest(unittest.TestCase):
         self.write(P + "integration.AdminAnalyticsMySqlIntegrationTest", cases=1, skipped=1)
         self.write(P + "newsingestion.NewsIngestionMySqlIntegrationTest", cases=13, skipped=13)
         self.write(P + "newscuration.NewsCurationMySqlIntegrationTest", cases=10, skipped=10)
+        self.write(P + "service.NewsEditorialPublishMySqlIntegrationTest", cases=8, skipped=8)
         self.write(P + "diagnosistask.CosDiagnosisTaskStorageTest", cases=1)
 
     def test_backend_unit_contract_passes_on_real_skip_shape(self):
@@ -187,6 +188,7 @@ class SurefireSkipGateTest(unittest.TestCase):
         self.write(P + "integration.AdminAnalyticsMySqlIntegrationTest", cases=1)
         self.write(P + "newsingestion.NewsIngestionMySqlIntegrationTest", cases=13)
         self.write(P + "newscuration.NewsCurationMySqlIntegrationTest", cases=10)
+        self.write(P + "service.NewsEditorialPublishMySqlIntegrationTest", cases=8)
         self.assertEqual(0, self.verdict(CONTRACTS["flyway"]))
 
         self.write(P + "migration.FlywayMySqlIntegrationTest", cases=5, skipped=1)

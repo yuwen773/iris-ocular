@@ -123,3 +123,10 @@ WP-03 News Engine curation candidates, evidence snapshots, paid model call recei
 
 - Creates four additive tables: `t_news_curation_budget`, `t_news_model_call_receipt`, `t_news_curation_candidate`, and `t_news_bench_run`.
 - Leaves `t_news` and `t_news_audit` untouched; publication and Redis cache invalidation stay isolated for WP-04.
+
+## V41 (2026-11-24)
+
+WP-04 News Engine editorial review, service-layer publish gate, evidence-bound immutable content revisions, and durable post-commit cache invalidation (`V41__news_editorial_publish_and_revisions.sql`). No edits to V1--V40; V35--V38 remain reserved.
+
+- Adds nullable/defaulted evidence-binding and revision-counter columns (`curationCandidateId`, `materialRevisionId`, `evidenceSnapshotSha256`, `currentRevisionNo`, `publishedRevisionNo`) plus two lookup indexes to `t_news` while preserving V15/V17 manual authoring compatibility.
+- Creates `t_news_revision` (immutable per-edit/publish/delete content & frozen evidence snapshots) and `t_news_cache_epoch` (seeded `news_list` monotonic epoch counter so `afterCommit()` Redis eviction failures never leak withdrawn articles).

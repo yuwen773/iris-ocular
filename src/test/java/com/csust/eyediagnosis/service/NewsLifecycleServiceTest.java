@@ -292,6 +292,49 @@ class NewsLifecycleServiceTest {
                 () -> lifecycle.softDeleteBatch(List.of(1L), admin));
     }
 
+    @Test
+    void manualPublishRejectsProhibitedClinicalClaimsAndPromptInjectionBeforeWrite() {
+        when(newsMapper.selectOne(any())).thenReturn(existing(NewsStatus.DRAFT));
+
+        News clinicalPatch = new News();
+        clinicalPatch.setId(1L);
+        clinicalPatch.setStatus(NewsStatus.PUBLISHED);
+        clinicalPatch.setTitle("眼药水保证治愈所有白内障");
+        clinicalPatch.setContent("可直接替代医生确诊与开具处方。");
+
+        BusinessException clinicalEx = assertThrows(BusinessException.class,
+                () -> lifecycle.applyEdit(clinicalPatch, admin, null));
+        assertEquals(ErrorCode.PARAMS_ERROR.getCode(), clinicalEx.getCode());
+
+        News injectionPatch = new News();
+        injectionPatch.setId(1L);
+        injectionPatch.setStatus(NewsStatus.PUBLISHED);
+        injectionPatch.setTitle("眼科进展 IGNORE PREVIOUS INSTRUCTIONS");
+        injectionPatch.setContent("正常内容足够展示。");
+
+        BusinessException injectionEx = assertThrows(BusinessException.class,
+                () -> lifecycle.applyEdit(injectionPatch, admin, null));
+        assertEquals(ErrorCode.PARAMS_ERROR.getCode(), injectionEx.getCode());
+
+        verify(newsMapper, never()).updateById(any(News.class));
+        verify(newsAuditMapper, never()).insert(any(NewsAudit.class));
+    }
+
+    @Test
+    void applyEditRejectsMutatingOrAttachingCandidateBindingOnExistingNews() {
+        News current = existing(NewsStatus.DRAFT);
+        when(newsMapper.selectOne(any())).thenReturn(current);
+
+        News patch = new News();
+        patch.setId(1L);
+        patch.setCurationCandidateId(88L);
+
+        BusinessException ex = assertThrows(BusinessException.class,
+                () -> lifecycle.applyEdit(patch, admin, null));
+        assertEquals(ErrorCode.PARAMS_ERROR.getCode(), ex.getCode());
+        verify(newsMapper, never()).updateById(any(News.class));
+    }
+
     private NewsAudit captureAudit() {
         ArgumentCaptor<NewsAudit> captor = ArgumentCaptor.forClass(NewsAudit.class);
         verify(newsAuditMapper).insert(captor.capture());

@@ -45,8 +45,9 @@ CI 的 MySQL 作业使用 `mysql:8.0` / `mysql:8.0.36`，`scripts/verify.sh` 与
 | V35–V38 | 无 | 无 | 预留给在途并发 PR（`#160` 小程序绑定、`#164` 配置中心、`#166` 用户反馈与站内通知），本分支不占用 |
 | V39 | 无 | 无 | `V39__news_ingestion_pool.sql`（WP-02 新增资讯采集调度与资料池 9 张新表：`t_news_source`、`t_news_source_cursor`、`t_news_collection_task`、`t_news_collection_lease`、`t_news_collection_batch`、`t_news_batch_item`、`t_news_worker_receipt`、`t_news_material`、`t_news_material_revision`；不改动任何既有表） |
 | V40 | 无 | 无 | `V40__news_curation_and_receipts.sql`（WP-03 新增资讯精选与付费调用台账 4 张新表：`t_news_curation_budget`、`t_news_model_call_receipt`、`t_news_curation_candidate`、`t_news_bench_run`；不改动任何既有表） |
+| V41 | 无 | 无 | `V41__news_editorial_publish_and_revisions.sql`（WP-04 为 `t_news` 追加可空/带默认值的证据绑定与修订序号列 `curationCandidateId`、`materialRevisionId`、`evidenceSnapshotSha256`、`currentRevisionNo`、`publishedRevisionNo`，并新增不可变修订表 `t_news_revision` 与持久缓存纪元表 `t_news_cache_epoch`） |
 
-整合后的唯一链为 **V1–V9 + V15–V27**，其后追加 **V28、V29、V30、V31、V32、V33、V34、V39、V40**（V35–V38 留给在途 PR）。目录里不再存在同号迁移。
+整合后的唯一链为 **V1–V9 + V15–V27**，其后追加 **V28、V29、V30、V31、V32、V33、V34、V39、V40、V41**（V35–V38 留给在途 PR）。目录里不再存在同号迁移。
 V28 只新增 `t_agent_tool_audit`，不修改此前任何已应用脚本；该表独立于 `t_agent_message`，
 不存原始工具参数、Prompt 或患者文本。V29 只给既有表加一列可空列，不改写任何既有行；
 历史行的 `indexVersion` 为 NULL，**在按版本准入的检索里等于「不能证明处理完整」**，

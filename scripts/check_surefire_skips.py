@@ -66,6 +66,7 @@ BACKEND_UNIT_CONTRACT = {
         P + "integration.AdminAnalyticsMySqlIntegrationTest": {"env": "FLYWAY_TEST_URL", "cases": 1, "skipped": 1},
         P + "newsingestion.NewsIngestionMySqlIntegrationTest": {"env": "FLYWAY_TEST_URL", "cases": 13, "skipped": 13},
         P + "newscuration.NewsCurationMySqlIntegrationTest": {"env": "FLYWAY_TEST_URL", "cases": 10, "skipped": 10},
+        P + "service.NewsEditorialPublishMySqlIntegrationTest": {"env": "FLYWAY_TEST_URL", "cases": 8, "skipped": 8},
     },
 }
 
@@ -93,6 +94,7 @@ FLYWAY_CONTRACT = {
         P + "integration.AdminAnalyticsMySqlIntegrationTest": 1,
         P + "newsingestion.NewsIngestionMySqlIntegrationTest": 13,
         P + "newscuration.NewsCurationMySqlIntegrationTest": 10,
+        P + "service.NewsEditorialPublishMySqlIntegrationTest": 8,
     },
     "opt_in": {},
 }

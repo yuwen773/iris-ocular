@@ -18,11 +18,13 @@ import com.csust.eyediagnosis.model.dto.news.NewsUploadDTO;
 import com.csust.eyediagnosis.model.entity.News;
 import com.csust.eyediagnosis.model.entity.User;
 import com.csust.eyediagnosis.model.vo.news.NewsVO;
+import com.csust.eyediagnosis.service.NewsLifecycleService;
 import com.csust.eyediagnosis.service.NewsService;
 import com.csust.eyediagnosis.service.UserService;
 import com.csust.eyediagnosis.utils.DateRanges;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import jakarta.annotation.Resource;
@@ -50,6 +52,8 @@ public class NewsServiceImpl extends ServiceImpl<NewsMapper, News>
     private UserMapper userMapper;
     @Resource
     private FileManager fileManager;
+    @Autowired(required = false)
+    private NewsLifecycleService newsLifecycleService;
 
 
     /**
@@ -144,6 +148,7 @@ public class NewsServiceImpl extends ServiceImpl<NewsMapper, News>
         return newsVO;
     }
     @Override
+    @Transactional
     public String uploadCoverImage(MultipartFile multipartFile, NewsUploadDTO newsUploadDTO, User loginUser) {
         ThrowUtils.throwIf(loginUser==null, ErrorCode.NO_AUTH_ERROR);
         //先判断操作类型
@@ -166,10 +171,15 @@ public class NewsServiceImpl extends ServiceImpl<NewsMapper, News>
         UploadPictureDetail uploadPictureDetail = fileManager.uploadPicture(multipartFile, uploadPrefix);
         String coverUrl = uploadPictureDetail.getUrl();
 
-        // 只落 coverImg 与 editTime。coverPatch 返回的实体其余字段全为 null，
-        // MP 的 NOT_NULL 字段策略使它们不进 SET，从而不覆盖标题/作者/正文/摘要/状态。
-        boolean result = this.updateById(coverPatch(newsId, coverUrl, new Date()));
-        ThrowUtils.throwIf(!result,ErrorCode.OPERATION_ERROR,PICTURE_FAIL_UPLOAD);
+        Date now = new Date();
+        if (newsLifecycleService != null) {
+            newsLifecycleService.recordCoverUpdate(newsId, coverUrl, now, loginUser);
+        } else {
+            // 只落 coverImg 与 editTime。coverPatch 返回的实体其余字段全为 null，
+            // MP 的 NOT_NULL 字段策略使它们不进 SET，从而不覆盖标题/作者/正文/摘要/状态。
+            boolean result = this.updateById(coverPatch(newsId, coverUrl, now));
+            ThrowUtils.throwIf(!result,ErrorCode.OPERATION_ERROR,PICTURE_FAIL_UPLOAD);
+        }
         return coverUrl;
     }
 

@@ -48,8 +48,8 @@ class FlywayMySqlIntegrationTest {
                 assertEquals(12, masterMigrations);
                 Flyway latest = Flyway.configure().dataSource(url, username, password).schemas(schema)
                         .locations("classpath:db/migration", "classpath:db/callback").load();
-                // V18–V34 共 17 条 + V39–V40 共 19 条；数字写死是为了让「多出/少掉一条迁移」在评审时被看见。
-                assertEquals(19, latest.migrate().migrationsExecuted);
+                // V18–V34 共 17 条 + V39–V41 共 20 条；数字写死是为了让「多出/少掉一条迁移」在评审时被看见。
+                assertEquals(20, latest.migrate().migrationsExecuted);
                 try (var account = statement.executeQuery("SELECT userAccount,userPassword,userRole,legacyMarker FROM `"
                         + schema + "`.t_user WHERE id=7")) {
                     assertTrue(account.next());
@@ -87,7 +87,7 @@ class FlywayMySqlIntegrationTest {
 
                 int expectedMigrations = flyway.info().all().length;
                 assertEquals(expectedMigrations, flyway.migrate().migrationsExecuted);
-                assertEquals("40", flyway.info().current().getVersion().toString());
+                assertEquals("41", flyway.info().current().getVersion().toString());
 
                 // 空库 migrate 后必须拥有全部被实体使用的表，否则登录、资讯、
                 // Agent 会话、知识库会在启动时无表可写。
@@ -109,8 +109,15 @@ class FlywayMySqlIntegrationTest {
                         "t_news_collection_lease", "t_news_collection_batch", "t_news_batch_item",
                         "t_news_worker_receipt", "t_news_material", "t_news_material_revision",
                         "t_news_curation_budget", "t_news_model_call_receipt",
-                        "t_news_curation_candidate", "t_news_bench_run"}) {
+                        "t_news_curation_candidate", "t_news_bench_run",
+                        "t_news_revision", "t_news_cache_epoch"}) {
                     assertTrue(tables.contains(expected), "missing table after migrate: " + expected);
+                }
+
+                try (ResultSet epochRow = statement.executeQuery(
+                        "SELECT epoch FROM `" + schema + "`.t_news_cache_epoch WHERE scope = 'news_list'")) {
+                    assertTrue(epochRow.next(), "missing seeded news_list cache epoch row");
+                    assertEquals(0L, epochRow.getLong(1));
                 }
 
                 try (ResultSet seededSources = statement.executeQuery(
@@ -173,8 +180,8 @@ class FlywayMySqlIntegrationTest {
                         "升级前：旧 jar 自己的迁移集合跑到 V17");
                 Flyway rc = Flyway.configure().dataSource(url, username, password).schemas(schema)
                         .locations("classpath:db/migration", "classpath:db/callback").load();
-                assertEquals(19, rc.migrate().migrationsExecuted);
-                assertEquals("40", rc.info().current().getVersion().toString());
+                assertEquals(20, rc.migrate().migrationsExecuted);
+                assertEquals("41", rc.info().current().getVersion().toString());
 
                 Flyway oldJar = jarFlyway(url, username, password, schema, oldHome);
                 assertEquals(0, oldJar.migrate().migrationsExecuted, "旧迁移集合不会执行 future 版本");
