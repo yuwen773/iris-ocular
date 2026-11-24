@@ -25,7 +25,9 @@ class SameOriginFilterTest {
 
     @BeforeEach
     void setUp() {
-        filter = new SameOriginFilter();
+        // 控制中心默认关闭：本类只覆盖既有全局行为，严格模式见
+        // SameOriginFilterControlCenterTest。
+        filter = new SameOriginFilter(new ControlCenterProperties(), (request, action, reason) -> { });
         ReflectionTestUtils.setField(filter, "additionalHosts", List.of("review.example.com"));
         chain = mock(FilterChain.class);
         response = new MockHttpServletResponse();
@@ -126,6 +128,19 @@ class SameOriginFilterTest {
     void wechatLoginPathIsExemptFromOriginCheck() throws Exception {
         // 小程序登录本身就是「换令牌」的入口，此刻还没有令牌可携带。
         MockHttpServletRequest login = new MockHttpServletRequest("POST", "/api/mp/auth/login");
+        login.setContextPath("/api");
+        login.setServerName("localhost");
+        login.setServerPort(8081);
+        filter.doFilter(login, response, chain);
+        verify(chain).doFilter(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void wechatLoginPathWithMatrixParametersIsStillExempt() throws Exception {
+        // 路径判定必须与 MVC 路由同源：MVC 会把 `;name=value` 从路径里剥掉，
+        // `/api/mp/auth/login;x=1` 仍路由到登录入口。过滤器若按原始 URI 判定，
+        // 就会把这条请求当成普通接口要求 Origin，小程序拿不到令牌。
+        MockHttpServletRequest login = new MockHttpServletRequest("POST", "/api/mp/auth/login;x=1");
         login.setContextPath("/api");
         login.setServerName("localhost");
         login.setServerPort(8081);

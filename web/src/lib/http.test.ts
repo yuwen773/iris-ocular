@@ -158,6 +158,48 @@ describe("request", () => {
       vi.useRealTimers()
     }
   })
+
+  it("非 2xx 也可能携带统一信封：优先取信封 code 与 msg", async () => {
+    stubFetch({ code: 40300, data: { reasonCode: "ORIGIN_MISMATCH" }, msg: "CROSS_ORIGIN_BLOCKED" }, 403)
+    await expect(request("/x", { method: "POST" })).rejects.toMatchObject({
+      code: 40300,
+      message: "CROSS_ORIGIN_BLOCKED",
+    })
+  })
+
+  it("非 2xx 且响应体不是 JSON 时退回 HTTP 状态码", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response("<html>502 Bad Gateway</html>", {
+          status: 502,
+          headers: { "Content-Type": "text/html" },
+        }),
+      ),
+    )
+    await expect(request("/x")).rejects.toMatchObject({
+      code: 502,
+      message: "服务返回 502",
+    })
+  })
+
+  it("非 2xx 信封里的认证类错误码同样广播——403 不能把 40100 藏起来", async () => {
+    const { codes, stop } = listenAuthExpired()
+    stubFetch({ code: 40100, msg: "未登录" }, 403)
+    await expect(request("/x")).rejects.toBeInstanceOf(ApiError)
+    stop()
+
+    expect(codes).toEqual([40100])
+  })
+
+  it("silentAuth 对非 2xx 的认证类错误码同样不广播", async () => {
+    const { codes, stop } = listenAuthExpired()
+    stubFetch({ code: 40101, msg: "无权限" }, 403)
+    await expect(request("/x", {}, { silentAuth: true })).rejects.toBeInstanceOf(ApiError)
+    stop()
+
+    expect(codes).toEqual([])
+  })
 })
 
 describe("toPage", () => {

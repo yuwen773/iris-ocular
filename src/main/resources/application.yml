@@ -116,6 +116,21 @@ eye-diagnosis:
   # 本机 3306 通常是 5.7、3307 是 8.0：dev 数据源必须指向 8.0 实例。
   database:
     require-mysql8: true
+  # 配置中心（Iris Control Center 1.0，WP-01 起逐步实现）。
+  # 默认关闭：关闭时不注册 CSRF 端点、不做严格 Origin 与 CSRF 校验，
+  # 全站行为与引入配置中心之前一致。开启前请先读
+  # docs/product/wp-00/configuration-boundary.md 与 config-center-adr.md。
+  control-center:
+    enabled: false
+    # 写端点的严格 Origin 白名单，必须是完整 origin（scheme://host[:port]）。
+    # 反代未改写 Host / scheme 时，把外部访问的 origin 显式登记在这里。
+    # 不支持通配符或子域后缀匹配。
+    allowed-origins: []
+    # 仅当反向代理会覆写 X-Forwarded-Proto 时才可开启；否则客户端可伪造。
+    trust-proxy-headers: false
+    # 允许发布 / 回滚配置的管理员 userId。为空表示没有人可以发布——
+    # 开启控制中心不会顺带给出发布能力。
+    publisher-user-ids: []
   collaboration:
     enabled: false
     admission-enabled: false
