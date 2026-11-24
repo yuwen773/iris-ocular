@@ -26,3 +26,9 @@ cos:
     region: ap-guangzhou
     bucket: ci-placeholder-bucket
 spring.autoconfigure.exclude: com.alibaba.cloud.ai.agent.studio.SaaStudioWebModuleAutoConfiguration
+
+# 基础层 application.yml 的视觉模型密钥改为 ${DASHSCOPE_API_KEY}（无默认值）以强制
+# 启动期失败；CI 不需要真密钥，这里给占位符把它盖掉，避免 CI 依赖外部环境变量。
+eye-diagnosis:
+  vision-recognition:
+    api-key: ci-placeholder-dashscope-api-key

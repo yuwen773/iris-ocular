@@ -127,3 +127,31 @@ describe("手工故障", () => {
     expect(f.tag).toBe("NOTE")
   })
 })
+
+describe("模型服务故障", () => {
+  it("鉴权失败说清是服务端配置问题，不是网络断了", () => {
+    const f = faultFromError(
+      new ApiError(50301, "模型服务鉴权失败：服务端调用大模型时被拒绝（API Key 无效、失效或无权限），请联系管理员检查服务端配置。"),
+      { intent: "send" },
+    )
+    expect(f.kind).toBe("server")
+    expect(f.tag).toBe("FAULT")
+    expect(f.severity).toBe("critical")
+    expect(f.title).toBe("模型服务没有接通")
+    expect(f.detail).toContain("鉴权失败")
+  })
+
+  it("额度不足单独说一句", () => {
+    const f = faultFromError(new ApiError(50302, "模型服务额度不足：大模型调用被额度策略拒绝，请联系管理员处理。"), {
+      intent: "send",
+    })
+    expect(f.title).toBe("模型服务额度不足")
+  })
+
+  it("模型服务不可用时说清可以稍后再试", () => {
+    const f = faultFromError(new ApiError(50303, "模型服务暂时不可用：调用大模型时出错，请稍后重试。"), {
+      intent: "send",
+    })
+    expect(f.title).toBe("模型服务暂时不可用")
+  })
+})
