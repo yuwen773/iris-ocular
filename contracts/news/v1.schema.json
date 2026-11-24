@@ -1,0 +1,510 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Iris News Engine v1 payloads",
+  "$defs": {
+    "Batch": {
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "leaseToken": {
+          "pattern": "^[A-Za-z0-9_-]{16,256}$",
+          "title": "Leasetoken",
+          "type": "string"
+        },
+        "sequence": {
+          "maximum": 10000,
+          "minimum": 1,
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "records": {
+          "items": {
+            "$ref": "#/$defs/Material"
+          },
+          "maxItems": 50,
+          "minItems": 1,
+          "title": "Records",
+          "type": "array"
+        }
+      },
+      "required": [
+        "generation",
+        "leaseToken",
+        "sequence",
+        "records"
+      ],
+      "title": "Batch",
+      "type": "object"
+    },
+    "BatchReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "sequence": {
+          "maximum": 10000,
+          "minimum": 1,
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "recordCount": {
+          "maximum": 50,
+          "minimum": 1,
+          "title": "Recordcount",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "sequence",
+        "recordCount"
+      ],
+      "title": "BatchReceipt",
+      "type": "object"
+    },
+    "CollectionWindow": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "$ref": "#/$defs/Source"
+        },
+        "sourceConfigVersion": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "title": "Sourceconfigversion",
+          "type": "integer"
+        },
+        "query": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "Query",
+          "type": "string"
+        },
+        "startOn": {
+          "format": "date",
+          "title": "Starton",
+          "type": "string"
+        },
+        "endBefore": {
+          "format": "date",
+          "title": "Endbefore",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "sourceConfigVersion",
+        "query",
+        "startOn",
+        "endBefore"
+      ],
+      "title": "CollectionWindow",
+      "type": "object"
+    },
+    "Complete": {
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "leaseToken": {
+          "pattern": "^[A-Za-z0-9_-]{16,256}$",
+          "title": "Leasetoken",
+          "type": "string"
+        },
+        "batchCount": {
+          "maximum": 10000,
+          "minimum": 0,
+          "title": "Batchcount",
+          "type": "integer"
+        },
+        "recordCount": {
+          "maximum": 10000,
+          "minimum": 0,
+          "title": "Recordcount",
+          "type": "integer"
+        },
+        "nextCursor": {
+          "format": "date",
+          "title": "Nextcursor",
+          "type": "string"
+        }
+      },
+      "required": [
+        "generation",
+        "leaseToken",
+        "batchCount",
+        "recordCount",
+        "nextCursor"
+      ],
+      "title": "Complete",
+      "type": "object"
+    },
+    "CompleteReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "committedCursor": {
+          "format": "date",
+          "title": "Committedcursor",
+          "type": "string"
+        }
+      },
+      "required": [
+        "committedCursor"
+      ],
+      "title": "CompleteReceipt",
+      "type": "object"
+    },
+    "ControlError": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "enum": [
+            "INVALID_REQUEST",
+            "UNAUTHENTICATED",
+            "FORBIDDEN",
+            "UNKNOWN_TASK",
+            "STALE_LEASE",
+            "IDEMPOTENCY_CONFLICT",
+            "INCOMPLETE_BATCHES",
+            "UNAVAILABLE"
+          ],
+          "title": "Code",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code"
+      ],
+      "title": "ControlError",
+      "type": "object"
+    },
+    "Fail": {
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "leaseToken": {
+          "pattern": "^[A-Za-z0-9_-]{16,256}$",
+          "title": "Leasetoken",
+          "type": "string"
+        },
+        "code": {
+          "$ref": "#/$defs/FailureCode"
+        },
+        "retryable": {
+          "title": "Retryable",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "generation",
+        "leaseToken",
+        "code",
+        "retryable"
+      ],
+      "title": "Fail",
+      "type": "object"
+    },
+    "FailureCode": {
+      "enum": [
+        "BAD_SOURCE_DATA",
+        "DEADLINE_EXCEEDED",
+        "INTERRUPTED",
+        "CONTROL_UNAVAILABLE",
+        "CONTROL_REJECTED",
+        "SOURCE_BLOCKED",
+        "SOURCE_REJECTED",
+        "SOURCE_UNAVAILABLE",
+        "RESPONSE_TOO_LARGE",
+        "WINDOW_TOO_LARGE",
+        "INTERNAL"
+      ],
+      "title": "FailureCode",
+      "type": "string"
+    },
+    "FailureReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "enum": [
+            "FAILED",
+            "RETRY_SCHEDULED"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "FailureReceipt",
+      "type": "object"
+    },
+    "Lease": {
+      "additionalProperties": false,
+      "properties": {
+        "taskId": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Taskid",
+          "type": "string"
+        },
+        "generation": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "leaseToken": {
+          "pattern": "^[A-Za-z0-9_-]{16,256}$",
+          "title": "Leasetoken",
+          "type": "string"
+        },
+        "leaseExpiresAt": {
+          "format": "date-time",
+          "title": "Leaseexpiresat",
+          "type": "string"
+        },
+        "window": {
+          "$ref": "#/$defs/CollectionWindow"
+        }
+      },
+      "required": [
+        "taskId",
+        "generation",
+        "leaseToken",
+        "leaseExpiresAt",
+        "window"
+      ],
+      "title": "Lease",
+      "type": "object"
+    },
+    "Material": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "$ref": "#/$defs/Source"
+        },
+        "sourceRecordId": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+          "title": "Sourcerecordid",
+          "type": "string"
+        },
+        "url": {
+          "maxLength": 512,
+          "pattern": "^https://",
+          "title": "Url",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "language": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Language"
+        },
+        "publishedOn": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9]{4}(-[0-9]{2}(-[0-9]{2})?)?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Publishedon"
+        },
+        "updatedOn": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Updatedon"
+        },
+        "pmid": {
+          "anyOf": [
+            {
+              "pattern": "^[1-9][0-9]{0,15}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pmid"
+        },
+        "doi": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Doi"
+        },
+        "abstract": {
+          "anyOf": [
+            {
+              "maxLength": 12000,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Abstract"
+        },
+        "abstractLicense": {
+          "anyOf": [
+            {
+              "enum": [
+                "CC0",
+                "CC-BY"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Abstractlicense"
+        },
+        "trial": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TrialDetails"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "source",
+        "sourceRecordId",
+        "url",
+        "title"
+      ],
+      "title": "Material",
+      "type": "object"
+    },
+    "Source": {
+      "enum": [
+        "pubmed",
+        "europe-pmc",
+        "clinicaltrials-gov"
+      ],
+      "title": "Source",
+      "type": "string"
+    },
+    "TrialDetails": {
+      "additionalProperties": false,
+      "properties": {
+        "studyType": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Studytype"
+        },
+        "overallStatus": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Overallstatus"
+        },
+        "phases": {
+          "anyOf": [
+            {
+              "items": {
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$",
+                "type": "string"
+              },
+              "maxItems": 16,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Phases"
+        },
+        "conditions": {
+          "anyOf": [
+            {
+              "items": {
+                "maxLength": 2048,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 100,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Conditions"
+        }
+      },
+      "title": "TrialDetails",
+      "type": "object"
+    }
+  }
+}

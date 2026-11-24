@@ -1,0 +1,35 @@
+[
+  {
+    "name": "nonpositive-window",
+    "model": "Lease",
+    "patch": {
+      "window": {
+        "source": "clinicaltrials-gov",
+        "sourceConfigVersion": 1,
+        "query": "glaucoma",
+        "startOn": "2026-10-15",
+        "endBefore": "2026-10-15"
+      }
+    }
+  },
+  {
+    "name": "batch-count-inconsistent",
+    "model": "Complete",
+    "patch": {"recordCount": 0}
+  },
+  {
+    "name": "hostless-link",
+    "model": "Material",
+    "patch": {"url": "https://"}
+  },
+  {
+    "name": "invalid-partial-date",
+    "model": "Material",
+    "patch": {"publishedOn": "2026-13"}
+  },
+  {
+    "name": "unlicensed-abstract",
+    "model": "Material",
+    "patch": {"abstract": "Synthetic text without a recorded license"}
+  }
+]

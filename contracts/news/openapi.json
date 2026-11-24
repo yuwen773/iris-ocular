@@ -1,0 +1,402 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Iris News Engine internal worker API",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "/api/internal/news/v1/leases"
+    }
+  ],
+  "security": [
+    {
+      "WorkerKey": []
+    }
+  ],
+  "paths": {
+    "/claim": {
+      "post": {
+        "operationId": "claimNewsLease",
+        "responses": {
+          "200": {
+            "description": "Acquired lease",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./v1.schema.json#/$defs/Lease"
+                }
+              }
+            }
+          },
+          "204": {
+            "description": "No eligible task"
+          },
+          "401": {
+            "description": "Unauthenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./v1.schema.json#/$defs/ControlError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./v1.schema.json#/$defs/ControlError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./v1.schema.json#/$defs/ControlError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/{taskId}/batches": {
+      "post": {
+        "operationId": "submitNewsBatch",
+        "parameters": [
+          {
+            "name": "taskId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 40
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "./v1.schema.json#/$defs/Batch"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "New or replayed receipt",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./v1.schema.json#/$defs/BatchReceipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./v1.schema.json#/$defs/ControlError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./v1.schema.json#/$defs/ControlError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./v1.schema.json#/$defs/ControlError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown task",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./v1.schema.json#/$defs/ControlError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale lease, idempotency conflict or incomplete batches",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./v1.schema.json#/$defs/ControlError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./v1.schema.json#/$defs/ControlError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/{taskId}/complete": {
+      "post": {
+        "operationId": "completeNewsLease",
+        "parameters": [
+          {
+            "name": "taskId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 40
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "./v1.schema.json#/$defs/Complete"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "New or replayed receipt",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./v1.schema.json#/$defs/CompleteReceipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./v1.schema.json#/$defs/ControlError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./v1.schema.json#/$defs/ControlError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./v1.schema.json#/$defs/ControlError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown task",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./v1.schema.json#/$defs/ControlError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale lease, idempotency conflict or incomplete batches",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./v1.schema.json#/$defs/ControlError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./v1.schema.json#/$defs/ControlError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/{taskId}/fail": {
+      "post": {
+        "operationId": "failNewsLease",
+        "parameters": [
+          {
+            "name": "taskId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 40
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "./v1.schema.json#/$defs/Fail"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "New or replayed receipt",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./v1.schema.json#/$defs/FailureReceipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./v1.schema.json#/$defs/ControlError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./v1.schema.json#/$defs/ControlError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./v1.schema.json#/$defs/ControlError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown task",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./v1.schema.json#/$defs/ControlError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Stale lease, idempotency conflict or incomplete batches",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./v1.schema.json#/$defs/ControlError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "./v1.schema.json#/$defs/ControlError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "WorkerKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Iris-News-Worker-Key"
+      }
+    }
+  }
+}

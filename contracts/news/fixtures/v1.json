@@ -1,0 +1,53 @@
+{
+  "Lease": {
+    "taskId": "task-001",
+    "generation": 1,
+    "leaseToken": "fixture_lease_token_01",
+    "leaseExpiresAt": "2030-01-02T12:00:00Z",
+    "window": {
+      "source": "clinicaltrials-gov",
+      "sourceConfigVersion": 1,
+      "query": "glaucoma",
+      "startOn": "2026-10-01",
+      "endBefore": "2026-10-15"
+    }
+  },
+  "Batch": {
+    "generation": 1,
+    "leaseToken": "fixture_lease_token_01",
+    "sequence": 1,
+    "records": [
+      {
+        "source": "clinicaltrials-gov",
+        "sourceRecordId": "NCT00000001",
+        "url": "https://clinicaltrials.gov/study/NCT00000001",
+        "title": "Synthetic glaucoma example",
+        "publishedOn": "2026-09",
+        "updatedOn": "2026-10-09",
+        "trial": {
+          "studyType": "INTERVENTIONAL",
+          "overallStatus": "RECRUITING",
+          "phases": ["PHASE2"],
+          "conditions": ["Glaucoma"]
+        }
+      }
+    ]
+  },
+  "BatchReceipt": {"sequence": 1, "recordCount": 1},
+  "Complete": {
+    "generation": 1,
+    "leaseToken": "fixture_lease_token_01",
+    "batchCount": 1,
+    "recordCount": 1,
+    "nextCursor": "2026-10-15"
+  },
+  "CompleteReceipt": {"committedCursor": "2026-10-15"},
+  "Fail": {
+    "generation": 1,
+    "leaseToken": "fixture_lease_token_01",
+    "code": "BAD_SOURCE_DATA",
+    "retryable": false
+  },
+  "FailureReceipt": {"status": "FAILED"},
+  "ControlError": {"code": "STALE_LEASE"}
+}
