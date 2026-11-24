@@ -24,7 +24,9 @@ class SameOriginFilterTest {
 
     @BeforeEach
     void setUp() {
-        filter = new SameOriginFilter();
+        // 控制中心默认关闭：本类只覆盖既有全局行为，严格模式见
+        // SameOriginFilterControlCenterTest。
+        filter = new SameOriginFilter(new ControlCenterProperties(), (request, action, reason) -> { });
         ReflectionTestUtils.setField(filter, "additionalHosts", List.of("review.example.com"));
         chain = mock(FilterChain.class);
         response = new MockHttpServletResponse();
