@@ -193,3 +193,73 @@
 - **未纳入：** gitignored 的 `application-local.yml` / `application-dev.yml` / `application-server.yml` 不在工作树；主检出目录中的内容只用于确认「存在真实凭据字面量」这一事实，未复制其值。
 - **凭据处置：** 主检出 `application-local.yml` 含真实凭据字面量（P1-06）。应改为环境变量或受控密钥来源；如存在暴露可能，应轮换相关凭据。本审计文档与提交历史均不得包含其内容。
 - **UI 冻结：** 本审计只读，未修改任何前端文件；`AdminNav` / `index.html` 的解冻**尚未获得授权**。
+
+---
+
+## 9. 2026-11-23 增量复审（基线 `5dc2eac5`）
+
+> 本节是 WP-00.5 的增量结论；§1–§8 的原始结论与证据按历史读取，不删除。
+> 完整证据见 [`wp-00-5-baseline-audit.md`](wp-00-5-baseline-audit.md)。
+
+> **迁移编号补充勘误（2026-11-24）**：§9.2 / §9.4 里「V32 空闲」「关闭：V32」
+> 是 2026-11-23 的事实。核对 master `c90b0caa` 时 master 已到迁移头 V34，V32–V34
+> 已被占用，WP-01 的两条迁移改号为 **V35 / V36**（迁移内容未改）。本节相应条目已按
+> 现行事实更新，原始措辞保留在本节之外的 §1–§8（按历史读取，不改写）。
+
+### 9.1 结论
+
+**PASS_WITH_MINOR（增量范围 `5dc2eac5`）→ WP-01 READY_FOR_IMPLEMENTATION（有条件）。**
+生产启用仍 **BLOCKED**。
+
+### 9.2 前提变化
+
+| 原前提 | 现行事实 |
+|---|---|
+| 基线只覆盖 `f42065e4` | 现行基线 `origin/master` = `5dc2eac5`（+340 提交） |
+| 多 Agent 分支 `6ba65478` 未合并 | 已入主干（`collaboration/`、`patientdraft/`），默认关闭 |
+| 仓库内没有任何 CSRF/Same-Origin 过滤器 | 已有全局 `SameOriginFilter`（`config/SameOriginFilter.java`），但无 CSRF |
+| `UserRole` 只有 user/admin | 4 个枚举值，可指派仍为 user/ban/admin |
+| 迁移 V18–V28 已占，暂定 V29 | V29–V34 已占，**V35** 空闲 |
+| Iris 2.1 UI 冻结继续有效 | 冻结已于 2026-11-21 结束（Iris 2.2） |
+
+### 9.3 P0 状态更新
+
+| # | 原结论 | 最新状态 |
+|---|---|---|
+| P0-01 细粒度权限 | CLOSED（契约层） | **仍成立**：需 `@ConfigPermission`；不得扩 `@AuthCheck`（`mustRole="doctor"` 对任意已登录用户放行） |
+| P0-02 CSRF/Same-Origin | CLOSED（契约层） | **前提失效**：过滤器已存在。新缺口是「缺 CSRF + 缺严格模式（scheme / `Origin:null`）」。见审计 P0-01 |
+| P0-03 发布者载体 | CLOSED（yml 白名单） | 仍成立；改为「admin + userId 白名单」 |
+| P0-NEW-01/02/03 | CLOSED（契约层） | 仍成立；Provider 代码未实现，契约原样保留 |
+
+### 9.4 P1 状态更新
+
+| # | 状态 |
+|---|---|
+| P1-02 前端品牌注入点 | **仍开放**（`web/public/brand` 静态资源） |
+| P1-03 解冻例外 | **关闭**：冻结已结束 |
+| P1-04 Flyway 版本 | **关闭**：V35 |
+| P1-05 tracked yml 占位 api-key | **仍开放**（`application.yml:129`） |
+| P1-06 本地未入库凭据 | **仍开放**（本工作树无该文件） |
+| P1-12 多 Agent 补审 | **已执行**（审计 §3.7 / §5） |
+| 新增 P1 | 工具审计 dev 摘要密钥 + fallback（`ToolAuditService.java:40-54`）；Cookie 未设 `Secure`；前端非 2xx 信封丢失（`http.ts:95-96`） |
+
+### 9.5 运行时安全风险
+
+| # | 状态 |
+|---|---|
+| SEC-RUNTIME-01 视觉合成 `attention` 结论 | **已关闭（代码层）**：非法输出 → `INVALID_OUTPUT` 终态，有单测与 E2E（`EyeImageAnalyzerTool.java:237-262`） |
+| SEC-RUNTIME-02 gRPC 明文/无鉴权/`0.0.0.0:50051` | **仍开放**（`DiagnosisGrpcClient.java:30`；`grpc_server.py:176`） |
+
+### 9.6 新增 P2
+
+- 混合检索默认值相反（M10）；Chroma collection 名不一致（M1）；`rag.rerank.model` 死键；
+  `agent.queue.*` / `document.executor.*` 无 yml；
+- 协作 Controller 直接读 Session，不查库（默认关闭，启用前须补封禁校验）；
+- `DESIGN.md` 标题仍写 Iris 2.0，与 2.2 口径漂移；
+- 本地 `master` 引用落后 `origin/master` 一个提交。
+
+### 9.7 范围声明（更新）
+
+- **已审计：** `5dc2eac5` 的配置绑定键、模型构造/调用点、迁移、认证、Same-Origin、管理端结构、品牌静态资源。
+- **未验证：** 未跑构建/测试/迁移；未接触部署环境与 COS bucket ACL；未读 gitignored profile。
+- **未覆盖：** 真实生产 profile 的模型 ID/凭据、反代配置、CDN 缓存、Python 算法服务的运行时部署形态。

@@ -142,3 +142,24 @@
 6. 提供直接修改生效 Provider 元数据的写路径（必须经草稿与发布）。
 7. 用「revision 冲突」冒充幂等：重试语义必须由 `requestId` + 请求指纹 + 结果持久化实现。
 8. 让未发布的品牌资产或草稿内容出现在公开端点。
+
+---
+
+## 8. 2026-11-23 增量勘误（基线 `5dc2eac5`）
+
+> 上文边界规则（§1–§7）**全部有效**，本节只修订过期前提。证据见
+> [`wp-00-5-baseline-audit.md`](wp-00-5-baseline-audit.md)。
+
+| 位置 | 过期内容 | 现行事实 |
+|---|---|---|
+| §2 硬边界表 | `spring.session.*` 未显式 Cookie 属性 | 已显式 `same-site: lax`、`http-only: true`；`secure` 仍需部署落实。仍是硬边界，不可动态 |
+| §3.2 Provider | 「允许入库字段」 | 规则不变；代码与表**尚未实现**。WP-01 不建 Provider 表 |
+| §6 交叉约束 → 迁移 | 「当前分支止于 V17，多 Agent 已占 V18–V28，暂定 V29」 | **V29–V34 已被占用 → WP-01 从 V35 起**（2026-11-24 改号，原拟 V32/V33；迁移内容未改） |
+| §6 交叉约束 → UI 冻结 | 「Iris 2.1 冻结有效，需单独解冻例外」 | **冻结已于 2026-11-21 结束**（Iris 2.2）；不再需要例外，但须遵守 `DESIGN.md` |
+| §6 交叉约束 → 认证 | 「`@AuthCheck` 只有 user/admin 两档」 | 角色枚举有 4 个值，但可指派仍只有 `user/ban/admin`；`@AuthCheck` 语义未变。细粒度权限仍须独立策略 |
+| §6 交叉约束 → Same-Origin | 未提及 | 主干已有全局 `SameOriginFilter`，但无 CSRF、不比较 scheme；控制中心须在其上加严格模式（见 ADR D11 勘误） |
+| §7 禁止做法 6 | 「不提供直接修改生效 Provider 的写路径」 | **不变，仍是强制约束** |
+
+**新增硬边界（建议）：** `eye-diagnosis.control-center.enabled`、
+`eye-diagnosis.control-center.publisher-user-ids`、
+`eye-diagnosis.control-center.allowed-origins` 属于部署级安全配置，**不得**被配置中心自身管理。

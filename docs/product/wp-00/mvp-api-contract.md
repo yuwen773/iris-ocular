@@ -292,3 +292,105 @@
 | 资产访问/缓存 | 无 | 历史已发布资产可读、内容哈希寻址、三类资源分开缓存（ADR D5/D8） |
 | 审计同事务 | `t_news_audit` 是业务事务内写入，可作先例 | 配置发布复用该模式 |
 | 错误码 | 无 409 段 | 新增 §5 错误码 |
+
+---
+
+## 2026-11-23 增量勘误（基线 `5dc2eac5`）
+
+> 完整证据见 [`wp-00-5-baseline-audit.md`](wp-00-5-baseline-audit.md) §3.4 / §6.2。
+
+### 1. 写操作防护（§1）
+
+上文「本分支目前没有 CSRF/Origin 过滤器」**已失效**。现行事实：
+
+- 主干有全局 `SameOriginFilter`（`@Order(1)`），覆盖所有 `POST/PUT/PATCH/DELETE`，
+  不只 `/admin/control-center/**`；
+- 比较 `host + port`，**不比较 scheme**；`Origin: null` 时可回退合法 `Referer` 放行；
+- **没有 CSRF Token**；
+- 失败返回 **HTTP 403** + `{code:40300,msg:"CROSS_ORIGIN_BLOCKED"}`，不是 HTTP 200；
+- Session Cookie 已显式 `SameSite=Lax` + `HttpOnly`，**未设 `Secure`**。
+
+**契约修订：** 控制中心采用现有过滤器的「严格模式」+ CSRF，而不是新建独立过滤器。
+严格模式补齐 scheme 比较、`Origin: null` 直接拒绝、独立白名单
+`eye-diagnosis.control-center.allowed-origins`；写端点必须带与 Session 绑定的 `X-CSRF-Token`。
+
+### 2. 错误语义必须先裁决（§1 / §6）
+
+上文「业务错误一律 HTTP 200 + 非 0 `code`」与过滤器现状冲突：
+
+- `web/src/lib/http.ts:95-96` 在 `!response.ok` 时直接抛 `ApiError(403)`，**不解析响应体**；
+- 因此 `40300` 与 `reasonCode` 无法到达前端，审计/提示都会退化成「服务返回 403」。
+
+WP-01 二选一：
+
+| 方案 | 做法 | 代价 |
+|---|---|---|
+| A（推荐） | `http.ts` 在非 2xx 且 `Content-Type` 为 JSON 时尝试解析信封 | 改动全站共享层，收益全站 |
+| B | 控制中心写端点统一 HTTP 200 + `40300` | 过滤器要特判路径，与全局语义不一致 |
+
+### 3. 授权（§1）
+
+- 继续用 `@AuthCheck(mustRole="admin")` 作为「管理员」档；
+- 新增 `@ConfigPermission(ConfigAction)` **独立 AOP**，不得扩 `@AuthCheck`：
+  `AuthInterceptor` 只实现 ADMIN 分支，`mustRole="doctor"` 会对任意已登录用户放行；
+- AOP 内部必须用 `userService.getLoginUser(request)`（封禁感知），不得直接读 Session；
+- 发布/回滚额外要求 `userId ∈ eye-diagnosis.control-center.publisher-user-ids`。
+
+### 4. 错误码（§5）
+
+`ErrorCode` 当前只有 `40000/40100/40101/40300/40400/50000/50001/50002` 与判读专用 40010–40013，
+**没有 409 段**。WP-01 需新增：
+
+`40301`、`40900`–`40908`、`42900`。其余形状与上文一致。
+
+### 5. 路径与依赖
+
+- 上文路径仍适用；`server.servlet.context-path=/api` 不变；
+- `/system/brand` 与 `/system/brand/assets/{id}` 属 WP-02，WP-01 不实现；
+- `/providers*` 属 WP-03，WP-01 不建表、不建路由。
+
+### 6. WP-01C 增量（错误码与发布路径，基线 `5dc2eac5`）
+
+> 设计裁决见 [`wp-01c-publish-approval-design.md`](../wp-01/wp-01c-publish-approval-design.md)。
+
+- **错误码扩展**：`40909 CONFIG_APPROVAL_NOT_PENDING`（对已批准/已拒绝/已失效的审批再作决定）、
+  `40910 CONFIG_APPROVAL_STALE`（审批绑定的草稿内容或验证摘要已变化）、
+  `40911 CONFIG_PROVIDER_NOT_SUPPORTED`（载荷引用 `provider.*` / `providers*`，WP-03 未实现）。
+  上文 §5 的 409 段到此为止仍是 `40900`–`40908`，本节的三个码是**追加**，不修改历史表。
+- **发布路径**：契约 §发布 写的 `POST /drafts/{id}/publish` 直发**不实现**。等价能力是
+  「申请 → 审批」两步（`/drafts/{id}/publish-requests` + `/publish-requests/{id}/approve`），
+  审批人与申请人可以是同一管理员；四眼原则留给后续 WP。
+- **回滚路径**：`POST /releases/{id}/rollback` 产生**新** release（`rollbackFromReleaseId` 指向来源），
+  不修改历史行。
+
+### 7. WP-01D 增量（并发失败语义、requestId 规则、批准即发布）
+
+> 审计与证据见 [`wp-01d-final-audit.md`](../wp-01/wp-01d-final-audit.md)。
+
+- **新增错误码 `40906 CONFIG_CONCURRENT_CONFLICT`**：「并发冲突，请稍后重试」。
+  触发条件是行锁等待超时（MySQL 1205）或死锁（1213）。此时事务已完整回滚、
+  `requestId` 未被消耗，**客户端应原样重试**；不要刷新草稿或重新申请（那是 `40900` / `40910`
+  的处置）。此码只出现在控制中心的写端点。
+- **`requestId` 规则收紧**：
+  1. 长度上限 **64 个字符（按 Unicode 码点）**，超限返回 `40000`，不再落到 `50000`；
+  2. **每个动作必须是不同的号**——服务端按 `(actorId, requestId)` 判重，同一个号配不同内容
+     （包括「申请发布」与「批准」这种相邻动作）会被判成 `40908`；
+  3. 草稿类写操作（`POST /drafts`、`PUT /drafts/{id}`、`POST /drafts/{id}/validate`）
+     省略 `requestId` 时服务端不做幂等；前端客户端已改为默认生成一个。
+- **「批准即发布」**：`POST /publish-requests/{id}/approve` 成功即生效，同一事务内生成
+  release 并切换活跃指针。**没有**独立的 `POST /drafts/{id}/publish`。
+  批准不可撤回；撤销只有 `POST /releases/{id}/rollback`（产生新 release）。
+- **审批状态机的终态**：`APPROVED` / `REJECTED` / `STALE`。对终态再决定一律 `40909`。
+  `40900`（活跃版本在申请之后变了）**不**改变状态——该审批单会保持 `PENDING`，
+  只能人工拒绝或重新申请（见审计 A-04）。
+- **请求方视角的错误处置表**（前端不要把这些合并成一条「操作失败」）：
+
+| 码 | 含义 | 正确处置 |
+|---|---|---|
+| `40900` | 版本冲突 | 刷新草稿 / 活跃版本后重新操作 |
+| `40901` / `40902` | 未校验 / 校验过期 | 重新校验后再申请 |
+| `40906` | 并发冲突（锁超时 / 死锁） | **原样重试**（同一 `requestId`） |
+| `40908` | 同一请求号内容不一致 | 换一个新的 `requestId` |
+| `40909` | 审批已决定 | 刷新审批列表 |
+| `40910` | 审批绑定的内容已变 | 重新申请 |
+| `40911` | Provider 配置未实现 | 从草稿中移除 `provider*` 键 |

@@ -292,3 +292,51 @@ PRD 要求：强类型注册、草稿/校验/发布/回滚、审计、品牌资�
 1. **favicon 双主题默认值**：当前只有一张 `iris-favicon.ico`，`brand.favicon.dark` 的默认值先指向同一文件是否可接受？
 2. **审计与幂等记录保留期**：MVP 不清理；需产品确认保留年限。
 3. **WP-04 解冻授权记录**：授权人、日期、范围、失效条件，需写入冻结条或等价位置（见 D10）。
+
+---
+
+## 2026-11-23 增量勘误（基线 `5dc2eac5`）
+
+> 本节只修订已过期前提，不改上文的历史决策记录。完整证据见
+> [`wp-00-5-baseline-audit.md`](wp-00-5-baseline-audit.md)。
+
+| 决策 | 上文过期内容 | 现行事实与修订 |
+|---|---|---|
+| 头部 | 基线 `f42065e4`、`feat/system-config-center` | 历史基线；现行基线 `origin/master` = `5dc2eac5`（340 个提交之后）。旧分支与 `ui` 分支均不存在，`6ba65478` 已并入主干 |
+| **D6 权限载体** | 「现有 `UserRole` 只有 `user/admin`」 | `UserRole` 现有 4 个值（`USER/ADMIN/DOCTOR/EVIDENCE_REVIEWER`），但 `UserServiceImpl.ASSIGNABLE_ROLES` 仍只允许 `user/ban/admin`。**裁决不变**：发布者 = 部署期 yml 的 **admin userId 白名单**；`DOCTOR/EVIDENCE_REVIEWER` 不可指派，也不得作为权限载体。`@AuthCheck` 不能扩成细粒度（`mustRole="doctor"` 会对任意已登录用户放行） |
+| **D9 迁移版本** | 「本分支止于 V17；从 V29 起」 | **作废**：V29–V34 已被占用（知识索引版本、消息多版本、判读取消、知识库候选索引版本、判读任务受限原因、判读证据语义）。WP-01 从 **V35** 起（V35 核心五表、V36 发布审批单）；2026-11-24 核对 master `c90b0caa` 后由原拟的 V32/V33 改号，**迁移内容未改**。约束不变：只新增、不改已执行迁移 |
+| **D10 UI 解冻** | 「Iris 2.1 UI 冻结继续有效，需解冻例外」 | **不再适用**：冻结已于 2026-11-21 结束（Iris 2.2）。WP-04 不需要解冻授权；但 `AdminNav` 第 7 项与 `index.html` title/favicon 改写仍须遵守 `DESIGN.md`（管理端场景、双主题、可访问性） |
+| **D11 Same-Origin** | 「本分支没有任何 CSRF/Same-Origin 过滤器；配置中心自带独立实现」 | **前提失效**：主干已有全局 `SameOriginFilter`（`config/SameOriginFilter.java`，`@Order(1)`，覆盖所有非安全方法，10 个单测）。**修订为实现方式**：不建第二套过滤器，在现有过滤器上加「控制中心严格模式」+ CSRF Token。与 D11 九条的差异：不比较 scheme、`Origin: null` 可回退合法 Referer、无 CSRF、无 `reasonCode`、Cookie 未设 `Secure`。详见审计 §3.4 |
+| **D5 品牌资产** | 「沿用腾讯 COS，公开访问走后端代理」 | 仍是目标，但**现状未实现**：品牌资源在 `web/public/brand/` 静态文件里，COS 中没有任何品牌对象；`CosClientConfig` 不设置对象 ACL，bucket ACL/生命周期无法从仓库证明。WP-02 开工前必须实测 bucket ACL、未发布访问控制与对象生命周期 |
+| **D2/D7 Provider 修订** | 不可变修订 + 发布快照引用 | **不变，仍是权威契约**。全仓仍无 `t_provider_*` 代码/表；WP-01 不要提前建 Provider 表 |
+| 背景「22 处多重事实来源」 | 按 `f42065e4` 计数 | 数量需按新基线重算；其中 5 个死键已从 `application.yml` 删除（`hash-algorithm`、`rag.evaluation.enabled`、`agent.max-iterations`、`agent.model-call-limit`、Chroma `tenant/database`）。M10（混合检索默认值相反而非一致）仍开放 |
+
+**新增未决问题（2026-11-23）：**
+
+1. **控制中心写端点失败语义**：过滤器返回 HTTP 403，而前端 `web/src/lib/http.ts` 在非 2xx 时不解析信封，`40300` 会丢失。WP-01 必须在「改 `http.ts` 解析非 2xx 信封」与「控制中心写端点返回 HTTP 200 + `40300`」之间选一个（审计 §3.4 / P0-02）。
+2. **发布者白名单配置键名**：建议 `eye-diagnosis.control-center.publisher-user-ids` 与 `eye-diagnosis.control-center.allowed-origins`；需与 `security.same-origin.additional-hosts` 明确分工。
+3. **`eye-diagnosis.control-center.enabled` 默认值**：必须 `false`；未启用时不得注册任何新 Bean 或路由。
+
+---
+
+## 2026-11-23 WP-01D 裁决（追加，不改上文 D1–D12）
+
+> 完整审计、并发故障验证与剩余风险见
+> [`wp-01d-final-audit.md`](../wp-01/wp-01d-final-audit.md)。
+
+| 决策 | 追加结论 |
+|---|---|
+| **D2 发布语义** | 确认「批准即发布」：`approve` 在一个事务里生成 release、切指针、置 APPROVED、回填幂等、写成功审计。**没有**「已批准待发布」中间态。撤销只能回滚（新 release），审批单不可撤回 → 批准是**不可逆动作** |
+| **D3 乐观锁** | 不变。编辑即作废校验由 SQL 保证（`updateWithRevision` 同时清 `validationRevision` / `validationResult` 并打回 `DRAFT`），不依赖服务层自觉 |
+| **D4 审计同事务** | 不变。**新增边界**：`markStale` 的 STALE 更新与其失败审计是两次独立提交（都会在发布事务回滚之后发生）——方向安全（不会出现「已 STALE 但无审计」），但不能说「失效也原子」 |
+| **D11 Same-Origin** | 严格模式已按上文实现；**新增部署前提**：反代必须保留 `Host`（`trust-proxy-headers` 只影响 scheme，不影响 host）。会话 Cookie 仍**未设 `Secure`**，属未满足项 |
+| **D12 幂等** | 不变（插入先行 + 同事务回填）。**新增裁决**：`requestId` 上限 64（按码点，与列宽一致），超限在写库前以 `40000` 拒绝；**每个动作必须使用不同的 `requestId`**（同号异内容 → `40908`） |
+| **并发失败语义** | **新增** `D13`：锁等待超时与死锁（`PessimisticLockingFailureException`）必须翻译成可重试的 `40906 CONFIG_CONCURRENT_CONFLICT`，不得落成 `50000 系统错误`；该映射只作用于控制中心的两个控制器 |
+
+### D13 控制中心并发失败语义（新增）
+
+发布靠单行指针锁串行化，竞争一旦超过 `innodb_lock_wait_timeout` 或 InnoDB 判定死锁，
+Spring 抛的是 `PessimisticLockingFailureException` 的子类。此时事务已完整回滚、
+`requestId` 未被消耗，**原样重试就是正确处置**。把它归到 `50000` 会让客户端误判为服务故障
+并放弃重试。故新增 `40906`，由 `ControlCenterExceptionHandler` 承载，作用域限定在
+`ControlCenterController` / `ControlCenterCsrfController`，不改变全站异常语义。
