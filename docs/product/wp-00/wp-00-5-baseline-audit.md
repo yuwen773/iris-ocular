@@ -679,3 +679,9 @@ origin/master        5dc2eac50da33b5a0dd359499d291aa5066bd758
 `FlywayMySqlIntegrationTest` 的迁移数断言 16→19、迁移头 33→36、V31 升级用例改为
 「V31 → V36 执行 5 条」（V32–V34 是 master 的三条）。完整清单与门禁复跑结果见
 `docs/product/wp-01/wp-01d-final-audit.md` §8.4。
+
+## 13. 分支更名（2026-11-24）
+
+本文 §0 与 §1 里出现的分支名 `t3/wp-00-5-baseline-audit` 是 2026-11-23 审计当时的名称，
+按审计记录要求**不改写**。该工作树于 2026-11-24 为提交 WP-01 评审而更名为
+**`feat/control-center-wp01`**；同一分支，提交历史连续，未做任何变基或改写。

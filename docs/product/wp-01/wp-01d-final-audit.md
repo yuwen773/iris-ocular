@@ -1,10 +1,11 @@
 # WP-01D 最终集成审计、并发故障验证与交付收口
 
-> 状态：**分支验收候选**——已提交到 `t3/wp-00-5-baseline-audit`（4 个提交，已 rebase 到
-> `master c90b0caa`），**未推送、未合并、未部署**
+> 状态：**评审候选**——已提交到分支 `feat/control-center-wp01`（原名
+> `t3/wp-00-5-baseline-audit`，2026-11-24 更名），已 rebase 到 `master c90b0caa`，
+> **未合并、未部署**
 > 基线：`master` @ `5dc2eac5` + WP-01A/B/C 全部改动；审计时迁移头 **V33**，
 > 合入前已按 §8.4 改号为 **V35 / V36** 并 rebase 到 `c90b0caa`
-> 工作树：`t3/wp-00-5-baseline-audit`
+> 工作树：`feat/control-center-wp01`（原 `t3/wp-00-5-baseline-audit`）
 > 本轮定位：独立审计 + 必要的最小整改 + 验收，不开发新业务模块
 > **本报告的审计结论对基线 `5dc2eac5` 成立**；`master` 已前进到 `c90b0caa` 且 V32–V34
 > 已被其它迁移占用，合入前的重编号与复跑已在 §8.4 执行并记录。

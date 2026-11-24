@@ -1,9 +1,10 @@
 # WP-01B 后端持久化与配置基础 API — 交付记录
 
-> 基线：`origin/master` @ `5dc2eac5`（2026-11-23 复核，工作树 `t3/wp-00-5-baseline-audit`）
+> 基线：`origin/master` @ `5dc2eac5`（2026-11-23 复核，工作树 `t3/wp-00-5-baseline-audit`；
+> 该工作树于 2026-11-24 更名为 `feat/control-center-wp01`）
 > 前置：`docs/product/wp-00/wp-00-5-baseline-audit.md`（WP-00.5）、WP-01A 已实现的
 > Origin / CSRF / 权限 / 前端错误信封改动（同一工作树内未提交）
-> 状态：**本地验收候选**，未提交、未推送、未合并、未部署
+> 状态：**本地验收候选**（2026-11-24 起已提交到分支 `feat/control-center-wp01`，未合并、未部署）
 
 本文件只记录 WP-01B 实际做了什么、验到了什么、还剩什么。设计结论仍以
 `docs/product/wp-00/config-center-adr.md`、`configuration-boundary.md`、

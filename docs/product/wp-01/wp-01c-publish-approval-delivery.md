@@ -6,7 +6,7 @@
 > V32–V34 已被占用，本轮的 V33 改号为 **V36**（配套的 V32 改号为 V35），
 > **DDL 内容一字未改**；本文其余 V32/V33 均指这两条迁移。
 > 设计裁决：`docs/product/wp-01/wp-01c-publish-approval-design.md`（编码前完成，本文只记录落地结果）
-> 工作树：本分支（`t3/wp-00-5-baseline-audit`），承接 WP-01A / WP-01B 全部未提交改动
+> 工作树：本分支（`feat/control-center-wp01`，原名 `t3/wp-00-5-baseline-audit`），承接 WP-01A / WP-01B 全部改动
 
 ---
 
