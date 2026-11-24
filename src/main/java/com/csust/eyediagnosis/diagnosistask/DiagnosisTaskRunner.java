@@ -1,7 +1,9 @@
 package com.csust.eyediagnosis.diagnosistask;
 
+import com.csust.eyediagnosis.constant.NotificationType;
 import com.csust.eyediagnosis.grpc.DiagnosisGrpcClient;
 import com.csust.eyediagnosis.grpc.DiagnosisProto;
+import com.csust.eyediagnosis.service.NotificationService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -20,6 +22,8 @@ public class DiagnosisTaskRunner {
     private final DiagnosisTaskStorage storage;
     private final DiagnosisGrpcClient grpc;
     private final Clock clock;
+    /** 通知是旁路：为 null 时（纯单元测试）不发送，正文逻辑不受影响。 */
+    private final NotificationService notifications;
     private final org.springframework.transaction.support.TransactionTemplate transactions;
     private final java.util.concurrent.ExecutorService executor = java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
         Thread thread = new Thread(r, "diagnosis-task-worker");
@@ -29,12 +33,24 @@ public class DiagnosisTaskRunner {
     private final java.util.concurrent.atomic.AtomicBoolean scheduled = new java.util.concurrent.atomic.AtomicBoolean();
 
     @Autowired
+    public DiagnosisTaskRunner(JdbcTemplate jdbc, DiagnosisTaskStorage storage, DiagnosisGrpcClient grpc,
+                               NotificationService notifications) {
+        this(jdbc, storage, grpc, null, notifications);
+    }
+
+    /** 测试用：不接通知服务。 */
     public DiagnosisTaskRunner(JdbcTemplate jdbc, DiagnosisTaskStorage storage, DiagnosisGrpcClient grpc) {
-        this(jdbc, storage, grpc, null);
+        this(jdbc, storage, grpc, null, null);
     }
 
     DiagnosisTaskRunner(JdbcTemplate jdbc, DiagnosisTaskStorage storage, DiagnosisGrpcClient grpc, Clock clock) {
+        this(jdbc, storage, grpc, clock, null);
+    }
+
+    DiagnosisTaskRunner(JdbcTemplate jdbc, DiagnosisTaskStorage storage, DiagnosisGrpcClient grpc, Clock clock,
+                        NotificationService notifications) {
         this.jdbc = jdbc; this.storage = storage; this.grpc = grpc; this.clock = clock;
+        this.notifications = notifications;
         this.transactions = new org.springframework.transaction.support.TransactionTemplate(
                 new org.springframework.jdbc.datasource.DataSourceTransactionManager(java.util.Objects.requireNonNull(jdbc.getDataSource())));
     }
@@ -124,8 +140,17 @@ public class DiagnosisTaskRunner {
     }
 
     private void finish(Claimed task, String status, String restrictReason, String snapshot) {
-        fencedUpdate(task.id(), () -> jdbc.update("UPDATE t_diagnosis_task SET status=?, restrictReason=?, inferenceSnapshot=?, leaseOwner=NULL, leaseUntil=NULL, version=version+1, updatedAt=COALESCE(?,CURRENT_TIMESTAMP(6)) WHERE taskId=? AND BINARY status=BINARY 'RUNNING' AND leaseOwner=? AND leaseToken=? AND version=? AND leaseUntil>COALESCE(?,CURRENT_TIMESTAMP(6)) AND inferenceSnapshot IS NULL",
+        int rows = fencedUpdate(task.id(), () -> jdbc.update("UPDATE t_diagnosis_task SET status=?, restrictReason=?, inferenceSnapshot=?, leaseOwner=NULL, leaseUntil=NULL, version=version+1, updatedAt=COALESCE(?,CURRENT_TIMESTAMP(6)) WHERE taskId=? AND BINARY status=BINARY 'RUNNING' AND leaseOwner=? AND leaseToken=? AND version=? AND leaseUntil>COALESCE(?,CURRENT_TIMESTAMP(6)) AND inferenceSnapshot IS NULL",
                 status, restrictReason, snapshot, now(), task.id(), task.owner(), task.token(), task.version(), now()));
+        // fencedUpdate 自带事务，返回时已提交，所以这里就是「提交后发送」。
+        // 只有落到两个对外可见的终态才通知：PENDING（重试）用户看不到变化。
+        if (rows == 1 && notifications != null) {
+            if ("WAITING_REVIEW".equals(status)) {
+                notifications.notify(task.userId(), NotificationType.DIAGNOSIS_READY, task.id());
+            } else if ("RESTRICTED".equals(status)) {
+                notifications.notify(task.userId(), NotificationType.DIAGNOSIS_RESTRICTED, task.id());
+            }
+        }
     }
 
     private int fencedUpdate(String taskId, java.util.function.IntSupplier update) {

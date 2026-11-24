@@ -100,16 +100,10 @@ numbers were taken.
   single overloaded `probability` / `reliability_score` pair so an uncalibrated
   softmax can no longer be read as medical reliability (M-02).
 
-Two consequences to know before writing the next migration:
-
-1. V32--V34 are owned by `fix/p1-audit-remediation-2026-11-23`; V35 was owned by
-   the WeChat mini-program work and has landed on master. Work in flight on
-   other branches (Control Center WP-01C already drafts a V33) must
-   re-number to V36 or higher; two branches cannot claim the same version.
-2. `DiagnosisEvidence` deliberately leaves all six V34 columns NULL when the
-   Python service does not send the fields. Old rows are not backfilled: the
-   historical values are not recoverable, and inventing them would be
-   fabricating evidence.
+`DiagnosisEvidence` deliberately leaves all six V34 columns NULL when the
+Python service does not send the fields. Old rows are not backfilled: the
+historical values are not recoverable, and inventing them would be
+fabricating evidence.
 
 ## V35 (2026-11-24)
 
@@ -153,5 +147,28 @@ Two consequences:
 1. The Control Center is gated by `eye-diagnosis.control-center.enabled`,
    which defaults to `false`, and the publisher allow-list defaults to empty.
    Upgrading alone grants nobody the right to publish.
-2. The next branch that needs a version takes V38 -- already claimed by the
-   user-feedback work (PR #166).
+2. The next branch that needs a version takes V38 -- claimed by the
+   user-feedback work below.
+
+## V38 / V39 (2026-11-24)
+
+Two migrations from the user-feedback and in-app-notification work (branch
+`t3/add-feedback-feature`, PR #166). No edits to V1--V37; each script only
+creates one new table, so existing rows need no backfill. Per-target upgrade
+paths stay in `docs/architecture/migration-matrix.md`; section 1.1 there
+records the numbering decision.
+
+- **V38** `t_user_feedback`: the product-feedback channel — body, category,
+  optional link to a diagnosis task / agent session, status machine, admin
+  reply, and the object key of a private screenshot.
+- **V39** `t_user_notification`: the in-app inbox — type, the copy frozen at
+  send time, a pointer to the related record, and the read timestamp.
+
+Two consequences to know before writing the next migration:
+
+1. V32--V34 landed with #156, V35 with #160, V36--V37 with #164, V38/V39 with
+   this branch. With `spring.flyway.out-of-order=false`, merge in version
+   order: a database that already applied a higher version rejects the lower
+   one arriving later.
+2. The next branch that needs a version takes V40: the news line's planned
+   V39--V41 must shift to V40--V42 before it opens a PR.
