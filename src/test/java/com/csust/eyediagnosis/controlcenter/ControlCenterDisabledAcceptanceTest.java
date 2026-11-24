@@ -105,12 +105,16 @@ class ControlCenterDisabledAcceptanceTest {
     @Test
     void writeIsNotInterceptedByCsrfWhenDisabled() throws Exception {
         // 关闭时没有 CSRF 过滤器：请求不会被我方过滤器拦成 403。
+        // 断言「这次请求没写进任何行」，而不是「全库这张表一直为空」——后者把别的
+        // 用例的残留也算进来，整套跑时的执行顺序一变就假红（2026-11-24 CI 实测：
+        // 单跑本包 66 例全绿，整套里同一条断言 expected 0 but was 1）。
+        Integer before = jdbc.queryForObject("SELECT COUNT(*) FROM t_config_draft", Integer.class);
         HttpResponse<String> reply = send("POST", "/api/admin/control-center/drafts",
                 "{\"schemaVersion\":1,\"values\":{}}");
         assertNotEquals(403, reply.statusCode(), reply.body());
         assertEquals(50000, codeOf(reply.body()), reply.body());
-        Integer drafts = jdbc.queryForObject("SELECT COUNT(*) FROM t_config_draft", Integer.class);
-        assertEquals(0, drafts);
+        Integer after = jdbc.queryForObject("SELECT COUNT(*) FROM t_config_draft", Integer.class);
+        assertEquals(before, after, "关闭时这次 POST 不应写入任何草稿行");
     }
 
     private int codeOf(String body) {
