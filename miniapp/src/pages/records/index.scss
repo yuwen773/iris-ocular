@@ -180,7 +180,7 @@
   content: '';
   position: absolute;
   left: 50%;
-  top: 38rpx;
+  top: 39rpx;
   width: 16rpx;
   height: 2rpx;
   background: var(--brand-line-strong);
@@ -195,7 +195,7 @@
   content: '';
   position: absolute;
   left: 50%;
-  top: 28rpx;
+  top: 30rpx;
   z-index: 2;
   width: 20rpx;
   height: 20rpx;
@@ -320,13 +320,13 @@
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 8rpx 12rpx;
+  gap: 2rpx 10rpx;
   margin-top: 10rpx;
 }
 
 .am-reading__k {
   font-size: 26rpx;
-  line-height: 1.45;
+  line-height: 1.38;
   color: var(--brand-muted);
 }
 
@@ -334,6 +334,7 @@
   font-family: var(--font-mono);
   font-size: 28rpx;
   font-weight: 600;
+  line-height: 1.38;
   font-variant-numeric: tabular-nums;
   color: var(--brand-text);
 }
@@ -349,8 +350,9 @@
 /* 眼底影像缩略图：暗场承托，aspectFit 保证眼底圆不被裁切变形。 */
 .am-thumb-wrap {
   flex: none;
-  width: 96rpx;
-  height: 96rpx;
+  align-self: center;
+  width: 88rpx;
+  height: 88rpx;
   overflow: hidden;
   border: 1rpx solid var(--brand-line);
   background: #0b1425;

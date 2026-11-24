@@ -4,6 +4,7 @@ import { evidenceResources } from './citations'
 import { API_BASE } from './env'
 import { getToken } from './token'
 import { SseParser } from './sse'
+import { readStreamError } from './streamError'
 import { Utf8StreamDecoder } from './utf8'
 import type { AgentChunk, ResourceRef } from './api'
 
@@ -110,7 +111,8 @@ export function streamAgentChat(
         return
       }
       if (event.event === 'error') {
-        settle(() => handlers.onError(event.data || '对话中断，请重试'))
+        // 后端给 {code, msg}（50301–50303 模型服务、40101 未登录）；旧服务只给一句人话。
+        settle(() => handlers.onError(readStreamError(event.data).message))
         return
       }
       if (!event.data) return
