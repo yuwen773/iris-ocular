@@ -21,19 +21,27 @@ public interface AgentMessageMapper extends BaseMapper<AgentMessage> {
      * 未显示的旧版本占满，翻页会看到空页、并把历史的条数算错。旧数据
      * （replyToId / selectedVariantId 为 null）保持原样全部可见。
      */
-    @Select("<script>" +
-            "SELECT m.* FROM t_agent_message m " +
+    @Select("<script>SELECT m.* FROM t_agent_message m " +
             "LEFT JOIN t_agent_message u ON u.id = m.replyToId " +
             "WHERE m.sessionId = #{sessionId} " +
             "AND (m.replyToId IS NULL OR u.selectedVariantId IS NULL " +
             "     OR u.selectedVariantId = m.variantId) " +
-            "<if test='beforeId != null'> AND m.id &lt; #{beforeId} </if>" +
-            "ORDER BY m.id DESC LIMIT #{limit} " +
+            "<choose>" +
+            "  <when test='afterId != null'> AND m.id &gt; #{afterId} ORDER BY m.id ASC </when>" +
+            "  <otherwise>" +
+            "    <if test='beforeId != null'> AND m.id &lt; #{beforeId} </if>" +
+            "    ORDER BY m.id DESC " +
+            "  </otherwise>" +
+            "</choose> LIMIT #{limit} " +
             "</script>")
-    List<AgentMessage> selectByCursor(
+    List<AgentMessage> selectHistoryPage(
             @Param("sessionId") String sessionId,
             @Param("beforeId") Long beforeId,
+            @Param("afterId") Long afterId,
             @Param("limit") int limit);
+
+    @Select("SELECT id FROM t_agent_message WHERE sessionId = #{sessionId} AND id = #{id}")
+    Long selectHistoryCursor(@Param("sessionId") String sessionId, @Param("id") long id);
 
     @Select("SELECT m.* FROM t_agent_message m " +
             "LEFT JOIN t_agent_message u ON u.id = m.replyToId " +

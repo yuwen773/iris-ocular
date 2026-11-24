@@ -74,7 +74,7 @@ export interface AgentSession {
  * `user-attachments-v1`），筛选规则见 `lib/agentHistory.ts`。
  */
 export interface AgentMessage {
-  id?: number
+  id?: string | number
   role?: string
   /** 旧行没有子类型，服务端可能是 null。 */
   subType?: string | null
@@ -86,7 +86,9 @@ export interface AgentMessage {
 export interface ChatHistory {
   messages: AgentMessage[]
   hasMore: boolean
-  nextCursor?: number
+  nextCursor?: string | null
+  hasNewer?: boolean
+  newerCursor?: string | null
   uncommittedTerminal?: boolean
 }
 
@@ -145,6 +147,8 @@ export function listAgentSessions(): Promise<AgentSession[]> {
   return request<AgentSession[]>('/agent/sessions?limit=20')
 }
 
-export function getAgentHistory(threadId: string): Promise<ChatHistory> {
-  return request<ChatHistory>(`/agent/history/${encodeURIComponent(threadId)}?limit=40`)
+export function getAgentHistory(threadId: string, beforeId?: string): Promise<ChatHistory> {
+  let path = `/agent/history/${encodeURIComponent(threadId)}?limit=40`
+  if (beforeId) path += `&beforeId=${encodeURIComponent(beforeId)}`
+  return request<ChatHistory>(path)
 }

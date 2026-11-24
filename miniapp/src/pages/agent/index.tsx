@@ -1,6 +1,6 @@
 import { Button, Image, Input, ScrollView, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   getAgentHistory,
   listAgentSessions,
@@ -9,7 +9,12 @@ import {
   type DiagnosisSummary,
   type ResourceRef,
 } from '@/lib/api'
-import { collectHistoryCitations, toChatItems, type ChatItem as HistoryItem } from '@/lib/agentHistory'
+import {
+  collectHistoryCitations,
+  prependHistoryItems,
+  toChatItems,
+  type ChatItem as HistoryItem,
+} from '@/lib/agentHistory'
 import { ensureLogin } from '@/lib/auth'
 import { documentCitationMap, renderCitationText } from '@/lib/citations'
 import { streamAgentChat, type AgentStreamHandle } from '@/lib/agentStream'
@@ -67,24 +72,60 @@ export default function AgentPage() {
   const [fault, setFault] = useState('')
   // 最近一次判读：首屏的上下文卡（问的就是这一条）。
   const [latest, setLatest] = useState<DiagnosisSummary | null>(null)
+  // 历史分页：'latest' = 首屏读当前会话；'older' = 往前翻一页。
+  const [historyLoading, setHistoryLoading] = useState<'latest' | 'older' | null>(null)
+  const [olderHistory, setOlderHistory] = useState<{ threadId: string; cursor: string } | null>(null)
+  const [olderFault, setOlderFault] = useState('')
   const handleRef = useRef<AgentStreamHandle | null>(null)
   // 历史请求序号：晚到的旧会话历史不能盖掉当前会话（与 web 端同一口径）。
   const historySeq = useRef(0)
+
+  /**
+   * 读一段历史。
+   *
+   * @param beforeId 给了就是往前翻一页（游标），不给就是读当前会话的最新一段。
+   */
+  const loadHistory = useCallback(async (threadId: string, beforeId?: string, restoring = false) => {
+    const seq = ++historySeq.current
+    const isCurrent = () => seq === historySeq.current && Taro.getStorageSync<string>(THREAD_KEY) === threadId
+    setHistoryLoading(beforeId ? 'older' : 'latest')
+    setOlderFault('')
+    try {
+      let cursor = beforeId
+      let history = await getAgentHistory(threadId, cursor)
+      let items = toChatItems(history)
+      // 一整页可能只有推理、工具事件或摘要。继续找患者可见的问答。
+      while (isCurrent() && items.length === 0 && history.hasMore && history.nextCursor
+        && history.nextCursor !== cursor) {
+        cursor = history.nextCursor
+        history = await getAgentHistory(threadId, cursor)
+        items = toChatItems(history)
+      }
+      if (!isCurrent()) return
+      const citations = collectHistoryCitations(history)
+      const withCitations = items.map((item) => ({ ...item, citations: citations.get(item.id) }))
+      setOlderHistory(history.hasMore && history.nextCursor ? { threadId, cursor: history.nextCursor } : null)
+      if (beforeId) {
+        setMessages((current) => prependHistoryItems(current, withCitations))
+      } else {
+        setMessages(withCitations)
+      }
+      if (history.uncommittedTerminal) setFault('有消息尚未保存，这段历史可能不完整')
+    } catch {
+      if (!isCurrent()) return
+      if (beforeId) setOlderFault('更早消息加载失败，请重试')
+      else if (!restoring) setFault('历史对话加载失败，请重试')
+    } finally {
+      if (seq === historySeq.current) setHistoryLoading(null)
+    }
+  }, [])
 
   useEffect(() => {
     let alive = true
     const restore = async () => {
       const stored = Taro.getStorageSync<string>(THREAD_KEY)
       if (typeof stored !== 'string' || !stored) return
-      const seq = ++historySeq.current
-      try {
-        const history = await getAgentHistory(stored)
-        if (!alive || seq !== historySeq.current) return
-        const citations = collectHistoryCitations(history)
-        setMessages(toChatItems(history).map((item) => ({ ...item, citations: citations.get(item.id) })))
-      } catch {
-        // 历史恢复失败不阻塞新对话：threadId 仍有效，继续问即可。
-      }
+      await loadHistory(stored, undefined, true)
     }
     const loadSessions = async () => {
       try {
@@ -99,9 +140,10 @@ export default function AgentPage() {
     void loadSessions()
     return () => {
       alive = false
+      historySeq.current++
       handleRef.current?.abort()
     }
-  }, [])
+  }, [loadHistory])
 
   // 最近一次判读：进页面读一条，用来铺首屏的上下文卡。
   const latestSeq = useRef(0)
@@ -130,6 +172,9 @@ export default function AgentPage() {
     handleRef.current = null
     // 让在途的历史请求作废：否则它回来后会把上一个会话的消息写进新会话。
     historySeq.current++
+    setHistoryLoading(null)
+    setOlderHistory(null)
+    setOlderFault('')
     setStreaming(false)
     setFault('')
     setMessages([])
@@ -144,22 +189,15 @@ export default function AgentPage() {
     handleRef.current = null
     historySeq.current++
     setFault('')
+    setOlderHistory(null)
     setMessages([])
     Taro.setStorageSync(THREAD_KEY, sessionId)
-    const seq = ++historySeq.current
-    try {
-      const history = await getAgentHistory(sessionId)
-      if (seq !== historySeq.current) return
-      const citations = collectHistoryCitations(history)
-      setMessages(toChatItems(history).map((item) => ({ ...item, citations: citations.get(item.id) })))
-    } catch {
-      setFault('历史对话加载失败，请重试')
-    }
+    await loadHistory(sessionId)
   }
 
   async function send() {
     const text = input.trim()
-    if (!text || streaming) return
+    if (!text || streaming || historyLoading === 'latest') return
     setInput('')
     setFault('')
 
@@ -246,6 +284,21 @@ export default function AgentPage() {
 
       <ScrollView className="agent-scroll" scrollY scrollIntoView={lastId ? `msg-${lastId}` : ''} scrollWithAnimation>
         <View className="agent-inner">
+          {historyLoading === 'latest' ? <Text className="mp-note agent-older__note">正在读取历史对话…</Text> : null}
+
+          {olderHistory ? (
+            <View className="agent-older">
+              <Button
+                className="agent-older__btn"
+                disabled={historyLoading !== null}
+                onClick={() => void loadHistory(olderHistory.threadId, olderHistory.cursor)}
+              >
+                {historyLoading === 'older' ? '正在加载…' : '加载更早消息'}
+              </Button>
+              {olderFault ? <View className="mp-fault">{olderFault}</View> : null}
+            </View>
+          ) : null}
+
           {!inThread ? (
             <View className="agent-hero">
               <Text className="h-page">可以问我眼科的问题</Text>
@@ -323,7 +376,7 @@ export default function AgentPage() {
           placeholder={inThread ? '接着问…' : '描述你的问题…'}
           placeholderClass="agent-input__ph"
           confirmType="send"
-          disabled={streaming}
+          disabled={streaming || historyLoading === 'latest'}
           onInput={(event) => setInput(event.detail.value)}
           onConfirm={() => void send()}
         />
@@ -335,7 +388,7 @@ export default function AgentPage() {
         ) : (
           <Button
             className={`agent-send${canSend ? ' agent-send--ready' : ' agent-send--idle'}`}
-            disabled={!canSend}
+            disabled={!canSend || historyLoading === 'latest'}
             onClick={() => void send()}
           >
             发送

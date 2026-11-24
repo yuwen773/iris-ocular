@@ -88,3 +88,9 @@ export function collectHistoryCitations(history: ChatHistory): Map<string, Map<s
   }
   return out
 }
+
+/** 把更早的历史页接到当前列表前面；已加载过的 id 不重复。 */
+export function prependHistoryItems(current: ChatItem[], older: ChatItem[]): ChatItem[] {
+  const loaded = new Set(current.map((item) => item.id))
+  return [...older.filter((item) => !loaded.has(item.id)), ...current]
+}

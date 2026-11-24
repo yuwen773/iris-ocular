@@ -366,6 +366,40 @@
   color: var(--brand-muted);
 }
 
+/* 更早消息的入口：贴在对话流上方的一枚幽灵按钮，不打断阅读。 */
+.agent-older {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12rpx;
+  margin-bottom: 28rpx;
+}
+
+.agent-older__btn {
+  min-height: 72rpx;
+  padding: 0 28rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--brand-surface);
+  border: 1rpx solid var(--brand-line-strong);
+  font-size: 26rpx;
+  color: var(--brand-primary);
+
+  &::after {
+    border: none;
+  }
+}
+
+.agent-older__btn:active {
+  background: var(--brand-soft);
+}
+
+.agent-older__note {
+  display: block;
+  margin-bottom: 20rpx;
+}
+
 /* ── 对话中 ───────────────────────────────────────────── */
 .thread-list {
   display: flex;

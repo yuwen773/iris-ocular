@@ -8,8 +8,13 @@ import java.util.List;
 @AllArgsConstructor
 public class ChatHistoryVO {
     private List<MessageVO> messages;
+    /** 是否还有更早的消息。 */
     private boolean hasMore;
+    /** 有更早消息时为本页最小 id，供 beforeId 使用。 */
     private Long nextCursor;
+    private boolean hasNewer;
+    /** 非空页的最大 id，供 afterId 翻页或检查后续新增消息。 */
+    private Long newerCursor;
     /**
      * 本会话存在未提交的消息终态（写入失败或待恢复）。
      *
