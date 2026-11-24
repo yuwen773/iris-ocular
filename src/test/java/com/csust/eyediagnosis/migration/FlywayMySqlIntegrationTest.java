@@ -48,8 +48,8 @@ class FlywayMySqlIntegrationTest {
                 assertEquals(12, masterMigrations);
                 Flyway latest = Flyway.configure().dataSource(url, username, password).schemas(schema)
                         .locations("classpath:db/migration", "classpath:db/callback").load();
-                // V18–V34 共 17 条；数字写死是为了让「多出/少掉一条迁移」在评审时被看见。
-                assertEquals(17, latest.migrate().migrationsExecuted);
+                // V18–V34 共 17 条 + V39 共 18 条；数字写死是为了让「多出/少掉一条迁移」在评审时被看见。
+                assertEquals(18, latest.migrate().migrationsExecuted);
                 try (var account = statement.executeQuery("SELECT userAccount,userPassword,userRole,legacyMarker FROM `"
                         + schema + "`.t_user WHERE id=7")) {
                     assertTrue(account.next());
@@ -87,7 +87,7 @@ class FlywayMySqlIntegrationTest {
 
                 int expectedMigrations = flyway.info().all().length;
                 assertEquals(expectedMigrations, flyway.migrate().migrationsExecuted);
-                assertEquals("34", flyway.info().current().getVersion().toString());
+                assertEquals("39", flyway.info().current().getVersion().toString());
 
                 // 空库 migrate 后必须拥有全部被实体使用的表，否则登录、资讯、
                 // Agent 会话、知识库会在启动时无表可写。
@@ -104,8 +104,17 @@ class FlywayMySqlIntegrationTest {
                         "t_diagnosis", "t_agent_message", "t_mcp_server", "t_inference_cache",
                         "t_news_audit", "t_diagnosis_task", "t_patient_draft_run",
                         "t_doctor_review", "t_patient_authorization", "t_agent_tool_audit",
-                        "t_diagnosis_run"}) {
+                        "t_diagnosis_run",
+                        "t_news_source", "t_news_source_cursor", "t_news_collection_task",
+                        "t_news_collection_lease", "t_news_collection_batch", "t_news_batch_item",
+                        "t_news_worker_receipt", "t_news_material", "t_news_material_revision"}) {
                     assertTrue(tables.contains(expected), "missing table after migrate: " + expected);
+                }
+
+                try (ResultSet seededSources = statement.executeQuery(
+                        "SELECT COUNT(*) FROM `" + schema + "`.t_news_source WHERE enabled = 1")) {
+                    assertTrue(seededSources.next());
+                    assertEquals(3, seededSources.getInt(1));
                 }
 
                 // V15 的 t_news 对 content/publishTime/coverImg 有 NOT NULL 且无默认值。
@@ -162,8 +171,8 @@ class FlywayMySqlIntegrationTest {
                         "升级前：旧 jar 自己的迁移集合跑到 V17");
                 Flyway rc = Flyway.configure().dataSource(url, username, password).schemas(schema)
                         .locations("classpath:db/migration", "classpath:db/callback").load();
-                assertEquals(17, rc.migrate().migrationsExecuted);
-                assertEquals("34", rc.info().current().getVersion().toString());
+                assertEquals(18, rc.migrate().migrationsExecuted);
+                assertEquals("39", rc.info().current().getVersion().toString());
 
                 Flyway oldJar = jarFlyway(url, username, password, schema, oldHome);
                 assertEquals(0, oldJar.migrate().migrationsExecuted, "旧迁移集合不会执行 future 版本");

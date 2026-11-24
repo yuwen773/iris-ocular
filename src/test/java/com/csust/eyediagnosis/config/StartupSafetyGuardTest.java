@@ -91,4 +91,62 @@ class StartupSafetyGuardTest {
         env.setActiveProfiles("server");
         assertDoesNotThrow(() -> new StartupSafetyGuard(env).verify());
     }
+
+    @Test
+    void newsIngestionDisabledPassesWithoutWorkerKeys() {
+        MockEnvironment env = deployment()
+                .withProperty("eye-diagnosis.news-ingestion.enabled", "false");
+        env.setActiveProfiles("prod");
+        assertDoesNotThrow(() -> new StartupSafetyGuard(env).verify());
+    }
+
+    @Test
+    void newsIngestionEnabledWithoutKeyOrTransportPolicyBlocksStartup() {
+        MockEnvironment env = deployment()
+                .withProperty("eye-diagnosis.news-ingestion.enabled", "true");
+        env.setActiveProfiles("server");
+        IllegalStateException failure = assertThrows(IllegalStateException.class,
+                () -> new StartupSafetyGuard(env).verify());
+        String msg = failure.getMessage();
+        assertTrue(msg.contains("workers.<id>.key"), msg);
+        assertTrue(msg.contains("require-https=false"), msg);
+    }
+
+    @Test
+    void newsIngestionRejectsWeakOrPlaceholderKeys() {
+        MockEnvironment weak = deployment()
+                .withProperty("eye-diagnosis.news-ingestion.enabled", "true")
+                .withProperty("eye-diagnosis.news-ingestion.require-https", "true")
+                .withProperty("eye-diagnosis.news-ingestion.workers.w1.key", "too-short");
+        weak.setActiveProfiles("prod");
+        IllegalStateException weakFailure = assertThrows(IllegalStateException.class,
+                () -> new StartupSafetyGuard(weak).verify());
+        assertTrue(weakFailure.getMessage().contains("格式无效"), weakFailure.getMessage());
+
+        MockEnvironment placeholder = deployment()
+                .withProperty("eye-diagnosis.news-ingestion.enabled", "true")
+                .withProperty("eye-diagnosis.news-ingestion.require-https", "true")
+                .withProperty("eye-diagnosis.news-ingestion.workers.w1.key", "fixture_worker_key_123456");
+        placeholder.setActiveProfiles("prod");
+        IllegalStateException placeholderFailure = assertThrows(IllegalStateException.class,
+                () -> new StartupSafetyGuard(placeholder).verify());
+        assertTrue(placeholderFailure.getMessage().contains("占位凭据"), placeholderFailure.getMessage());
+    }
+
+    @Test
+    void newsIngestionEnabledWithStrongKeyAndHttpsOrExplicitPlaintextPasses() {
+        MockEnvironment https = deployment()
+                .withProperty("eye-diagnosis.news-ingestion.enabled", "true")
+                .withProperty("eye-diagnosis.news-ingestion.require-https", "true")
+                .withProperty("eye-diagnosis.news-ingestion.workers.w1.key", "k9X2pL8mQ4vR7tW1zN6bC3fH5jD0sA2e");
+        https.setActiveProfiles("prod");
+        assertDoesNotThrow(() -> new StartupSafetyGuard(https).verify());
+
+        MockEnvironment privateNet = deployment()
+                .withProperty("eye-diagnosis.news-ingestion.enabled", "true")
+                .withProperty("eye-diagnosis.news-ingestion.plaintext-allowed", "true")
+                .withProperty("eye-diagnosis.news-ingestion.workers.w1.key", "k9X2pL8mQ4vR7tW1zN6bC3fH5jD0sA2e");
+        privateNet.setActiveProfiles("server");
+        assertDoesNotThrow(() -> new StartupSafetyGuard(privateNet).verify());
+    }
 }

@@ -1,6 +1,10 @@
 package com.csust.eyediagnosis.config;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.module.SimpleModule;
 import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
@@ -8,6 +12,7 @@ import com.fasterxml.jackson.datatype.jsr310.deser.LocalDateTimeDeserializer;
 import com.fasterxml.jackson.datatype.jsr310.ser.LocalDateTimeSerializer;
 import org.springframework.boot.jackson.JsonComponent;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
 
 import java.time.LocalDateTime;
@@ -35,6 +40,7 @@ public class JsonConfig {
      * @return
      */
     @Bean
+    @Primary
     public ObjectMapper jacksonObjectMapper(Jackson2ObjectMapperBuilder builder) {
         /**
          * 创建 ObjectMapper:
@@ -72,5 +78,26 @@ public class JsonConfig {
         objectMapper.registerModule(simpleModule);
 
         return objectMapper;
+    }
+
+    /**
+     * Wire-protocol ObjectMapper for Iris News Engine v1: preserves JSON integer types for
+     * {@code Long}/{@code long}, emits UTC ISO-8601 dates/instants, omits nulls, and rejects
+     * unknown properties, trailing tokens, and duplicate keys.
+     */
+    @Bean(name = "newsProtocolObjectMapper")
+    public ObjectMapper newsProtocolObjectMapper() {
+        return createNewsProtocolObjectMapper();
+    }
+
+    public static ObjectMapper createNewsProtocolObjectMapper() {
+        ObjectMapper mapper = new ObjectMapper();
+        mapper.registerModule(new JavaTimeModule());
+        mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+        mapper.setSerializationInclusion(JsonInclude.Include.NON_NULL);
+        mapper.enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
+        mapper.enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
+        mapper.enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
+        return mapper;
     }
 }

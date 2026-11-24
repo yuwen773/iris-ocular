@@ -76,13 +76,14 @@ Java 21 与本机 MySQL 实例的环境事实见主检出目录的 `CLAUDE.local
 | McpServerController | `/api/mcp-server/*` | MCP server CRUD |
 | KnowledgeBaseController | `/api/knowledge/*` | RAG document management |
 | NewsController | `/api/news/*` | News CRUD |
+| NewsWorkerLeaseController | `/api/internal/news/v1/leases/*` | 内部资讯采集 Worker 租约领取、批次上报、完成与失败回执（机器凭证鉴权） |
 | ControlledReferenceController | `/api/controlled-references/*` | 受控参考资料上传、治理与检索 |
 | DoctorReviewController | `/api/doctor-reviews/*` | 医生复核冻结草稿 |
 | PatientDraftTestController / PatientDraftSeedController | `/api/patient-draft-test/*` | 仅管理员、需显式开启的草稿校验 |
 
 ## Database (MySQL `diagnosis`)
 
-Schema: `src/main/resources/db/migration/V*.sql` (Flyway migrations — authoritative; `db/callback/` bootstraps fresh installs). Never edit an applied migration; add a new one. Current head is V34; upgrade paths per target database are in `docs/architecture/migration-matrix.md`. Key tables: `t_user`, `t_diagnosis`, `t_diagnosis_task`, `t_agent_session`, `t_agent_message`, `t_agent_tool_audit`, `t_mcp_server`, `t_knowledge_document`, `t_news`, `t_controlled_reference`, `t_patient_draft_run`, `t_doctor_review`, `t_patient_authorization`, `t_diagnosis_run`.
+Schema: `src/main/resources/db/migration/V*.sql` (Flyway migrations — authoritative; `db/callback/` bootstraps fresh installs). Never edit an applied migration; add a new one. Current head is V39; upgrade paths per target database are in `docs/architecture/migration-matrix.md`. Key tables: `t_user`, `t_diagnosis`, `t_diagnosis_task`, `t_agent_session`, `t_agent_message`, `t_agent_tool_audit`, `t_mcp_server`, `t_knowledge_document`, `t_news`, `t_news_source`, `t_news_source_cursor`, `t_news_collection_task`, `t_news_material`, `t_news_material_revision`, `t_controlled_reference`, `t_patient_draft_run`, `t_doctor_review`, `t_patient_authorization`, `t_diagnosis_run`.
 
 **命名规范**: 数据库列名统一使用**小驼峰**命名（如 `userId`, `fileName`, `isDelete`），与 Java 实体类字段保持一致。MyBatis Plus 配置 `map-underscore-to-camel-case: false`，不会自动转换下划线。
 

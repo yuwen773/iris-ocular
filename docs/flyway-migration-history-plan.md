@@ -109,3 +109,10 @@ Two consequences to know before writing the next migration:
    Python service does not send the fields. Old rows are not backfilled: the
    historical values are not recoverable, and inventing them would be
    fabricating evidence.
+
+## V39 (2026-11-24)
+
+WP-02 News Engine scheduling, lease fencing, idempotency receipts, and material pool (`V39__news_ingestion_pool.sql`). No edits to V1--V34; V35--V38 are reserved for open sibling PRs (`#160` miniapp Bearer binding V35, `#164` Control Center V35--V36, `#166` user feedback/notifications V37--V38).
+
+- Creates nine additive tables: `t_news_source` (pre-seeded with `pubmed`, `europe-pmc`, `clinicaltrials-gov`), `t_news_source_cursor`, `t_news_collection_task`, `t_news_collection_lease`, `t_news_collection_batch`, `t_news_batch_item`, `t_news_worker_receipt`, `t_news_material`, and `t_news_material_revision`.
+- Existing `t_news` and `t_news_audit` tables are untouched; partial batches stay isolated in `t_news_batch_item` until `complete()` promotes materials and advances the cursor in a single MySQL transaction.

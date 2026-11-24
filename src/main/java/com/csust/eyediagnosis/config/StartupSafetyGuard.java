@@ -1,15 +1,19 @@
 package com.csust.eyediagnosis.config;
 
 import com.csust.eyediagnosis.grpc.GrpcHosts;
+import com.csust.eyediagnosis.newsingestion.NewsIngestionProperties;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.context.properties.bind.Bindable;
+import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 部署期安全基线：带着 server / prod profile 启动时，拒绝带着开发调试口子运行。
@@ -67,6 +71,7 @@ public class StartupSafetyGuard {
                     + "（跨主机明文 gRPC：开 TLS，或确认链路已被网络隔离覆盖后设"
                     + " DIAGNOSIS_GRPC_PLAINTEXT_ALLOWED=true）");
         }
+        verifyNewsIngestion(violations);
         if (violations.isEmpty()) {
             log.info("部署安全基线检查通过（profiles={}）", active);
             return;
@@ -75,5 +80,44 @@ public class StartupSafetyGuard {
                 "部署安全基线未满足，拒绝启动（profiles=" + active + "）：\n  - "
                         + String.join("\n  - ", violations)
                         + "\n参考 src/main/resources/application-server.example.yml 的「生产安全基线」一节。");
+    }
+
+    private void verifyNewsIngestion(List<String> violations) {
+        if (!environment.getProperty("eye-diagnosis.news-ingestion.enabled", Boolean.class, false)) {
+            return;
+        }
+        Map<String, NewsIngestionProperties.WorkerConfig> workers = Binder.get(environment)
+                .bind("eye-diagnosis.news-ingestion.workers",
+                        Bindable.mapOf(String.class, NewsIngestionProperties.WorkerConfig.class))
+                .orElse(Map.of());
+        boolean hasConfiguredKey = false;
+        for (Map.Entry<String, NewsIngestionProperties.WorkerConfig> entry : workers.entrySet()) {
+            String workerId = entry.getKey();
+            NewsIngestionProperties.WorkerConfig cfg = entry.getValue();
+            String key = cfg == null ? null : cfg.getKey();
+            if (key == null || key.isBlank()) {
+                continue;
+            }
+            hasConfiguredKey = true;
+            if (!NewsIngestionProperties.isValidRawKey(key)) {
+                violations.add("eye-diagnosis.news-ingestion.workers." + workerId
+                        + ".key 格式无效（需 16–256 位可见 ASCII 字符）");
+            } else if (NewsIngestionProperties.isPlaceholderKey(key)) {
+                violations.add("eye-diagnosis.news-ingestion.workers." + workerId
+                        + ".key 不能使用示例或占位凭据");
+            }
+        }
+        if (!hasConfiguredKey) {
+            violations.add("eye-diagnosis.news-ingestion.enabled=true 但未配置任何 Worker 凭据"
+                    + "（eye-diagnosis.news-ingestion.workers.<id>.key）");
+        }
+        boolean requireHttps = environment.getProperty(
+                "eye-diagnosis.news-ingestion.require-https", Boolean.class, false);
+        boolean plaintextAllowed = environment.getProperty(
+                "eye-diagnosis.news-ingestion.plaintext-allowed", Boolean.class, false);
+        if (!requireHttps && !plaintextAllowed) {
+            violations.add("eye-diagnosis.news-ingestion.enabled=true 且 require-https=false"
+                    + "（部署环境必须设 require-https=true，或由内网 TLS 终止覆盖并显式设置 plaintext-allowed=true）");
+        }
     }
 }

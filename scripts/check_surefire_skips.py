@@ -64,6 +64,7 @@ BACKEND_UNIT_CONTRACT = {
         P + "upload.state.UploadTaskMapperMySqlIntegrationTest": {"env": "FLYWAY_TEST_URL", "cases": 3, "skipped": 3},
         P + "service.DiagnosisRunMySqlIntegrationTest": {"env": "FLYWAY_TEST_URL", "cases": 8, "skipped": 8},
         P + "integration.AdminAnalyticsMySqlIntegrationTest": {"env": "FLYWAY_TEST_URL", "cases": 1, "skipped": 1},
+        P + "newsingestion.NewsIngestionMySqlIntegrationTest": {"env": "FLYWAY_TEST_URL", "cases": 13, "skipped": 13},
     },
 }
 
@@ -89,6 +90,7 @@ FLYWAY_CONTRACT = {
         P + "agent.service.ToolTerminalPersistenceMySqlIntegrationTest": 1,
         P + "service.DiagnosisRunMySqlIntegrationTest": 8,
         P + "integration.AdminAnalyticsMySqlIntegrationTest": 1,
+        P + "newsingestion.NewsIngestionMySqlIntegrationTest": 13,
     },
     "opt_in": {},
 }

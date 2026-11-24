@@ -186,3 +186,14 @@ eye-diagnosis:
     # 绝不扩大默认可见性；不参与受控引用库的准入判定。
     source-type:
       enabled: false
+  # Iris News Engine WP-02 内部 Worker 控制面（默认 fail-closed 关闭；凭据只由部署环境变量注入）
+  news-ingestion:
+    enabled: false
+    workers: {}
+    allowed-remote-addresses: []
+    require-https: false
+    plaintext-allowed: false
+    lease-duration: 5m
+    retry-base-delay: 30s
+    retry-max-delay: 15m
+    default-max-attempts: 3
