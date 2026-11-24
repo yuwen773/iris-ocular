@@ -1,0 +1,47 @@
+{
+  "miniprogramRoot": "dist/",
+  "projectname": "iris-miniapp",
+  "description": "Iris 眼底影像判读患者端（体验版）",
+  "appid": "wx5dbff5e907f3c3f6",
+  "compileType": "miniprogram",
+  "libVersion": "2.20.2",
+  "setting": {
+    "urlCheck": false,
+    "es6": false,
+    "enhance": false,
+    "postcss": false,
+    "minified": false,
+    "coverView": true,
+    "nodeModules": false,
+    "autoAudits": false,
+    "showShadowRootInWxmlPanel": true,
+    "scopeDataCheck": false,
+    "checkInvalidKey": true,
+    "checkSiteMap": true,
+    "uploadWithSourceMap": true,
+    "babelSetting": {
+      "ignore": [],
+      "disablePlugins": [],
+      "outputPath": ""
+    },
+    "compileWorklet": false,
+    "uglifyFileName": false,
+    "packNpmManually": false,
+    "packNpmRelationList": [],
+    "minifyWXSS": true,
+    "minifyWXML": true,
+    "localPlugins": false,
+    "disableUseStrict": false,
+    "useCompilerPlugins": false,
+    "condition": false
+  },
+  "packOptions": {
+    "ignore": [],
+    "include": []
+  },
+  "editorSetting": {
+    "tabIndent": "insertSpaces",
+    "tabSize": 2
+  },
+  "simulatorPluginLibVersion": {}
+}

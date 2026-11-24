@@ -102,10 +102,33 @@ numbers were taken.
 
 Two consequences to know before writing the next migration:
 
-1. V32--V34 are owned by `fix/p1-audit-remediation-2026-11-23`. Work in flight
-   on other branches (Control Center WP-01C already drafts a V33) must
-   re-number to V35 or higher; two branches cannot claim the same version.
+1. V32--V34 are owned by `fix/p1-audit-remediation-2026-11-23`; V35 is owned by
+   the WeChat mini-program work. Work in flight on other branches (Control
+   Center WP-01C already drafts a V33) must re-number to V36 or higher; two
+   branches cannot claim the same version.
 2. `DiagnosisEvidence` deliberately leaves all six V34 columns NULL when the
    Python service does not send the fields. Old rows are not backfilled: the
    historical values are not recoverable, and inventing them would be
    fabricating evidence.
+
+## V35 (2026-11-24)
+
+One migration from the WeChat mini-program (patient client) work. No edits to
+V1--V34; it only creates a new table, so every existing row and query is
+untouched. Per-target upgrade paths stay in
+`docs/architecture/migration-matrix.md`.
+
+- **V35** `t_user_wechat`: `(appid, openid)` unique key mapping a WeChat
+  identity to a `t_user.id`, backing the Bearer token channel that the
+  mini-program uses (`wx.login` code -> `jscode2session` -> binding -> token).
+  First login creates a `t_user` row (`userAccount = wx_<openid>`, random
+  BCrypt password, `role = user`) instead of merging into a password account.
+  `session_key` is deliberately absent: it is neither stored nor returned.
+  `COLLATE utf8mb4_unicode_ci` matches the V15 baseline tables.
+
+Two consequences:
+
+1. Nothing in the Java cookie-session path reads this table; dropping the
+   binding rows would only force a re-login, never create a new account for an
+   existing one.
+2. The next branch that needs a version takes V36.
