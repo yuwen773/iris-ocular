@@ -93,7 +93,20 @@ export async function request<T>(
   }
 
   if (!response.ok) {
-    throw new ApiError(response.status, `服务返回 ${response.status}`)
+    // 非 2xx 也可能是统一信封：SameOriginFilter / CSRF 过滤器与网关直接以
+    // HTTP 403 回 `{code, data, msg}`。只拿 status 当 code 会让 40300 这类
+    // 业务码在调用方看来变成笼统的「403」，也无法复用认证广播。
+    let payload: Envelope<T> | null = null
+    try {
+      payload = (await response.json()) as Envelope<T>
+    } catch {
+      // 响应体不是 JSON（代理错误页、空体）：退回 HTTP 状态码。
+    }
+    const code = payload?.code && payload.code !== 0 ? payload.code : response.status
+    if (AUTH_CODES.has(code) && !options.silentAuth) {
+      notifyAuthExpired(code)
+    }
+    throw new ApiError(code, payload?.msg || `服务返回 ${response.status}`)
   }
 
   const payload = (await response.json()) as Envelope<T>
