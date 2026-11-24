@@ -1,11 +1,13 @@
 # WP-01D 最终集成审计、并发故障验证与交付收口
 
-> 状态：**本地验收候选**——未提交、未推送、未合并、未部署
-> 基线：`master` @ `5dc2eac5` + WP-01A/B/C 全部未提交改动；迁移头 **V33**
+> 状态：**分支验收候选**——已提交到 `t3/wp-00-5-baseline-audit`（4 个提交，已 rebase 到
+> `master c90b0caa`），**未推送、未合并、未部署**
+> 基线：`master` @ `5dc2eac5` + WP-01A/B/C 全部改动；审计时迁移头 **V33**，
+> 合入前已按 §8.4 改号为 **V35 / V36** 并 rebase 到 `c90b0caa`
 > 工作树：`t3/wp-00-5-baseline-audit`
 > 本轮定位：独立审计 + 必要的最小整改 + 验收，不开发新业务模块
-> **本报告的全部结论只对上述基线成立**：`master` 已前进到 `c90b0caa`，且 V32–V34
-> 已被其它迁移占用，合入前必须重新编号并复跑迁移门禁（§8.4）。
+> **本报告的审计结论对基线 `5dc2eac5` 成立**；`master` 已前进到 `c90b0caa` 且 V32–V34
+> 已被其它迁移占用，合入前的重编号与复跑已在 §8.4 执行并记录。
 
 ---
 
@@ -16,8 +18,8 @@
 | 阶段 1 源码审计 | 完成；**未发现 P0**；P1 4 条（3 条已最小整改，1 条留裁决）、P2 12 条 |
 | 阶段 2 多实例与故障注入 | 见 §4：**两个独立 JVM** 连接同一 MySQL 8 的 5 类竞争 + 强杀 + 锁等待超时，全部通过 |
 | 阶段 3 契约裁决 | 确认「批准即发布」；PRD / ADR / API 契约 / 验收文档已**追加**结论，历史记录未改 |
-| 阶段 4 最终验收 | 见 §6：L3 复跑与 V31→V33 结果、反向代理与会话安全复核（部分**待验证**） |
-| 合并准入判断 | **GO**（§8，**对审计基线 `5dc2eac5` 成立**）：owner 2026-11-23 裁决 C-3「A-04 接受为 R-1」、C-5「接受 pass 1+2 全绿 + pass 3 独立归因」。**当前 master `c90b0caa` 上执行前须先完成 §8.4**（V32–V34 已被占，控制中心迁移要重新编号并复跑）；部署启用仍需另一轮 |
+| 阶段 4 最终验收 | 见 §6：L3 复跑与 V31→V36 结果、反向代理与会话安全复核（部分**待验证**） |
+| 合并准入判断 | **GO**（§8）：owner 2026-11-23 裁决 C-3「A-04 接受为 R-1」、C-5「接受 pass 1+2 全绿 + pass 3 独立归因」。**2026-11-24 已按 §8.4 完成**：rebase 到 `master c90b0caa`、迁移改号 V35/V36、迁移门禁与 L2/L3 复跑；部署启用仍需另一轮 |
 
 ---
 
@@ -25,7 +27,7 @@
 
 三样东西分开看，避免「测试绿灯 ⇒ 没问题」：
 
-1. **读实现**：V32/V33 全部 DDL、六个 Mapper 的 SQL、三个服务、事务体、过滤器链、权限切面；
+1. **读实现**：V35/V36 全部 DDL、六个 Mapper 的 SQL、三个服务、事务体、过滤器链、权限切面；
 2. **读契约**：PRD / ADR（D1–D12）/ API 契约 / WP-01B/C 的设计与交付记录，逐条对实现；
 3. **跑真实环境**：真 MySQL 8 上的并发竞争、跨进程竞争、崩溃与锁等待；不靠阅读推断并发性质。
 
@@ -76,13 +78,13 @@
 | ID | 严重度 | 位置 | 触发条件 | 影响 | 处置 |
 |---|---|---|---|---|---|
 | **A-01** | **P1** | `ControlCenterReleaseTransactions:179/193/250/285`（`FOR UPDATE`）；`GlobalExceptionHandler:36`（兜底 `Exception`） | 两个实例争同一审批行或指针行，等待超过 `innodb_lock_wait_timeout`（默认 50s），或 InnoDB 判定死锁 | 客户端收到 `50000 系统错误`。事务其实已完整回滚、原样重试就正确，但接口没有可重试的码，前端只能报「服务坏了」 | **已修**：新增 `40906 CONFIG_CONCURRENT_CONFLICT` + `ControlCenterExceptionHandler`（只作用于两个控制中心控制器，`HIGHEST_PRECEDENCE`）；`ControlCenterExceptionHandlerTest` 3 例；跨进程证据见 §4.7 |
-| **A-02** | **P1** | `ControlCenterIdempotencyService:70/91/113`（校验点）、`:79`（插入）；`V32:60` `VARCHAR(64)` | 客户端传超过 64 字符的 `requestId` | MySQL 严格模式抛 1406 → 落兜底 → `50000`；调用方以为服务故障 | **已修**：`validateRequestId` 在写库前按码点限长 → `40000`；5 个单测（含上限、超限、emoji 码点计法） |
+| **A-02** | **P1** | `ControlCenterIdempotencyService:70/91/113`（校验点）、`:79`（插入）；`V35:60` `VARCHAR(64)` | 客户端传超过 64 字符的 `requestId` | MySQL 严格模式抛 1406 → 落兜底 → `50000`；调用方以为服务故障 | **已修**：`validateRequestId` 在写库前按码点限长 → `40000`；5 个单测（含上限、超限、emoji 码点计法） |
 | **A-03** | **P1** | `ControlCenterIdempotencyService:63-70`；`web/src/lib/controlCenterApi.ts` 草稿三方法 | ① 同一个 `requestId` 先「申请发布」再「批准」；② 草稿写操作不传 `requestId` | ① `40908 同一请求号的内容不一致`——读起来像服务端 bug，其实是客户端用错了号；② 幂等被静默关闭，网络重试变成第二次写入（推高 revision、作废校验） | **已修**：前端为草稿写操作默认生成 `requestId`，并在模块文档写明「每个动作必须是不同的号」；新增 2 个 vitest 用例 |
 | **A-04** | **P1（待裁决）** | `ControlCenterReleaseTransactions:198-202` | 两张 PENDING 审批单绑定同一 `expectedActiveReleaseId`，先批一张 | 另一张**永远**批准不了（每次都 40900），也不会自动变 STALE，只能人工拒绝。审批列表会累积「看着可点、点不动」的僵尸单 | **未改**：把它标成 STALE 会改变 WP-01C 已接受的状态机语义（40900 故意保持 PENDING，避免谎称「内容失效」）。列为 WP-01E 候选，见 §9 |
 | A-05 | P2 | `ControlCenterIdempotencyService:126-131` | 同一 `requestId` 并发提交 | 注释里的「处理中 → 40900」分支**不可达**：已提交行必有结果，未提交行不可见。真实行为是阻塞等待（最长 50s），HTTP 线程被占住 | 记录契约（§5.3）；不改为轮询式「处理中」，MVP 不需要 |
 | A-06 | P2 | `ControlCenterReleaseTransactions:349-359` | 批准时发现绑定已失效 | `markStale` 的 STALE 更新（REQUIRES_NEW）与它的失败审计（也是 REQUIRES_NEW）分两次提交 → 极端情况下「有 FAILED 审计、审批单仍 PENDING」。方向是安全的（不会出现「已 STALE 但无审计」） | 记录；不改（改成同事务会与外层行锁互等，正是 WP-01C §4.4 的结论） |
 | A-07 | P2 | `ControlCenterDraftService:93-94`、`:131-132` | 两次并发草稿写，后者的 `get()` 读到前者 | 幂等记录里存的是「重读到的当前草稿」而非本次写入的版本；重放时返回的 `revision` 可能不是本次请求写入的那一版 | 记录；影响限于重放载荷的可读性，不改变数据 |
-| A-08 | P2 | `V32:62`（`action` 列注释只列了 `DRAFT_*`） | 任何阅读 DDL 的人 | 注释与实际写入的 `PUBLISH_REQUEST/PUBLISH_APPROVE/PUBLISH_REJECT/ROLLBACK` 不符 | **不修改 V32**（已应用迁移不改 checksum）；在迁移矩阵注明 |
+| A-08 | P2 | `V35:62`（`action` 列注释只列了 `DRAFT_*`） | 任何阅读 DDL 的人 | 注释与实际写入的 `PUBLISH_REQUEST/PUBLISH_APPROVE/PUBLISH_REJECT/ROLLBACK` 不符 | **不修改 V35**（已应用迁移不改 checksum）；在迁移矩阵注明 |
 | A-09 | P2 | `ControlCenterIdempotencyService:101` | — | `resultCode` 永远写 0（失败时整行回滚），列注释暗示的「非 0 = 失败」不会发生 | 记录；语义（失败不消耗号）是对的，注释是历史残留 |
 | A-10 | P2 | `ControlCenterSecurityAudit:44`（写审计）与类注释 | 匿名请求被 Origin/CSRF 拒绝 | 原注释「匿名请求不落库」与实现不符：**每个被拒请求都会写一条 `actorId=NULL` 的审计行**，无速率限制 | **已更正注释**并写进风险清单（保留期/限流待运维决策） |
 | A-11 | P2（待验证） | `application.yml:7-12`；`SameOriginFilter:184-193` | 部署到反向代理之后 | ① 会话 Cookie 未设 `Secure`（注释说「生产 HTTPS 再加」，生产域名是 HTTPS）；② 严格 Origin 只信任 `X-Forwarded-Proto`，**不信任 `X-Forwarded-Host`**——反代若把 Host 改写成内网地址，所有写请求都会 403 | 本轮无真实反代环境 → **标为待验证**；部署检查项见 §7 |
@@ -96,13 +98,13 @@
 
 | 表 | 复核点 | 结论 |
 |---|---|---|
-| `t_config_draft`（V32） | 单例行 `id=1` 主键；`revision` 乐观锁；`updateWithRevision` 同时把状态打回 `DRAFT` 并清空校验 | ✓ 结构约束而非服务层自觉；编辑即作废校验在 SQL 里 |
-| `t_config_release`（V32） | 只插入；`uk_config_release_version` 唯一 | ✓ 全仓无更新路径；序列号唯一键兜底 |
-| `t_config_active_pointer`（V32） | 单例行 + 迁移内预置；`<=>` NULL 安全条件更新 | ✓ 首次发布（NULL → 首条）可用 |
-| `t_config_request`（V32） | `UNIQUE(actorId, requestId)`；`requestId` 用 `utf8mb4_bin` | ✓ 大小写不同不会误判同一请求；`collation` 选择有理由 |
-| `t_config_audit_event`（V32） | `eventId` 唯一（UUID）；`occurredAt DATETIME(3)` + 时间索引 | ✓ 只追加 |
-| `t_config_publish_request`（V33） | `UNIQUE(actorId, requestId)` 二道闸；`idx(status, requestedTime)`；`idx(draftRevision)` | ✓ 与幂等表互不替代；状态列 `VARCHAR(16)` 容得下四个终态 |
-| 迁移兼容 | V31 库 → V33 只跑 V32/V33；旧 jar（认到 V17）在 V33 history 上可解析 | ✓ 见 §6.3（本轮在**隔离的一次性 MySQL 8** 上复核） |
+| `t_config_draft`（V35） | 单例行 `id=1` 主键；`revision` 乐观锁；`updateWithRevision` 同时把状态打回 `DRAFT` 并清空校验 | ✓ 结构约束而非服务层自觉；编辑即作废校验在 SQL 里 |
+| `t_config_release`（V35） | 只插入；`uk_config_release_version` 唯一 | ✓ 全仓无更新路径；序列号唯一键兜底 |
+| `t_config_active_pointer`（V35） | 单例行 + 迁移内预置；`<=>` NULL 安全条件更新 | ✓ 首次发布（NULL → 首条）可用 |
+| `t_config_request`（V35） | `UNIQUE(actorId, requestId)`；`requestId` 用 `utf8mb4_bin` | ✓ 大小写不同不会误判同一请求；`collation` 选择有理由 |
+| `t_config_audit_event`（V35） | `eventId` 唯一（UUID）；`occurredAt DATETIME(3)` + 时间索引 | ✓ 只追加 |
+| `t_config_publish_request`（V36） | `UNIQUE(actorId, requestId)` 二道闸；`idx(status, requestedTime)`；`idx(draftRevision)` | ✓ 与幂等表互不替代；状态列 `VARCHAR(16)` 容得下四个终态 |
+| 迁移兼容 | V31 库 → V36 跑 V32–V36（其中 V35/V36 是配置中心两条）；旧 jar（认到 V17）在 V36 history 上可解析 | ✓ 见 §6.3（本轮在**隔离的一次性 MySQL 8** 上复核） |
 | 命名口径 | 全部小驼峰列名 + `map-underscore-to-camel-case: false` | ✓ 与既有库一致 |
 
 ---
@@ -251,7 +253,7 @@ WP-01C 的并发证据是「一个 JVM、两个线程、两个独立事务」—
 | `docs/product/wp-00/config-center-adr.md` | `2026-11-23 WP-01D 裁决` 表（D2/D3/D4/D11/D12 追认 + D13 新增） |
 | `docs/product/wp-00/mvp-api-contract.md` | `§7 WP-01D 增量`：40906、`requestId` 三条规则、批准即发布、按码的客户端处置表 |
 | `docs/product/wp-01/wp-01c-publish-approval-delivery.md` | `§11 WP-01D 追认`：追认裁决/状态机/事务顺序/失败恢复，登记三条增量 |
-| `docs/architecture/migration-matrix.md` | V32 列注释漂移说明（A-08），并说明为何不改已应用迁移 |
+| `docs/architecture/migration-matrix.md` | V35 列注释漂移说明（A-08），并说明为何不改已应用迁移 |
 
 ---
 
@@ -286,14 +288,15 @@ Maven 没有输出任何测试失败——只有把 dumpstream 打开才看得�
 保留 pom 的 `-Dfile.encoding=UTF-8`），并新增「本机已有 `eye-test-*` 栈」的启动警告。
 这不是产品改动，也不改变任何测试语义。
 
-### 6.2 V31 → V33
+### 6.2 V31 → V36
 
 门禁：`FlywayMySqlIntegrationTest#upgradesAnExistingV31SchemaToTheControlCenterSchema`，
 在 pass 2 的一次性 MySQL 8 上真跑（不是模拟）：新建独立 schema → 迁到 `target=31` →
 再跑全量迁移。断言：
 
-- 首次迁移数 = 总迁移数 − 2（只差 V32、V33）；
-- 升级只执行 **2** 条，`current` 版本为 **33**；
+- 首次迁移数 = 总迁移数 − 5（只差 V32–V36；其中 V32–V34 是 master 的迁移，
+  V35、V36 才是配置中心的两条）；
+- 升级只执行 **5** 条，`current` 版本为 **36**；
 - `t_config_active_pointer` 恰好一行 `(1, NULL)`；
 - `t_config_publish_request` 存在且为空表。
 
@@ -343,6 +346,15 @@ Maven 没有输出任何测试失败——只有把 dumpstream 打开才看得�
 `heartbeatRenewsLeaseAndConcurrentClaimDoesNotDispatchProviders`、
 `blockedConnectionAcquisitionSilencesCoordinatorSqlAndExpiresTheLease`——后两条正是
 2026-11-20 记录里点名过的两个 flaky。
+
+**第 4 轮（2026-11-24，合并后树：rebase 到 `c90b0caa` + 迁移改号 V35/V36）**：
+pass 1（1079 例）与 pass 2（26 例，含 Flyway 6/6 与跨进程 7/7）**全绿**；
+pass 3（305 例）红 **1** 条——`GraphExecutionTest.processDeathRestoresOnlyCommittedNodesAndPreservesBudgets(String)[7]`
+（`expected: <TOTAL_TIMEOUT> but was: <null>`），与第 2 轮 `[4]` 同属
+「fork 子进程 + 10 秒预算」这一族，仍是既有 flake。
+四轮（含本轮）的失败集合没有任何一条落在 `controlcenter` 包或 `t_config_*` 表上；
+完整原始输出保留在仓库外证据目录 `D:\develop-worktree-t3\wp01-prep-backup-20261124-154356\`
+（`wp01-l3.log`、`wp01-l2b.log`）。
 
 **三轮对照是最有力的证据**：
 
@@ -398,6 +410,10 @@ Maven 没有输出任何测试失败——只有把 dumpstream 打开才看得�
 前端改动单独跑：`npx vitest run src/lib/controlCenterApi.test.ts src/lib/csrf.test.ts`
 → **2 文件 / 15 例通过**；`npm run typecheck`（`tsc -b`）与 `eslint`（3 个改动文件）均无输出。
 
+> 上表是审计基线上的记录。合入前重编号 + rebase 之后，同一批类（+ `FlywayMySqlIntegrationTest`）
+> 在合并树上复跑：**18 类 / 164 例 / 0 失败 / 291s**，逐类数字与上表一致。
+> 见 §8.4。
+
 ---
 
 ## 7. 部署前置检查（本轮**未验证**，不得当作已通过）
@@ -417,8 +433,9 @@ Maven 没有输出任何测试失败——只有把 dumpstream 打开才看得�
 
 ### 8.1 判断
 
-**GO（对审计基线 `5dc2eac5` 成立）。** 当前 master 已前进到 `c90b0caa` 且 V32–V34 被占，
-在该基线上执行前必须先完成 §8.4 的重编号与复跑（C-9）——那是执行前置，不改变本报告的审计结论。
+**GO。** 审计结论对基线 `5dc2eac5` 成立；合入前要求的重编号与复跑（C-9）已于 2026-11-24
+在当前 master `c90b0caa` 上完成并记录在 §8.4——rebase、迁移改号 V35/V36、迁移门禁 6/6、
+控制中心 L2 18 类/164 例、一轮 L3（pass 1 / pass 2 全绿，pass 3 红 1 条既有 flake）。
 
 > **owner 裁决（2026-11-23）**：C-3 选「接受为已登记风险 R-1（A-04 不在本轮修）」；
 > C-5 选「接受『pass 1 + pass 2 全绿 + pass 3 既有 flake 独立归因』作为合并证据」。
@@ -429,7 +446,7 @@ Maven 没有输出任何测试失败——只有把 dumpstream 打开才看得�
   不在本轮修（它不是代码缺陷，是已定稿状态机语义的取舍）。
 - **合并 ≠ 启用**：控制中心 `enabled` 默认 `false`、发布人白名单默认空、严格 Origin 与
   CSRF 过滤器只在开启时注册。合入 master 后既有接口行为不变：迁移只新建六张空表
-  （V32 五张 + V33 一张）与一行活跃指针，不碰任何既有表；控制中心端点不注册。
+  （V35 五张 + V36 一张）与一行活跃指针，不碰任何既有表；控制中心端点不注册。
 - **C-5 的事实不变**：本机完整 L3 **三轮都没有全绿**，红的是既有协作/租约类时序用例
   （§6.4），三轮失败集合两两不相交，控制中心所在的 pass 2 三轮都是 26/26。owner 已裁决
   以「pass 1 + pass 2 全绿 + pass 3 独立归因」作为合并证据；**合并说明里必须照实写
@@ -446,34 +463,62 @@ Maven 没有输出任何测试失败——只有把 dumpstream 打开才看得�
 | C-3 | A-04 由 owner 裁决接受或转 WP | ✓ **接受为 R-1**（owner 2026-11-23） |
 | C-4 | 控制中心测试全绿（17 类 / 158 例） | ✓（§6.5） |
 | C-5 | 完整 L3 至少一轮全绿，且每轮原始日志保留 | ✓ **owner 裁决接受替代证据**（owner 2026-11-23）。事实：三轮 pass 1 / pass 2 全绿，pass 3 分别红 1 / 2 / 3 条**既有**时序 flake（§6.4），三轮失败集合两两不相交；日志全部保留。合并说明必须照实写明第三段的不稳 |
-| C-6 | V31→V33 在真实 MySQL 8 上验证 | 见 §6.2 |
+| C-6 | V31→V36 在真实 MySQL 8 上验证 | 见 §6.2 |
 | C-7 | 默认关闭、白名单为空未被改动 | ✓（`ControlCenterProperties:29-35`，未在本轮修改默认值） |
 | C-8 | 未引入越界改动（Provider / 品牌 / WP-04 / 临床） | ✓ |
-| C-9 | 基于**当前** master 重新编号迁移并复跑迁移门禁 | ⏳ **未做**：见 §8.4（本报告写在 `5dc2eac5` 上，那时 V32/V33 还空着） |
+| C-9 | 基于**当前** master 重新编号迁移并复跑迁移门禁 | ✅ **已做**（2026-11-24）：迁移改为 V35/V36、rebase 到 `c90b0caa`；迁移门禁 6/6、控制中心 L2 18 类/164 例、一轮 L3（见 §8.4） |
 
-### 8.4 合并前置：基线与迁移编号（2026-11-24 核对）
+### 8.4 合并前置：基线与迁移编号（2026-11-24 已执行）
 
 **本报告的 GO 只对审计基线成立，不能原样搬到当前 master。** 核对结果：
 
 | | 审计基线 `5dc2eac5` | 当前 master `c90b0caa` |
 |---|---|---|
 | 迁移头 | V31 | **V34** |
-| V32 | 空闲 → 本分支 `V32__control_center_core.sql` | **`V32__knowledge_candidate_index_version.sql`（已合入）** |
-| V33 | 空闲 → 本分支 `V33__control_center_publish_approval.sql` | **`V33__diagnosis_task_restrict_reason.sql`（已合入）** |
+| V32 | 空闲 → 本分支原拟 `V32__control_center_core.sql` | **`V32__knowledge_candidate_index_version.sql`（已合入）** |
+| V33 | 空闲 → 本分支原拟 `V33__control_center_publish_approval.sql` | **`V33__diagnosis_task_restrict_reason.sql`（已合入）** |
 | V34 | — | `V34__diagnosis_evidence_semantics.sql` |
 
-合入前必须完成（缺一条都是真失败，不是「环境问题」）：
+带着重复版本号合入会让 Flyway 在启动时直接失败（同一版本两脚本）。这一轮已按下列清单执行：
 
-1. 把分支 rebase 到当前 master（`c90b0caa` 起）；
-2. 两个控制中心迁移重新编号到 **V35 / V36**（或届时最新的两个空号），文件名、`flyway_schema_history`
-   预期、`docs/architecture/migration-matrix.md` 的 V32/V33 行同步更新；
-3. **不能只改文件名**：若目标库已经跑过 master 的 V32/V33，控制中心迁移必须以新版本号在其后执行；
-   若目标库跑过本分支的 V32/V33（本地/演示库），需按重建处理，不得 `repair` 掩盖；
-4. 复跑迁移门禁（空库 → 最新、master → 最新、V31 → 最新），并复跑控制中心 L2（17 类）；
-5. 重跑一次 L3（结论仍按 §6.4 的口径记录 pass 3 的既有 flake，不得写成全绿）。
+| # | 动作 | 状态 |
+|---|---|---|
+| 1 | 分支 rebase 到 `c90b0caa`（4 个提交重放；冲突 2 处：`FlywayMySqlIntegrationTest` 的迁移数断言、`docs/README.md` 与 `docs/architecture/migration-matrix.md` 的索引） | ✅ |
+| 2 | 两个控制中心迁移改名为 `V35__control_center_core.sql` / `V36__control_center_publish_approval.sql`，**DDL 一字未改**，文件头留「重编号记录」注释 | ✅ |
+| 3 | `docs/architecture/migration-matrix.md` 的迁移链、目标库路径、回滚方向、新迁移下限同步到 V36；`CLAUDE.md` 的迁移头同步到 V36 | ✅ |
+| 4 | `FlywayMySqlIntegrationTest` 断言同步：迁移数 17→19、迁移头 34→36、V31 升级用例「差两条 / 执行 2 条」→「差五条 / 执行 5 条」 | ✅ |
+| 5 | 复跑迁移门禁（空库 → V36、master V17 → V36、V31 → V36）与控制中心 L2 | ✅ 见下 |
+| 6 | 复跑一轮 L3 | ✅ 见下 |
 
-> 这条不在 WP-01D 审计范围内（审计时这些版本号确实空闲），但它是**合并准入的一部分**：
-> 带着重复版本号合入会让 Flyway 直接启动失败。
+> 目标库处置提醒仍然有效：目标库若已跑过 master 的 V32–V34，配置中心迁移以 V35/V36
+> 在其后执行；本地/演示库若跑过本分支旧编号的 V32/V33，按**重建**处理，
+> **不得用 `repair` 掩盖**。
+
+**复跑结果（2026-11-24，合并后树 = `master c90b0caa` + 本分支 4 提交 `444ef38d`）：**
+
+- 迁移门禁 `FlywayMySqlIntegrationTest`（真 MySQL 8，一次性容器）：**6/6 通过**——
+  含「空库 → V36（迁移头 36、19 条）」「master V17 → V36」「V31 → V36（执行 V32–V36 五条，
+  活跃指针单例行 `(1, NULL)`，审批表为空表）」与两条回滚方向用例。
+- 控制中心 L2（17 类 + 迁移门禁类，共 **18 类 / 164 例 / 0 失败 / 0 跳过**，291s）：
+  逐类数字与 §6.5 一致；含跨进程 7/7（同单竞争、同号重放、同号异动作、同期望活跃版本、
+  发布 vs 回滚、`destroyForcibly` 强杀、锁等待超时）。
+- L3（`scripts/verify.sh` 三遍）：**pass 1 1079 例 / 0 失败 / 306 跳过（BUILD SUCCESS）；
+  pass 2 26 例 / 0 失败（BUILD SUCCESS，含 Flyway 6/6 与跨进程 7/7）；
+  pass 3 305 例 / 红 1**。
+  红的唯一一条是 `GraphExecutionTest.processDeathRestoresOnlyCommittedNodesAndPreservesBudgets(String)[7]`
+  （`expected: <TOTAL_TIMEOUT> but was: <null>`），属于 §6.4 记录过的既有 flake 家族
+  （fork 子进程 + 时间预算），与配置中心改动无关；**不写成「全绿」**。
+- 前端定向 `vitest`（`controlCenterApi.test.ts` / `csrf.test.ts` / `http.test.ts`）：
+  **3 文件 / 30 例通过**。
+
+**复跑期间命中过一次假失败，记录在此以免误读**：首轮 L2 报
+`Found more than one migration with version 32`，offender 里同时列着
+`V32__control_center_core.sql` 与 `V32__knowledge_candidate_index_version.sql`。
+原因是 `target/classes/db/migration/` 里还留着**改名前的旧脚本**——Maven 的 resources 插件
+只复制、不清除。这是构建残留，不是 schema 冲突；`mvn -o clean` 后同一批门禁全绿。
+该坑已写入 `docs/architecture/migration-matrix.md` §5。
+
+C-9 由「⏳ 未做」改为「✅ 已做」：重编号与复跑迁移门禁均已在当前 master 上完成。
 
 ### 8.3 合并后仍需完成
 
@@ -554,5 +599,5 @@ Provider 热切换、品牌资产管理、WP-04 管理 UI、Agent/临床推理�
 | `docs/product/wp-00/config-center-adr.md` | 追加 WP-01D 裁决表 + D13 |
 | `docs/product/wp-00/mvp-api-contract.md` | 追加 §7 增量 |
 | `docs/product/wp-01/wp-01c-publish-approval-delivery.md` | 追加 §11 追认 |
-| `docs/architecture/migration-matrix.md` | V32 列注释漂移说明（A-08） |
+| `docs/architecture/migration-matrix.md` | V35 列注释漂移说明（A-08） |
 | `docs/README.md` | 索引补 WP-01D 与本轮新增文档 |

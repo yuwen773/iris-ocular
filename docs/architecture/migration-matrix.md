@@ -148,4 +148,11 @@ mvn -o -B -Dtest=FlywayMySqlIntegrationTest test
 - 已应用迁移的内容不得修改；只能追加更高版本。
 - 新迁移必须大于 V36。
 - 不得删除或手工编辑 `flyway_schema_history` 来绕过冲突。
+- **改过迁移文件名后必须 `mvn clean` 再跑门禁。** Maven 的 resources 插件只复制、不清除，
+  `target/classes/db/migration/` 会留下改名前的旧脚本（例如改名前的
+  `V32__control_center_core.sql`），Flyway 启动时直接报
+  `Found more than one migration with version 32`（并把两个脚本都列成 offender）。
+  这类失败是**构建残留**，不是 schema 冲突：CI 是全新检出，不会命中；
+  本地复跑前先 `mvn -o clean`。（2026-11-24 WP-01 改号时实测命中过一次，
+  清理后同一批门禁全绿。）
 - 历史冻结脚本 `scripts/product_acceptance_inputs.py` 记录过已删除的 `V15__bootstrap_user_table.sql` 作为 `additionalDependency`；该字段只描述 2026-11-12 的输入快照，不参与当前迁移链。重新封存验收证据时应改为引用 master V15，而不是恢复旧文件。
