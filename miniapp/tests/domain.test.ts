@@ -1,13 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import {
   abstainReasonLabel,
+  abstainReasonParts,
   canonicalClassName,
   classCode,
   confidenceBand,
   outcomeLabel,
   outcomeOf,
   outcomeTone,
+  probabilityDisplay,
   probabilityReading,
+  recordHeadline,
   severityLabel,
   severityRisk,
   UNVERIFIED_PROBABILITY_LABEL,
@@ -45,6 +48,69 @@ describe('判读结果口径', () => {
     expect(abstainReasonLabel('ABSTAIN_QUALITY_FAIL')).toContain('影像质量')
     expect(abstainReasonLabel('SOME_NEW_CODE')).toBe('SOME_NEW_CODE')
     expect(abstainReasonLabel(null)).toContain('暂无法提供结果')
+  })
+
+  it('拒识原因拆成标题与建议，未知码不编建议', () => {
+    expect(abstainReasonParts('ABSTAIN_QUALITY_FAIL')).toEqual({
+      title: '影像质量未通过',
+      advice: '请重新拍摄清晰的眼底照片',
+    })
+    expect(abstainReasonParts('SOME_NEW_CODE')).toEqual({ title: 'SOME_NEW_CODE', advice: '' })
+  })
+})
+
+describe('概率读数（数值 + 口径名一起给）', () => {
+  it('未标定的读数不叫置信度', () => {
+    const display = probabilityDisplay({ classificationProbability: 0.874 })
+    expect(display?.percent).toBe('87.4%')
+    expect(display?.label).toBe(UNVERIFIED_PROBABILITY_LABEL)
+    expect(display?.calibrated).toBe(false)
+  })
+
+  it('标定过才叫校准后概率', () => {
+    const display = probabilityDisplay({ calibratedProbability: 0.874, calibrationStatus: 'CALIBRATED' })
+    expect(display?.label).toBe('校准后概率')
+    expect(display?.calibrated).toBe(true)
+  })
+
+  it('没有数值就不摆读数', () => {
+    expect(probabilityDisplay({})).toBeNull()
+    expect(probabilityDisplay({ classificationProbability: Number.NaN })).toBeNull()
+  })
+})
+
+describe('记录列表一行', () => {
+  it('给出分类：类别 + 严重度，带口径名的读数', () => {
+    const headline = recordHeadline({
+      result: '糖尿病视网膜病变',
+      severity: 'MODERATE',
+      calibratedProbability: 0.874,
+      calibrationStatus: 'CALIBRATED',
+    })
+    expect(headline.outcome).toBe('classified')
+    expect(headline.title).toBe('糖尿病视网膜病变 · 中度')
+    expect(headline.detail).toBe('校准后概率 87.4%')
+  })
+
+  it('类别本身是「正常」时不重复写一遍严重度', () => {
+    const headline = recordHeadline({ result: '正常', severity: 'NORMAL' })
+    expect(headline.title).toBe('正常')
+  })
+
+  it('拒识：标题是原因，建议是下一步', () => {
+    const headline = recordHeadline({ aiRejected: true, abstainReason: 'ABSTAIN_QUALITY_FAIL' })
+    expect(headline.outcome).toBe('rejected')
+    expect(headline.title).toBe('影像质量未通过')
+    expect(headline.detail).toBe('请重新拍摄清晰的眼底照片')
+  })
+
+  it('待复核与不提供患者结论各说各的', () => {
+    expect(recordHeadline({ requiresReview: true }).outcome).toBe('review')
+    expect(recordHeadline({ patientConclusionAllowed: false }).outcome).toBe('blocked')
+  })
+
+  it('没有读数就不摆副行，不拿占位符充数', () => {
+    expect(recordHeadline({ result: '青光眼' }).detail).toBe('')
   })
 })
 

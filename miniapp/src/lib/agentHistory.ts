@@ -1,3 +1,4 @@
+import { documentCitationMap, parseToolResultResources } from './citations'
 import type { ChatHistory, AgentMessage } from './api'
 
 /** 页面上的一条消息（历史恢复与实时流共用同一种形状）。 */
@@ -43,10 +44,47 @@ export function toChatItems(history: ChatHistory): ChatItem[] {
     const role = toRole(message)
     if (!role || !isPatientVisible(message, role)) continue
     items.push({
-      id: `h-${message.id ?? Math.random().toString(36).slice(2)}`,
+      id: chatItemId(message),
       role,
       content: message.content ?? '',
     })
   }
   return items
+}
+
+/** 页面消息 id：历史行用服务端 id，缺 id 时给一个本地唯一值。 */
+function chatItemId(message: AgentMessage): string {
+  return `h-${message.id ?? Math.random().toString(36).slice(2)}`
+}
+
+/**
+ * 历史会话 → 每条 AI 回答可核验的引用（证据键 → 文档标题）。
+ *
+ * <p>一轮 = 一次用户提问。工具终态行落在哪一轮，就属于那一轮的回答——
+ * 跨轮借证据会把上一轮的检索结果算到这一句上。
+ *
+ * <p>纯函数，改动必须补 `tests/agentHistory.test.ts`。
+ */
+export function collectHistoryCitations(history: ChatHistory): Map<string, Map<string, string>> {
+  const out = new Map<string, Map<string, string>>()
+  let current = new Map<string, string>()
+  for (const message of history.messages ?? []) {
+    const role = toRole(message)
+    if (!role) continue
+    if (role === 'user') {
+      // 新的一轮：上一轮的证据不带到这一轮。
+      current = new Map<string, string>()
+      continue
+    }
+    if (message.subType === 'tool-result') {
+      for (const [key, title] of documentCitationMap(parseToolResultResources(message.content))) {
+        current.set(key, title)
+      }
+      continue
+    }
+    if (message.subType === ANSWER_SUBTYPE) {
+      out.set(chatItemId(message), new Map(current))
+    }
+  }
+  return out
 }

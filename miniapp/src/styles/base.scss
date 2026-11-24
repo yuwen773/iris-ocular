@@ -1,10 +1,16 @@
 /**
- * 全局基础样式（Clinical 场景：白纸、墨字、发丝线、零圆角）。
+ * 全局基础样式。
+ *
+ * 画布是**品牌画布**（浅 `#f2f6fc` / 深 `#0b1425`），不是 web/ 的骨白纸面——
+ * 骨白 + 墨色是 `RecordSheet` 那张报告纸的语言，它浮在画布上，不是整站底色。
+ * 主操作是钴蓝 `--brand-primary`（深色自动翻成 `#85b5ff`），不再用墨色实心按钮：
+ * 墨色在深色下会变成近白，而按钮文字用的是 `--paper-surface`（恒为白），字就看不见了。
+ *
  * 只引用 tokens.scss 生成的令牌，不写死色值。
  */
 page {
-  background: var(--field);
-  color: var(--ink);
+  background: var(--brand-canvas);
+  color: var(--brand-text);
   font-family: var(--font-sans);
   font-size: 28rpx;
   line-height: 1.6;
@@ -21,12 +27,13 @@ image {
 .mp-page {
   min-height: 100vh;
   padding: 32rpx 32rpx 64rpx;
-  background: var(--field);
+  background: var(--brand-canvas);
 }
 
+/* 单子：浅色下是浮在画布上的一层白纸，深色下是 `#17263d` 的面板，同一个令牌翻转。 */
 .mp-card {
-  background: var(--surface);
-  border: 1rpx solid var(--line);
+  background: var(--brand-surface);
+  border: 1rpx solid var(--brand-line);
   border-radius: var(--radius-none);
   padding: 32rpx;
 }
@@ -39,13 +46,13 @@ image {
   font-family: var(--font-serif);
   font-size: 40rpx;
   line-height: 1.35;
-  color: var(--ink);
+  color: var(--brand-text);
 }
 
 .mp-subtitle {
   margin-top: 8rpx;
   font-size: 26rpx;
-  color: var(--ink-2);
+  color: var(--brand-muted);
 }
 
 .mp-label {
@@ -53,7 +60,7 @@ image {
   font-size: 22rpx;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--ink-3);
+  color: var(--brand-muted);
 }
 
 .mp-mono {
@@ -63,7 +70,7 @@ image {
 
 .mp-hairline {
   height: 1rpx;
-  background: var(--line);
+  background: var(--brand-line);
   margin: 24rpx 0;
 }
 
@@ -80,7 +87,8 @@ image {
   gap: 16rpx;
 }
 
-/* 按钮：微信原生 button 会带 ::after 边框，这里统一抹掉，按设计系统重画。 */
+/* 按钮：微信原生 button 会带 ::after 边框，这里统一抹掉，按设计系统重画。
+   主操作 = 钴蓝；文字色用 `--brand-primary-fg`，深色下自动翻成深色字压浅蓝底。 */
 .mp-btn {
   display: flex;
   align-items: center;
@@ -88,9 +96,9 @@ image {
   min-height: 88rpx;
   padding: 0 32rpx;
   border-radius: var(--radius-none);
-  border: 1rpx solid var(--ink);
-  background: var(--ink);
-  color: var(--paper-surface);
+  border: 1rpx solid var(--brand-primary);
+  background: var(--brand-primary);
+  color: var(--brand-primary-fg);
   font-size: 30rpx;
   line-height: 1.2;
 
@@ -105,8 +113,8 @@ image {
 
 .mp-btn--ghost {
   background: transparent;
-  color: var(--ink);
-  border: 1rpx solid var(--line-strong);
+  color: var(--brand-text);
+  border: 1rpx solid var(--brand-line-strong);
 }
 
 .mp-btn--danger {
@@ -121,9 +129,9 @@ image {
   align-items: center;
   padding: 6rpx 16rpx;
   border-radius: var(--radius-none);
-  border: 1rpx solid var(--line-strong);
+  border: 1rpx solid var(--brand-line-strong);
   font-size: 24rpx;
-  color: var(--ink-2);
+  color: var(--brand-muted);
 }
 
 .mp-tag--normal {
@@ -148,7 +156,7 @@ image {
 
 .mp-note {
   font-size: 24rpx;
-  color: var(--ink-2);
+  color: var(--brand-muted);
 }
 
 .mp-disclaimer {
@@ -158,13 +166,13 @@ image {
   background: var(--signal-soft);
   font-size: 24rpx;
   line-height: 1.7;
-  color: var(--ink-2);
+  color: var(--brand-muted);
 }
 
 .mp-empty {
   padding: 96rpx 32rpx;
   text-align: center;
-  color: var(--ink-3);
+  color: var(--brand-muted);
   font-size: 26rpx;
 }
 
@@ -176,11 +184,11 @@ image {
 }
 
 .mp-fault--info {
-  border-color: var(--line-strong);
-  color: var(--ink-2);
+  border-color: var(--brand-line-strong);
+  color: var(--brand-muted);
 }
 
-/* 底部弹层（隐私授权等确认）：全幅纸面 + 顶部发丝线，不用半透明遮罩——
+/* 底部弹层（隐私授权等确认）：全幅画布 + 顶部发丝线，不用半透明遮罩——
    遮罩需要一层不与主题联动的颜色，而这里所有色值都必须来自令牌。 */
 .mp-sheet-mask {
   position: fixed;
@@ -188,14 +196,14 @@ image {
   z-index: 100;
   display: flex;
   align-items: flex-end;
-  background: var(--field);
+  background: var(--brand-canvas);
 }
 
 .mp-sheet {
   width: 100%;
   padding: 40rpx 32rpx 48rpx;
-  background: var(--surface);
-  border-top: 1rpx solid var(--line-strong);
+  background: var(--brand-surface);
+  border-top: 1rpx solid var(--brand-line-strong);
 }
 
 .mp-sheet__actions {

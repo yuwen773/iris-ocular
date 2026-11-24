@@ -152,26 +152,29 @@ function resolveColor(pairs, name) {
 const lightPairs = blocksOf(':root')
 const darkPairs = [...lightPairs, ...blocksOf('html.dark')]
 
+// 导航栏与 tabBar 跟的是**品牌画布**那一套：`--field` / `--surface` / `--ink`
+// 是纸面语言（浅色骨白 `#f3f4f1`），画布换成品牌画布后，窗口底色也必须一起换，
+// 否则页面一滚就露出底下的骨白边。
 const theme = {
   light: {
-    navBgColor: resolveColor(lightPairs, '--field'),
+    navBgColor: resolveColor(lightPairs, '--brand-canvas'),
     navTxtStyle: 'black',
-    bgColor: resolveColor(lightPairs, '--field'),
+    bgColor: resolveColor(lightPairs, '--brand-canvas'),
     bgTxtStyle: 'dark',
-    tabBgColor: resolveColor(lightPairs, '--surface'),
+    tabBgColor: resolveColor(lightPairs, '--brand-surface'),
     tabBorderStyle: 'white',
-    tabFontColor: resolveColor(lightPairs, '--ink-3'),
-    tabSelectedColor: resolveColor(lightPairs, '--ink'),
+    tabFontColor: resolveColor(lightPairs, '--brand-muted'),
+    tabSelectedColor: resolveColor(lightPairs, '--brand-text'),
   },
   dark: {
-    navBgColor: resolveColor(darkPairs, '--field'),
+    navBgColor: resolveColor(darkPairs, '--brand-canvas'),
     navTxtStyle: 'white',
-    bgColor: resolveColor(darkPairs, '--field'),
+    bgColor: resolveColor(darkPairs, '--brand-canvas'),
     bgTxtStyle: 'light',
-    tabBgColor: resolveColor(darkPairs, '--surface'),
+    tabBgColor: resolveColor(darkPairs, '--brand-surface'),
     tabBorderStyle: 'black',
-    tabFontColor: resolveColor(darkPairs, '--ink-3'),
-    tabSelectedColor: resolveColor(darkPairs, '--ink'),
+    tabFontColor: resolveColor(darkPairs, '--brand-muted'),
+    tabSelectedColor: resolveColor(darkPairs, '--brand-text'),
   },
 }
 

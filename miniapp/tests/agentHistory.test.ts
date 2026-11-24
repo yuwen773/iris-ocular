@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { toChatItems } from '@/lib/agentHistory'
+import { collectHistoryCitations, toChatItems } from '@/lib/agentHistory'
 import type { ChatHistory } from '@/lib/api'
 
 function history(messages: ChatHistory['messages']): ChatHistory {
@@ -57,5 +57,47 @@ describe('历史会话 → 页面消息', () => {
 
   it('缺 messages 字段时不抛错', () => {
     expect(toChatItems({ hasMore: false } as ChatHistory)).toEqual([])
+  })
+})
+
+describe('历史会话 → 可核验引用', () => {
+  const toolResult = JSON.stringify({
+    toolCallId: 't1',
+    name: 'doc_search',
+    status: 'SUCCEEDED',
+    output: '命中 1 段',
+    resources: [{ kind: 'document', documentId: '42', chunkIndex: 3, title: '干眼症诊疗共识' }],
+  })
+
+  it('工具终态里的文档算这一轮回答的依据', () => {
+    const citations = collectHistoryCitations(
+      history([
+        { id: 1, role: 'USER', content: '眼睛干怎么办' },
+        { id: 2, role: 'ASSISTANT', subType: 'tool-result', content: toolResult },
+        { id: 3, role: 'ASSISTANT', subType: 'text', content: '建议按[[42#3]]处理。' },
+      ]),
+    )
+    expect(citations.get('h-3')?.get('42#3')).toBe('干眼症诊疗共识')
+  })
+
+  it('证据不跨轮借：上一轮的检索结果不算到这一句上', () => {
+    const citations = collectHistoryCitations(
+      history([
+        { id: 1, role: 'USER', content: '第一个问题' },
+        { id: 2, role: 'ASSISTANT', subType: 'tool-result', content: toolResult },
+        { id: 3, role: 'ASSISTANT', subType: 'text', content: '第一个回答' },
+        { id: 4, role: 'USER', content: '第二个问题' },
+        { id: 5, role: 'ASSISTANT', subType: 'text', content: '第二个回答' },
+      ]),
+    )
+    expect(citations.get('h-3')?.size).toBe(1)
+    expect(citations.get('h-5')?.size).toBe(0)
+  })
+
+  it('没有检索结果的回合没有证据', () => {
+    const citations = collectHistoryCitations(
+      history([{ id: 1, role: 'USER', content: '问题' }, { id: 2, role: 'ASSISTANT', subType: 'text', content: '回答' }]),
+    )
+    expect(citations.get('h-2')?.size).toBe(0)
   })
 })
