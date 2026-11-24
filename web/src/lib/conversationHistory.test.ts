@@ -96,20 +96,19 @@ describe("applyDelivery", () => {
 describe("reconcileAcceptedUser", () => {
   const sentAt = Date.now()
 
-  it("最早一页还有后续消息时不作判断", () => {
+  it("最新一页有吻合的提问时可以核对", () => {
     expect(
       reconcileAcceptedUser(
-        { hasMore: true, messages: [{ role: "USER", content: "问", createdTime: serverTime(sentAt) }] },
+        { messages: [{ role: "USER", content: "问", createdTime: serverTime(sentAt) }] },
         { text: "问", sentAt },
       ),
-    ).toBe(false)
+    ).toBe(true)
   })
 
   it("最后一条 USER 内容一致且在时钟窗口内 → 已送达", () => {
     expect(
       reconcileAcceptedUser(
         {
-          hasMore: false,
           messages: [
             { role: "USER", content: "问", createdTime: serverTime(sentAt - 60_000) },
             { role: "ASSISTANT", content: "答", createdTime: serverTime(sentAt) },
@@ -123,7 +122,7 @@ describe("reconcileAcceptedUser", () => {
   it("角色大小写不敏感", () => {
     expect(
       reconcileAcceptedUser(
-        { hasMore: false, messages: [{ role: "user", content: "问", createdTime: serverTime(sentAt) }] },
+        { messages: [{ role: "user", content: "问", createdTime: serverTime(sentAt) }] },
         { text: "问", sentAt },
       ),
     ).toBe(true)
@@ -132,7 +131,7 @@ describe("reconcileAcceptedUser", () => {
   it("最后一条 USER 内容不同 → 不升级（不猜）", () => {
     expect(
       reconcileAcceptedUser(
-        { hasMore: false, messages: [{ role: "USER", content: "另一句", createdTime: serverTime(sentAt) }] },
+        { messages: [{ role: "USER", content: "另一句", createdTime: serverTime(sentAt) }] },
         { text: "问", sentAt },
       ),
     ).toBe(false)
@@ -142,7 +141,6 @@ describe("reconcileAcceptedUser", () => {
     expect(
       reconcileAcceptedUser(
         {
-          hasMore: false,
           messages: [
             { role: "USER", content: "问", createdTime: serverTime(sentAt - RECONCILE_CLOCK_SKEW_MS - 60_000) },
           ],
@@ -155,7 +153,7 @@ describe("reconcileAcceptedUser", () => {
   it("没有 USER 消息 → 不升级", () => {
     expect(
       reconcileAcceptedUser(
-        { hasMore: false, messages: [{ role: "ASSISTANT", content: "答", createdTime: serverTime(sentAt) }] },
+        { messages: [{ role: "ASSISTANT", content: "答", createdTime: serverTime(sentAt) }] },
         { text: "问", sentAt },
       ),
     ).toBe(false)

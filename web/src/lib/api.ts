@@ -284,6 +284,8 @@ export type ChatHistoryVO = {
   messages: HistoryMessageVO[]
   hasMore: boolean
   nextCursor: string | null
+  hasNewer: boolean
+  newerCursor: string | null
   /**
    * 本会话存在未提交的消息终态（写入失败或待恢复）。
    * 历史仍会返回，但**不完整**——界面必须显式说明，不能装作完整。
@@ -351,8 +353,8 @@ export function generateTitle(sessionId: string, firstMessage: string) {
 }
 
 export function getChatHistory(threadId: string, beforeId?: string, limit = 40) {
-  let path = `/agent/history/${threadId}?limit=${limit}`
-  if (beforeId) path += `&beforeId=${beforeId}`
+  let path = `/agent/history/${encodeURIComponent(threadId)}?limit=${limit}`
+  if (beforeId) path += `&beforeId=${encodeURIComponent(beforeId)}`
   return request<ChatHistoryVO>(path).then((history) => ({
     ...history,
     messages: history.messages.map((message) => ({
@@ -598,16 +600,16 @@ export function readStreamError(data: string): { code: number; message: string }
   return { code: 50000, message: text || "对话服务出错" }
 }
 
-/**
- * SSE 流式对话。不能走 request<T>——它解 JSON 信封，会破坏事件流。
- * 未收到 done 事件就断流（网络闪断、服务重启）时抛「连接中断」，
- * 调用方据此回滚本回合上传的图片。
- */
 /** 两种 SSE 请求体：新提问，或「按已存原文重新生成某一轮」。 */
 export type StreamChatBody =
   | { message: string; threadId: string; imageUrls?: string[] }
   | { threadId: string; userMessageId: string }
 
+/**
+ * SSE 流式对话。不能走 request<T>——它解 JSON 信封，会破坏事件流。
+ * 未收到 done 事件就断流（网络闪断、服务重启）时抛「连接中断」，
+ * 调用方据此回滚本回合上传的图片。
+ */
 export async function streamChat(
   body: StreamChatBody,
   handlers: StreamChatHandlers,

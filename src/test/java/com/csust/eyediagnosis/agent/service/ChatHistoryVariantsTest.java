@@ -107,12 +107,12 @@ class ChatHistoryVariantsTest {
 
     @Test
     void historyAnnotatesUserRowsWithTheirVariants() {
-        when(messageMapper.selectBySessionIdOrderByTimeASC(SESSION, 40))
+        when(messageMapper.selectHistoryPage(SESSION, null, null, 41))
                 .thenReturn(List.of(userMessage(TURN, "v1")));
         when(messageMapper.selectVariants(SESSION, List.of(TURN))).thenReturn(List.of(
                 variantRow(TURN, "v1", 10L), variantRow(TURN, "v2", 20L)));
 
-        ChatHistoryVO page = history.loadHistory(SESSION, null, 40);
+        ChatHistoryVO page = history.loadHistory(SESSION, null, null, 40);
 
         assertEquals(1, page.getMessages().size());
         assertEquals(List.of("v1", "v2"), page.getMessages().getFirst().getVariantIds());
@@ -121,11 +121,11 @@ class ChatHistoryVariantsTest {
 
     @Test
     void historyWithoutVariantsStillLoads() {
-        when(messageMapper.selectBySessionIdOrderByTimeASC(SESSION, 40))
+        when(messageMapper.selectHistoryPage(SESSION, null, null, 41))
                 .thenReturn(List.of(userMessage(TURN, null)));
         when(messageMapper.selectVariants(SESSION, List.of(TURN))).thenReturn(List.of());
 
-        ChatHistoryVO page = history.loadHistory(SESSION, null, 40);
+        ChatHistoryVO page = history.loadHistory(SESSION, null, null, 40);
 
         assertEquals(1, page.getMessages().size());
         assertTrue(page.getMessages().getFirst().getVariantIds().isEmpty(),

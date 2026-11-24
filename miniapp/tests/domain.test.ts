@@ -1,0 +1,169 @@
+import { describe, expect, it } from 'vitest'
+import {
+  abstainReasonLabel,
+  abstainReasonParts,
+  canonicalClassName,
+  classCode,
+  confidenceBand,
+  outcomeLabel,
+  outcomeOf,
+  outcomeTone,
+  probabilityDisplay,
+  probabilityReading,
+  recordHeadline,
+  severityLabel,
+  severityRisk,
+  UNVERIFIED_PROBABILITY_LABEL,
+} from '@/lib/domain'
+
+describe('判读结果口径', () => {
+  it('拒识优先于待复核，待复核优先于不作患者结论', () => {
+    expect(outcomeOf({ aiRejected: true, requiresReview: true, patientConclusionAllowed: false })).toBe('rejected')
+    expect(outcomeOf({ aiRejected: false, requiresReview: true, patientConclusionAllowed: false })).toBe('review')
+    expect(outcomeOf({ requiresReview: false, patientConclusionAllowed: false })).toBe('blocked')
+    expect(outcomeOf({})).toBe('classified')
+  })
+
+  it('严重度标签大小写不敏感，认不出时原样返回', () => {
+    expect(severityLabel('HIGH')).toBe('高风险')
+    expect(severityLabel('moderate')).toBe('中度')
+    expect(severityLabel('罕见值')).toBe('罕见值')
+    expect(severityLabel(null)).toBe('未评估')
+  })
+
+  it('严重度到风险档位的映射', () => {
+    expect(severityRisk('mild')).toBe('attention')
+    expect(severityRisk('SEVERE')).toBe('critical')
+    expect(severityRisk(undefined)).toBe('unknown')
+  })
+
+  it('置信度按 0.75 / 0.6 分档，百分数也认', () => {
+    expect(confidenceBand(0.9).label).toBe('可信')
+    expect(confidenceBand(70).label).toBe('偏低')
+    expect(confidenceBand(0.2).label).toBe('低')
+    expect(confidenceBand(null).label).toBe('未评估')
+  })
+
+  it('拒识原因码转成人话，未知码不吞', () => {
+    expect(abstainReasonLabel('ABSTAIN_QUALITY_FAIL')).toContain('影像质量')
+    expect(abstainReasonLabel('SOME_NEW_CODE')).toBe('SOME_NEW_CODE')
+    expect(abstainReasonLabel(null)).toContain('暂无法提供结果')
+  })
+
+  it('拒识原因拆成标题与建议，未知码不编建议', () => {
+    expect(abstainReasonParts('ABSTAIN_QUALITY_FAIL')).toEqual({
+      title: '影像质量未通过',
+      advice: '请重新拍摄清晰的眼底照片',
+    })
+    expect(abstainReasonParts('SOME_NEW_CODE')).toEqual({ title: 'SOME_NEW_CODE', advice: '' })
+  })
+})
+
+describe('概率读数（数值 + 口径名一起给）', () => {
+  it('未标定的读数不叫置信度', () => {
+    const display = probabilityDisplay({ classificationProbability: 0.874 })
+    expect(display?.percent).toBe('87.4%')
+    expect(display?.label).toBe(UNVERIFIED_PROBABILITY_LABEL)
+    expect(display?.calibrated).toBe(false)
+  })
+
+  it('标定过才叫校准后概率', () => {
+    const display = probabilityDisplay({ calibratedProbability: 0.874, calibrationStatus: 'CALIBRATED' })
+    expect(display?.label).toBe('校准后概率')
+    expect(display?.calibrated).toBe(true)
+  })
+
+  it('没有数值就不摆读数', () => {
+    expect(probabilityDisplay({})).toBeNull()
+    expect(probabilityDisplay({ classificationProbability: Number.NaN })).toBeNull()
+  })
+})
+
+describe('记录列表一行', () => {
+  it('给出分类：类别 + 严重度，带口径名的读数', () => {
+    const headline = recordHeadline({
+      result: '糖尿病视网膜病变',
+      severity: 'MODERATE',
+      calibratedProbability: 0.874,
+      calibrationStatus: 'CALIBRATED',
+    })
+    expect(headline.outcome).toBe('classified')
+    expect(headline.title).toBe('糖尿病视网膜病变 · 中度')
+    expect(headline.detail).toBe('校准后概率 87.4%')
+  })
+
+  it('类别本身是「正常」时不重复写一遍严重度', () => {
+    const headline = recordHeadline({ result: '正常', severity: 'NORMAL' })
+    expect(headline.title).toBe('正常')
+  })
+
+  it('拒识：标题是原因，建议是下一步', () => {
+    const headline = recordHeadline({ aiRejected: true, abstainReason: 'ABSTAIN_QUALITY_FAIL' })
+    expect(headline.outcome).toBe('rejected')
+    expect(headline.title).toBe('影像质量未通过')
+    expect(headline.detail).toBe('请重新拍摄清晰的眼底照片')
+  })
+
+  it('待复核与不提供患者结论各说各的', () => {
+    expect(recordHeadline({ requiresReview: true }).outcome).toBe('review')
+    expect(recordHeadline({ patientConclusionAllowed: false }).outcome).toBe('blocked')
+  })
+
+  it('没有读数就不摆副行，不拿占位符充数', () => {
+    expect(recordHeadline({ result: '青光眼' }).detail).toBe('')
+  })
+})
+
+describe('概率读数标签', () => {
+  it('未标定的 softmax 必须标成「未标定」，不能叫置信度', () => {
+    expect(probabilityReading({}).label).toBe(UNVERIFIED_PROBABILITY_LABEL)
+    expect(probabilityReading({ calibrationStatus: 'NOT_CALIBRATED' }).calibrated).toBe(false)
+  })
+
+  it('判据只有 calibrationStatus 一条，与 web 端同源', () => {
+    expect(probabilityReading({ calibrationStatus: 'calibrated' }).calibrated).toBe(true)
+    expect(probabilityReading({ calibrationStatus: 'CALIBRATED' }).label).toBe('校准后概率')
+    // 只有数值没有状态：不叫「校准后概率」。后端未标定时本就不给这个值，
+    // 端上也不拿「有值」当「已标定」——否则同一条记录在两端会叫出不同的话。
+    expect(probabilityReading({ calibratedProbability: 0.7 }).label).toBe(UNVERIFIED_PROBABILITY_LABEL)
+    expect(probabilityReading({ calibratedProbability: 0.7 }).calibrated).toBe(false)
+  })
+
+  it('不作患者结论时连「校准后」都不说', () => {
+    expect(probabilityReading({ patientConclusionAllowed: false, calibratedProbability: 0.7 }).label).toBe(
+      '模型输出概率（不作患者结论）',
+    )
+  })
+})
+
+describe('结局标签与配色', () => {
+  it('结局配色只有一处口径', () => {
+    expect(outcomeTone('classified')).toBe('normal')
+    expect(outcomeTone('rejected')).toBe('critical')
+    expect(outcomeTone('review')).toBe('attention')
+    expect(outcomeTone('blocked')).toBe('attention')
+  })
+
+  it('四种结局各自有话说', () => {
+    expect(outcomeLabel('classified')).not.toBe(outcomeLabel('review'))
+  })
+})
+
+describe('类别名归一与短码', () => {
+  it('别名、大小写、包含关系都归一到同一个名字', () => {
+    expect(canonicalClassName('AMD')).toBe('年龄相关性黄斑变性')
+    expect(canonicalClassName(' 糖尿病 ')).toBe('糖尿病视网膜病变')
+    expect(canonicalClassName('青光眼')).toBe('青光眼')
+  })
+
+  it('认不出的名字返回 null，短码给占位符而不是瞎猜', () => {
+    expect(canonicalClassName('不存在的类别')).toBeNull()
+    expect(canonicalClassName('')).toBeNull()
+    expect(classCode('不存在的类别')).toBe('—')
+  })
+
+  it('短码与名字一一对应', () => {
+    expect(classCode('年龄相关性黄斑变性')).toBe('AMD')
+    expect(classCode('正常')).toBe('N')
+  })
+})

@@ -89,7 +89,8 @@ export function AgentPage() {
   // 紧凑档的抽屉开关。
   const [navOpen, setNavOpen] = useState(false)
   const [panelOpen, setPanelOpen] = useState(false)
-  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyLoading, setHistoryLoading] = useState<"latest" | "older" | null>(null)
+  const [olderHistory, setOlderHistory] = useState<{ threadId: string; cursor: string } | null>(null)
   const [previewUrl, setPreviewUrl] = useState("")
   const previewCloseRef = useRef<HTMLButtonElement>(null)
   const [busy, setBusy] = useState(false)
@@ -179,20 +180,27 @@ export function AgentPage() {
   }, [])
 
   const loadHistoryMessages = useCallback(
-    async (id: string) => {
+    async (id: string, beforeId?: string, throughUserId?: string) => {
       const seq = ++historySeq.current
       const expectedUser = userKeyRef.current
       const turnsAtRequest = turnCounter.current
       // 合并去重的时间门槛：只承认「本轮之后才落库」的那条才算副本。
       const requestedAt = Date.now()
       // 加载态在发起请求的那一刻置位；调用方是事件处理器或初始化 effect。
-      setHistoryLoading(true)
+      setHistoryLoading(beforeId ? "older" : "latest")
+      const isCurrent = () =>
+        seq === historySeq.current && threadIdRef.current === id && userKeyRef.current === expectedUser
       try {
-        const data = await getChatHistory(id, undefined, HISTORY_PAGE_SIZE)
+        let data = await getChatHistory(id, beforeId, HISTORY_PAGE_SIZE)
+        const pages = [data.messages ?? []]
+        // 历史回合切换版本后，把该回合所在页也重新读回来。
+        while (isCurrent() && throughUserId && data.hasMore && data.nextCursor
+          && !data.messages?.some((message) => message.id === throughUserId)) {
+          data = await getChatHistory(id, data.nextCursor, HISTORY_PAGE_SIZE)
+          pages.push(data.messages ?? [])
+        }
         // 晚到的旧会话历史不能覆盖当前会话——序号变了或人已经切走，直接丢弃。
-        if (seq !== historySeq.current || threadIdRef.current !== id) return
-        // 换了账号：这条历史属于上一个身份，不写回。
-        if (userKeyRef.current !== expectedUser) return
+        if (!isCurrent()) return
         // 服务端说本会话有没落库的消息终态：历史照常显示，但**必须说明它不完整**，
         // 否则用户会把「读得到多少算多少」当成「这就是全部」。
         if (data.uncommittedTerminal) {
@@ -205,8 +213,16 @@ export function AgentPage() {
             }),
           )
         }
-        const raw = data.messages ?? []
+        const raw = pages.reverse().flat()
         const history = raw.map(mapHistoryMessage)
+        setOlderHistory(data.hasMore && data.nextCursor ? { threadId: id, cursor: data.nextCursor } : null)
+        if (beforeId) {
+          setMessages((prev) => {
+            const loaded = new Set(prev.map((message) => message.id))
+            return [...history.filter((message) => !loaded.has(message.id)), ...prev]
+          })
+          return
+        }
         // 时间门槛与送达核对同一口径（规则见 lib/conversationHistory）：
         // 只比内容会把「用户十分钟前问过一模一样的一句话」当成副本删掉，
         // 而删的是带 delivery / images 的本地气泡。
@@ -219,9 +235,9 @@ export function AgentPage() {
         }
         setMessages(history)
       } catch (e) {
-        if (seq === historySeq.current) pushFault(faultFromError(e, { intent: "load" }))
+        if (isCurrent()) pushFault(faultFromError(e, { intent: "load" }))
       } finally {
-        if (seq === historySeq.current) setHistoryLoading(false)
+        if (seq === historySeq.current) setHistoryLoading(null)
       }
     },
     [setMessages, pushFault],
@@ -233,6 +249,9 @@ export function AgentPage() {
     // 再按新身份的 key 恢复；否则会拿别人的会话 id 去拉历史。
     if (lastUserKeyRef.current !== userKey) {
       lastUserKeyRef.current = userKey
+      historySeq.current++
+      setHistoryLoading(null)
+      setOlderHistory(null)
       setThreadId(newId())
       setCurrentThreadId("")
       // 会话列表也要清：reset() 只清消息与资源。refreshSessions() 是异步的，
@@ -287,7 +306,7 @@ export function AgentPage() {
         const data = await getChatHistory(threadId, undefined, HISTORY_PAGE_SIZE)
         // 核对期间换了账号：这条结果属于上一个身份的会话，一律不许写回。
         if (userKeyRef.current !== expectedUser) return
-        // 只认「最早一页 + 最后一条 USER 内容一致 + 时间不早于发起时刻减时钟偏差」；
+        // 只认「最新一页 + 最后一条 USER 内容一致 + 时间不早于发起时刻减时钟偏差」；
         // 只能升级成 accepted，绝不证伪（规则见 lib/conversationHistory）。
         if (!reconcileAcceptedUser(data, { text, sentAt })) return
         markDelivery(localId, "accepted")
@@ -447,7 +466,7 @@ export function AgentPage() {
       const usedThreadId = threadId
       try {
         await selectAgentVariant(usedThreadId, userMessageId, variantId)
-        if (threadIdRef.current === usedThreadId) await loadHistoryMessages(usedThreadId)
+        if (threadIdRef.current === usedThreadId) await loadHistoryMessages(usedThreadId, undefined, userMessageId)
       } catch (e) {
         pushFault(faultFromError(e, { intent: "load" }))
       }
@@ -456,6 +475,9 @@ export function AgentPage() {
   )
 
   const handleNewChat = useCallback(() => {
+    historySeq.current++
+    setHistoryLoading(null)
+    setOlderHistory(null)
     saveThreadId(userKey, "")
     setCurrentThreadId("")
     setThreadId(newId())
@@ -631,9 +653,14 @@ export function AgentPage() {
 
           <div className="agent-main">
             <MessageList
+              key={threadId}
               messages={messages}
               resources={resources}
-              loading={historyLoading}
+              loading={historyLoading === "latest"}
+              loadingOlder={historyLoading === "older"}
+              onLoadOlder={olderHistory?.threadId === threadId && historyLoading !== "latest"
+                ? () => void loadHistoryMessages(threadId, olderHistory.cursor)
+                : undefined}
               streaming={isStreaming}
               waiting={waiting}
               title={threadTitle}

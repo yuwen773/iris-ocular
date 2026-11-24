@@ -72,6 +72,8 @@ export function MessageList({
   messages,
   resources,
   loading,
+  loadingOlder,
+  onLoadOlder,
   streaming,
   waiting,
   title,
@@ -88,6 +90,8 @@ export function MessageList({
   /** 会话资源：正文里的证据角标只按这里的片段核验，不认模型自己写的编号。 */
   resources?: AgentResources
   loading: boolean
+  loadingOlder?: boolean
+  onLoadOlder?: () => void
   streaming: boolean
   /** 等第一条真实事件到达：上传中 / 等待首个回复。 */
   waiting: { active: boolean; label: string }
@@ -151,14 +155,14 @@ export function MessageList({
 
   // 新消息：贴底则跟随，否则计一条未读
   useEffect(() => {
-    if (messages.length === 0) return
+    if (lastMsgId === undefined) return
     if (atBottomRef.current) {
       followBottom()
     } else {
       setUnread((n) => computeUnread(n, { atBottom: false, isNewMessage: true, isContentGrowth: false }))
     }
-    // 只跟消息条数：内容增长在下面的 effect 里处理
-  }, [messages.length, followBottom])
+    // 加载更早的消息只会在顶部插入，尾条 id 不变。
+  }, [lastMsgId, followBottom])
 
   // 流式内容增长：贴底时跟随滚动，但不增加未读计数
   useEffect(() => {
@@ -222,6 +226,13 @@ export function MessageList({
       <div className="agent-thread__scroll" ref={listRef}>
         <div className={`agent-thread__column${empty ? " is-empty" : ""}`}>
           {loading ? <div className="agent-load">读取历史会话…</div> : null}
+          {onLoadOlder ? (
+            <div className="agent-load agent-load--older">
+              <button type="button" className="agent-turnbar__action" disabled={loadingOlder} onClick={onLoadOlder}>
+                {loadingOlder ? "正在加载…" : "加载更早消息"}
+              </button>
+            </div>
+          ) : null}
           {empty ? <WelcomeScreen onSend={onSend} onPickImage={onPickImage} /> : null}
 
           {thread.map((item, index) => {
