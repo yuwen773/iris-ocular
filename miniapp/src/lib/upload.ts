@@ -28,6 +28,20 @@ function compress(src: string, quality: number): Promise<string> {
   })
 }
 
+/**
+ * 压缩一档，失败返回 null 而不是抛错。
+ *
+ * <p>`wx.compressImage` 在部分格式（PNG）与部分机型上会失败。失败就等于「这一档
+ * 没有结果」，不能就此判死——后面还有更低画质与离屏画布两条路可以走。
+ */
+async function compressOrNull(src: string, quality: number): Promise<string | null> {
+  try {
+    return await compress(src, quality)
+  } catch {
+    return null
+  }
+}
+
 function fileSize(filePath: string): Promise<number> {
   return new Promise((resolve, reject) => {
     wx.getFileSystemManager().getFileInfo({
@@ -138,19 +152,24 @@ async function shrinkOnCanvas(src: string): Promise<string | null> {
  * <p>顺序：`chooseMedia(compressed)` → `compressImage` 70 档 → 40 档 →
  * 离屏画布等比缩到最长边 1600 并重编码。四步都过不了 2MB 才报错让用户重拍，
  * 而不是偷偷传一张服务端必然拒收的图。
+ *
+ * <p>某一档压缩失败不算失败：那只是「这一档没有结果」，后面还有别的档与画布兜底。
+ * 只有全部走不通才让用户重拍。
  */
 export async function pickAndPrepareImage(): Promise<string> {
   const picked = await chooseImage()
-  const first = await compress(picked, 70)
-  if ((await fileSize(first)) <= MAX_IMAGE_BYTES) return first
 
-  const second = await compress(picked, 40)
-  if ((await fileSize(second)) <= MAX_IMAGE_BYTES) return second
+  const compressed70 = await compressOrNull(picked, 70)
+  if (compressed70 && (await fileSize(compressed70)) <= MAX_IMAGE_BYTES) return compressed70
 
-  const shrunk = await shrinkOnCanvas(first)
+  const compressed40 = await compressOrNull(picked, 40)
+  if (compressed40 && (await fileSize(compressed40)) <= MAX_IMAGE_BYTES) return compressed40
+
+  // 画布兜底的源取压缩成功过的最高画质那一档；一档都没成功就用平台压缩后的原图。
+  const shrunk = await shrinkOnCanvas(compressed70 ?? picked)
   if (shrunk && (await fileSize(shrunk)) <= MAX_IMAGE_BYTES) return shrunk
 
-  throw new ImageTooLargeError(shrunk ? await fileSize(shrunk) : await fileSize(second))
+  throw new ImageTooLargeError(await fileSize(shrunk ?? compressed40 ?? compressed70 ?? picked))
 }
 
 function chooseImage(): Promise<string> {

@@ -160,6 +160,10 @@ export interface ProbabilityReading {
  * <p>未标定的 softmax **不是置信度**：它只是模型输出强度，没有经过真实数据标定。
  * 界面照此标注，否则患者会把一个未标定的数字读成「诊断有多可靠」。已标定才叫
  * 「校准后概率」；`patientConclusionAllowed === false` 时连「校准后」都不说。
+ *
+ * <p>判据只有一条：`calibrationStatus === CALIBRATED`，与 web/src/lib/domain.ts
+ * 同源。后端在未标定时不会给出 `calibratedProbability`（DiagnosisEvidence.exposedConfidence），
+ * 这里也不拿「有值」当「已标定」——两端口径分叉会让同一条记录在两端叫出不同的话。
  */
 export function probabilityReading(result: {
   calibratedProbability?: number | null
@@ -169,9 +173,7 @@ export function probabilityReading(result: {
   if (result.patientConclusionAllowed === false) {
     return { label: '模型输出概率（不作患者结论）', calibrated: false }
   }
-  const calibrated =
-    typeof result.calibratedProbability === 'number' ||
-    (result.calibrationStatus ?? '').trim().toUpperCase() === 'CALIBRATED'
+  const calibrated = (result.calibrationStatus ?? '').trim().toUpperCase() === 'CALIBRATED'
   return calibrated
     ? { label: '校准后概率', calibrated: true }
     : { label: UNVERIFIED_PROBABILITY_LABEL, calibrated: false }

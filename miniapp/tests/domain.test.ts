@@ -54,9 +54,13 @@ describe('概率读数标签', () => {
     expect(probabilityReading({ calibrationStatus: 'NOT_CALIBRATED' }).calibrated).toBe(false)
   })
 
-  it('有校准值或状态才叫「校准后概率」', () => {
-    expect(probabilityReading({ calibratedProbability: 0.7 }).label).toBe('校准后概率')
+  it('判据只有 calibrationStatus 一条，与 web 端同源', () => {
     expect(probabilityReading({ calibrationStatus: 'calibrated' }).calibrated).toBe(true)
+    expect(probabilityReading({ calibrationStatus: 'CALIBRATED' }).label).toBe('校准后概率')
+    // 只有数值没有状态：不叫「校准后概率」。后端未标定时本就不给这个值，
+    // 端上也不拿「有值」当「已标定」——否则同一条记录在两端会叫出不同的话。
+    expect(probabilityReading({ calibratedProbability: 0.7 }).label).toBe(UNVERIFIED_PROBABILITY_LABEL)
+    expect(probabilityReading({ calibratedProbability: 0.7 }).calibrated).toBe(false)
   })
 
   it('不作患者结论时连「校准后」都不说', () => {

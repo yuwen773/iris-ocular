@@ -1,6 +1,5 @@
 package com.csust.eyediagnosis.miniapp;
 
-import cn.hutool.core.util.RandomUtil;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.csust.eyediagnosis.constant.AuthConstant;
 import com.csust.eyediagnosis.exception.BusinessException;
@@ -17,6 +16,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.security.SecureRandom;
+import java.util.Base64;
 import java.util.Objects;
 
 /**
@@ -24,6 +25,9 @@ import java.util.Objects;
  *
  * <p>首登自动建号（role=user），不与既有密码账号合并：体验版没有历史数据迁移需求，
  * 个人主体也拿不到手机号做身份核验。账号数据仍落在 t_user，管理端与既有查询无需改动。
+ *
+ * <p>已注销的账号（管理员在后台删除）不会再被静默重建——删掉就是删掉，
+ * 与密码通道对已删除账号的口径一致。
  */
 @Slf4j
 @Service
@@ -36,6 +40,7 @@ public class MiniAppAuthService {
     private final PasswordService passwordService;
     private final MiniAppTokenService tokenService;
     private final TransactionTemplate transactions;
+    private final SecureRandom random = new SecureRandom();
 
     public MiniAppAuthService(WeChatMiniAppProperties properties,
                               WeChatCode2SessionClient weChatClient,
@@ -80,9 +85,13 @@ public class MiniAppAuthService {
         } catch (DuplicateKeyException race) {
             User winner = transactions.execute(status -> {
                 UserWechat binding = findBinding(session.openid());
-                User bound = binding == null ? null : userMapper.selectById(binding.getUserId());
-                if (bound == null) {
+                if (binding == null) {
+                    // 绑定在竞态窗口里被删掉了：这不是「账号注销」，把原始冲突抛回去。
                     throw race;
+                }
+                User bound = userMapper.selectById(binding.getUserId());
+                if (bound == null) {
+                    throw new BusinessException(ErrorCode.FORBIDDEN_ERROR, "账号已注销，无法登录");
                 }
                 return bound;
             });
@@ -98,10 +107,13 @@ public class MiniAppAuthService {
             if (bound != null) {
                 return bound;
             }
-            // 绑定指向的账号已被删除：重新建号并改绑，避免用户卡在「登录成功却没有身份」。
-            User recreated = createUser(session.openid());
-            rebind(binding, recreated.getId(), session.unionid());
-            return recreated;
+            // 绑定指向的账号已被删除（t_user 逻辑删除：管理员在后台删掉了这个账号）。
+            // 这里**不能**静默建一个新号顶上去——那等于让「删除账号」这个管理动作
+            // 失效：封禁→删除的用户会拿到一个全新的、没被封禁的账号。
+            // 密码通道对已删除账号同样进不来（登录按 isDelete 过滤），这里保持一致：
+            // 账号已注销就是注销，不再登录。需要恢复由管理员处理绑定（见
+            // docs/product/wechat-miniapp/README.md 的运维说明）。
+            throw new BusinessException(ErrorCode.FORBIDDEN_ERROR, "账号已注销，无法登录");
         }
         User created = createUser(session.openid());
         UserWechat newBinding = new UserWechat();
@@ -120,22 +132,15 @@ public class MiniAppAuthService {
                 .eq("openid", openid));
     }
 
-    private void rebind(UserWechat binding, Long userId, String unionid) {
-        binding.setUserId(userId);
-        if (binding.getUnionid() == null && unionid != null) {
-            binding.setUnionid(unionid);
-        }
-        bindingMapper.updateById(binding);
-    }
-
     private User createUser(String openid) {
         String baseAccount = "wx_" + openid;
         for (int attempt = 0; attempt < 3; attempt++) {
-            String account = attempt == 0 ? baseAccount : baseAccount + "_" + RandomUtil.randomString(6);
+            String account = attempt == 0 ? baseAccount : baseAccount + "_" + randomToken(4);
             User user = new User();
             user.setUserAccount(account);
             // 微信账号不走密码登录：写一段随机、不可知的 BCrypt 摘要占住 NOT NULL 列。
-            user.setUserPassword(passwordService.encode(RandomUtil.randomString(32)));
+            // 随机源必须是 CSPRNG——这把摘要是账号的唯一「密码」，可预测就等于可登录。
+            user.setUserPassword(passwordService.encode(randomToken(32)));
             user.setUserName("微信用户");
             user.setUserRole(UserRole.USER.getValue());
             try {
@@ -148,6 +153,13 @@ public class MiniAppAuthService {
             }
         }
         throw new BusinessException(ErrorCode.SYSTEM_ERROR, "创建微信账号失败");
+    }
+
+    /** CSPRNG 生成的随机串（base64url，无填充）。 */
+    private String randomToken(int bytes) {
+        byte[] raw = new byte[bytes];
+        random.nextBytes(raw);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(raw);
     }
 
     /**
