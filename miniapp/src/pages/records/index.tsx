@@ -1,6 +1,6 @@
 import { Image, Text, View } from '@tarojs/components'
 import Taro, { useDidShow, useReachBottom } from '@tarojs/taro'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { EmptyState, ErrorState, LoadingState } from '@/components/Feedback'
 import { OutcomeTag } from '@/components/Tags'
 import { listMyDiagnoses, type DiagnosisSummary } from '@/lib/api'
@@ -16,19 +16,30 @@ export default function RecordsPage() {
   const [total, setTotal] = useState(0)
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [fault, setFault] = useState('')
+  // 同一页不重复请求：上拉触发的加载还没回来时再触一次，不能把同一页追加两遍。
+  const pendingPage = useRef<number | null>(null)
+  // 请求序号：只认最后一次请求的结果，慢响应不能盖掉刚拉回来的新数据。
+  const requestSeq = useRef(0)
 
   async function loadPage(next: number) {
+    if (pendingPage.current === next) return
+    pendingPage.current = next
+    const seq = ++requestSeq.current
     if (next === 1) setState('loading')
     try {
       const page = await listMyDiagnoses(next, PAGE_SIZE)
+      if (seq !== requestSeq.current) return
       setItems((prev) => (next === 1 ? page.records : [...prev, ...page.records]))
       setCurrent(next)
       setTotal(page.total)
       setState('ready')
       setFault('')
     } catch (error) {
+      if (seq !== requestSeq.current) return
       setState('error')
       setFault(error instanceof ApiError ? error.message : '读取记录失败，请重试')
+    } finally {
+      if (pendingPage.current === next) pendingPage.current = null
     }
   }
 

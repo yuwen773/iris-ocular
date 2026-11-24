@@ -1,5 +1,5 @@
 import { Button, Image, Text, View } from '@tarojs/components'
-import Taro, { useDidShow } from '@tarojs/taro'
+import Taro, { useDidShow, useUnload } from '@tarojs/taro'
 import { useRef, useState } from 'react'
 import { AiBadge } from '@/components/Tags'
 import { Disclaimer } from '@/components/Feedback'
@@ -54,6 +54,11 @@ export default function DiagnosisHome() {
       setStage('idle')
       setMessage('')
     }
+  })
+
+  // 页面被销毁时停掉计时器：否则秒数会一直跑在已经卸载的页面上。
+  useUnload(() => {
+    stopTimer()
   })
 
   function stopTimer() {

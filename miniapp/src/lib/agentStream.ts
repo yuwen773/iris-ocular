@@ -1,4 +1,5 @@
 import { relogin } from './auth'
+import { decodeResponseBody, isAuthEnvelope } from './authEnvelope'
 import { API_BASE } from './env'
 import { getToken } from './token'
 import { SseParser } from './sse'
@@ -17,9 +18,6 @@ export interface AgentStreamHandle {
 
 /** 两个分片之间的最长静默：超过就按断流处理（总超时仍是 120s）。 */
 const IDLE_TIMEOUT_MS = 30000
-
-/** 令牌失效时，过滤器层直接回的业务信封（HTTP 200 + 40100），不是 SSE 帧。 */
-const AUTH_ENVELOPE = /^\s*\{\s*"code"\s*:\s*40100\b/
 
 /**
  * 只有最终回答才进正文。
@@ -130,6 +128,11 @@ export function streamAgentChat(
         return
       }
       authRetried = true
+      // 重开一条流等于把同一条提问再 POST 一次，会不会在会话里留下两条用户消息？
+      // 不会：40100 业务信封只在**落库之前**产生——令牌过滤器拦下的过期令牌，
+      // 以及 AgentController.chatStream 里 getLoginUser / claimOrValidateSession
+      // 的未登录拒绝，都发生在 saveUserMessage 之前。流开始之后的服务端错误走的是
+      // SSE 的 event: error 帧，不会被这里当成 40100 重试。
       relogin().then(
         () => {
           if (!finished) startAttempt()
@@ -154,6 +157,13 @@ export function streamAgentChat(
       responseType: 'arraybuffer',
       timeout: 120000,
       success: (res) => {
+        // 服务端不一定走分块：短响应（比如令牌失效的 40100 信封）会整包落到 success。
+        // 不在这里认一次，过期令牌就会被报成「连接中断」，客户端不会去静默重登。
+        const body = decodeResponseBody(res.data)
+        if (isAuthEnvelope(body)) {
+          restartAfterRelogin()
+          return
+        }
         // 流已结束但没有 done：把残留缓冲解析完，仍没有 done 就按中断处理。
         parser.flush().forEach(dispatch)
         settle(() =>
@@ -179,7 +189,7 @@ export function streamAgentChat(
       const text = decoder.decode(new Uint8Array(res.data))
       if (sniffing) {
         prefix = (prefix + text).slice(0, 256)
-        if (AUTH_ENVELOPE.test(prefix)) {
+        if (isAuthEnvelope(prefix)) {
           restartAfterRelogin()
           return
         }

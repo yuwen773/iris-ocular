@@ -35,15 +35,18 @@ export default function AgentPage() {
   const [streaming, setStreaming] = useState(false)
   const [fault, setFault] = useState('')
   const handleRef = useRef<AgentStreamHandle | null>(null)
+  // 历史请求序号：晚到的旧会话历史不能盖掉当前会话（与 web 端同一口径）。
+  const historySeq = useRef(0)
 
   useEffect(() => {
     let alive = true
     const restore = async () => {
       const stored = Taro.getStorageSync<string>(THREAD_KEY)
       if (typeof stored !== 'string' || !stored) return
+      const seq = ++historySeq.current
       try {
         const history = await getAgentHistory(stored)
-        if (!alive) return
+        if (!alive || seq !== historySeq.current) return
         setMessages(toChatItems(history))
       } catch {
         // 历史恢复失败不阻塞新对话：threadId 仍有效，继续问即可。
@@ -77,6 +80,8 @@ export default function AgentPage() {
   function startNewSession() {
     handleRef.current?.abort()
     handleRef.current = null
+    // 让在途的历史请求作废：否则它回来后会把上一个会话的消息写进新会话。
+    historySeq.current++
     setStreaming(false)
     setFault('')
     setMessages([])
@@ -88,11 +93,15 @@ export default function AgentPage() {
     if (streaming) return
     handleRef.current?.abort()
     handleRef.current = null
+    historySeq.current++
     setFault('')
     setMessages([])
     Taro.setStorageSync(THREAD_KEY, sessionId)
+    const seq = ++historySeq.current
     try {
-      setMessages(toChatItems(await getAgentHistory(sessionId)))
+      const history = await getAgentHistory(sessionId)
+      if (seq !== historySeq.current) return
+      setMessages(toChatItems(history))
     } catch {
       setFault('历史对话加载失败，请重试')
     }
