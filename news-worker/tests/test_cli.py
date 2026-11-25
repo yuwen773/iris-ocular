@@ -103,6 +103,32 @@ def test_europe_pmc_cursor_and_abstract_rights(monkeypatch):
 
 
 @respx.mock
+def test_europe_pmc_single_page_window_without_cursor_commits(monkeypatch):
+    # Europe PMC omits nextCursorMark when the window fits on one page; that is a
+    # complete window, not malformed data.
+    mock = MockControl(Source.EUROPE_PMC)
+    configure_cli(monkeypatch, mock)
+    item = {"id": "1", "source": "MED", "title": "Synthetic title", "pubYear": "2026"}
+    respx.get(url__startswith=EUROPE).mock(return_value=pmc_page([item], count=1))
+    assert cli.main(CLI) == 0
+    assert mock.complete_cursor == mock.lease.window.end_before
+    assert [record.source_record_id for record in mock.visible.values()] == ["MED:1"]
+
+
+@respx.mock
+def test_europe_pmc_final_page_short_of_hit_count_fails_closed(monkeypatch):
+    # A page with no cursor that does not account for every hit is still rejected,
+    # and no partial batch may become visible.
+    mock = MockControl(Source.EUROPE_PMC)
+    configure_cli(monkeypatch, mock)
+    item = {"id": "1", "source": "MED", "title": "Synthetic title", "pubYear": "2026"}
+    respx.get(url__startswith=EUROPE).mock(return_value=pmc_page([item], count=5))
+    assert cli.main(CLI) == 1
+    assert mock.failures[0].code == FailureCode.BAD_SOURCE_DATA
+    assert not mock.visible and mock.complete_cursor is None
+
+
+@respx.mock
 def test_clinical_trials_projects_at_most_one_hundred_conditions_and_continues(monkeypatch):
     mock = MockControl()
     configure_cli(monkeypatch, mock)

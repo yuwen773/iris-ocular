@@ -88,18 +88,29 @@ class EuropePmc:
                 raise WorkerError(FailureCode.WINDOW_TOO_LARGE)
             results = list_field(object_field(data.get("resultList")).get("result"))
             next_cursor = text_field(data.get("nextCursorMark"))
-            if not results and count >= hits and next_cursor in {None, cursor}:
-                return
-            if page_number == MAX_PAGES:
-                raise WorkerError(FailureCode.WINDOW_TOO_LARGE)
-            if next_cursor is None or next_cursor in used_cursors or not results:
+            if not results:
+                if count >= hits and next_cursor in {None, cursor}:
+                    return
                 raise WorkerError(FailureCode.BAD_SOURCE_DATA)
             count += len(results)
             if count > MAX_WINDOW_RECORDS:
                 raise WorkerError(FailureCode.WINDOW_TOO_LARGE)
+            # Europe PMC omits nextCursorMark on the final page, so a complete
+            # window that fits on one page arrives without a cursor. Validate the
+            # page before yielding so a bad cursor still hides partial batches.
+            final_page = next_cursor is None
+            if final_page:
+                if count < hits:
+                    raise WorkerError(FailureCode.BAD_SOURCE_DATA)
+            elif page_number == MAX_PAGES:
+                raise WorkerError(FailureCode.WINDOW_TOO_LARGE)
+            elif next_cursor in used_cursors:
+                raise WorkerError(FailureCode.BAD_SOURCE_DATA)
             try:
                 yield [_record(object_field(item)) for item in results]
             except ValidationError:
                 raise WorkerError(FailureCode.BAD_SOURCE_DATA) from None
+            if final_page:
+                return
             cursor = next_cursor
             used_cursors.add(cursor)
