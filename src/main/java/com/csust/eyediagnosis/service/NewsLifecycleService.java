@@ -1,5 +1,6 @@
 package com.csust.eyediagnosis.service;
 
+import cn.hutool.http.HtmlUtil;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.csust.eyediagnosis.common.BatchResultVO;
 import com.csust.eyediagnosis.config.JsonConfig;
@@ -171,7 +172,7 @@ public class NewsLifecycleService {
             stampReview(patch, from, to, actor, note);
         }
 
-        int effectiveStatus = to != null ? to : from;
+        int effectiveStatus = to != null ? to : (from == null ? NewsStatus.DRAFT : from);
         String effectiveTitle = firstNonNull(patch.getTitle(), current.getTitle());
         String effectiveSummary = firstNonNull(patch.getSummary(), current.getSummary());
         String effectiveContent = firstNonNull(patch.getContent(), current.getContent());
@@ -307,6 +308,10 @@ public class NewsLifecycleService {
         ThrowUtils.throwIf(newsId == null || newsId <= 0 || isBlank(coverUrl), ErrorCode.PARAMS_ERROR);
         News current = selectCurrentState(newsId);
         ThrowUtils.throwIf(current == null, ErrorCode.NOT_FOUND_ERROR);
+        if (Integer.valueOf(NewsStatus.PUBLISHED).equals(current.getStatus())) {
+            enforcePublishGateOnEdit(current, current.getStatus(), null, NewsStatus.PUBLISHED,
+                    current.getTitle(), current.getSummary(), current.getContent(), null, actor);
+        }
 
         News patch = new News();
         patch.setId(newsId);
@@ -453,21 +458,19 @@ public class NewsLifecycleService {
                                                   String effectiveContent,
                                                   String note,
                                                   User actor) {
+        if (effectiveStatus != NewsStatus.PUBLISHED) {
+            return null;
+        }
         boolean hasAnyEvidence = current.getCurationCandidateId() != null
                 || current.getMaterialRevisionId() != null
                 || current.getEvidenceSnapshotSha256() != null;
 
         CandidateRow boundCandidate = null;
         if (hasAnyEvidence && jdbc != null && current.getCurationCandidateId() != null) {
-            boolean forPublish = (effectiveStatus == NewsStatus.PUBLISHED);
-            boundCandidate = lockAndVerifyCandidate(current.getCurationCandidateId(), forPublish);
+            boundCandidate = lockAndVerifyCandidate(current.getCurationCandidateId(), true);
             verifyBindingMatchesCandidate(current, boundCandidate);
-        } else if (hasAnyEvidence && effectiveStatus == NewsStatus.PUBLISHED) {
+        } else if (hasAnyEvidence) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "资讯证据绑定字段不完整，禁止发布");
-        }
-
-        if (effectiveStatus != NewsStatus.PUBLISHED) {
-            return boundCandidate;
         }
 
         ThrowUtils.throwIf(effectiveTitle != null && effectiveTitle.isBlank(),
@@ -553,23 +556,24 @@ public class NewsLifecycleService {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "冻结证据快照 SHA-256 校验失败，内容可能被篡改");
         }
 
-        List<String> materialDigests = jdbc.query(
-                "SELECT contentDigest FROM t_news_material_revision WHERE id = ?",
-                (rs, rowNum) -> rs.getString(1),
-                candidate.materialRevisionId);
-        if (materialDigests.isEmpty() || !Objects.equals(materialDigests.getFirst(), candidate.contentDigest)) {
+        Integer matchingRevision = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM t_news_material_revision
+                WHERE id = ? AND materialId = ? AND source = ? AND sourceRecordId = ? AND contentDigest = ?
+                """, Integer.class, candidate.materialRevisionId, candidate.materialId, candidate.source,
+                candidate.sourceRecordId, candidate.contentDigest);
+        if (!Integer.valueOf(1).equals(matchingRevision)) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "绑定的原始资料修订不存在或摘要不匹配");
         }
 
         if (isBlank(candidate.callId)) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "候选缺少有效模型调用回执");
         }
-        List<String> callStates = jdbc.query(
-                "SELECT state FROM t_news_model_call_receipt WHERE callId = ?",
-                (rs, rowNum) -> rs.getString(1),
-                candidate.callId);
-        if (callStates.isEmpty() || !"SUCCEEDED".equals(callStates.getFirst())) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "关联的模型调用回执未处于 SUCCEEDED 状态");
+        Integer matchingReceipt = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM t_news_model_call_receipt
+                WHERE callId = ? AND materialRevisionId = ? AND policyVersion = ? AND state = 'SUCCEEDED'
+                """, Integer.class, candidate.callId, candidate.materialRevisionId, candidate.policyVersion);
+        if (!Integer.valueOf(1).equals(matchingReceipt)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "模型调用回执未成功或与候选证据不匹配");
         }
 
         return candidate;
@@ -592,7 +596,10 @@ public class NewsLifecycleService {
     }
 
     private static void validateClinicalAndInjectionSafety(String title, String summary, String content) {
-        for (String fieldText : new String[]{title, summary, content}) {
+        String normalizedBody = content == null ? null : HtmlUtil.unescape(content)
+                .replaceAll("[\\[\\]*_`~\\\\]", "")
+                .replaceAll("[\\s\\u00A0]+", " ");
+        for (String fieldText : new String[]{title, summary, content, normalizedBody}) {
             NewsEvidenceVerifier.findProhibitedClinicalMarker(fieldText).ifPresent(marker -> {
                 throw new BusinessException(ErrorCode.PARAMS_ERROR,
                         "发布内容触及医学安全边界，包含禁用表述: " + marker);

@@ -166,6 +166,13 @@ class NewsWorkerAuthBoundaryTest {
                         .contextPath("/api")
                         .header(NewsWorkerAuthFilter.WORKER_KEY_HEADER, VALID_WORKER_KEY)
                         .header("X-Forwarded-Proto", "https"))
+                .andExpect(status().isForbidden())
+                .andExpect(content().json("{\"code\":\"FORBIDDEN\"}", true));
+
+        mockMvc.perform(post("/api/internal/news/v1/leases/claim")
+                        .contextPath("/api")
+                        .secure(true)
+                        .header(NewsWorkerAuthFilter.WORKER_KEY_HEADER, VALID_WORKER_KEY))
                 .andExpect(status().isNoContent());
 
         // Remote IP allowlist enforcement

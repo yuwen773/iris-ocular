@@ -58,7 +58,7 @@ public class NewsWorkerAuthFilter extends OncePerRequestFilter {
             return;
         }
 
-        if (properties.isRequireHttps() && !isHttpsRequest(request)) {
+        if (properties.isRequireHttps() && !request.isSecure()) {
             log.warn("Rejected non-HTTPS internal news worker request, workerId={}, path={}",
                     identity.get().workerId(), request.getRequestURI());
             writeError(response, HttpServletResponse.SC_FORBIDDEN, "FORBIDDEN");
@@ -88,14 +88,6 @@ public class NewsWorkerAuthFilter extends OncePerRequestFilter {
     private static boolean hasHeader(HttpServletRequest request, String name) {
         String value = request.getHeader(name);
         return value != null && !value.isBlank();
-    }
-
-    private static boolean isHttpsRequest(HttpServletRequest request) {
-        if (request.isSecure()) {
-            return true;
-        }
-        String forwardedProto = request.getHeader("X-Forwarded-Proto");
-        return forwardedProto != null && "https".equalsIgnoreCase(forwardedProto.trim());
     }
 
     private static void writeError(HttpServletResponse response, int status, String code) throws IOException {

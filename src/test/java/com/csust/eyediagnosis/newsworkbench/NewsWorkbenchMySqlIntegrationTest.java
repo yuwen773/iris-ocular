@@ -105,6 +105,7 @@ class NewsWorkbenchMySqlIntegrationTest {
         jdbc.execute("DELETE FROM t_news_curation_candidate");
         jdbc.execute("DELETE FROM t_news_model_call_receipt");
         jdbc.execute("DELETE FROM t_news_curation_budget");
+        jdbc.execute("DELETE FROM t_news_curation_circuit");
         jdbc.execute("DELETE FROM t_news_material_revision");
         jdbc.execute("DELETE FROM t_news_material");
         jdbc.execute("DELETE FROM t_news_worker_receipt");

@@ -80,6 +80,7 @@ class NewsCurationMySqlIntegrationTest {
         jdbc.execute("DELETE FROM t_news_curation_candidate");
         jdbc.execute("DELETE FROM t_news_model_call_receipt");
         jdbc.execute("DELETE FROM t_news_curation_budget");
+        jdbc.execute("DELETE FROM t_news_curation_circuit");
         jdbc.execute("DELETE FROM t_news_material_revision");
         jdbc.execute("DELETE FROM t_news_material");
         jdbc.execute("DELETE FROM t_news_worker_receipt");
@@ -487,6 +488,31 @@ class NewsCurationMySqlIntegrationTest {
             assertEquals(2, after.reservedCalls());
             assertEquals(8_000L, after.reservedTokens());
             assertEquals(100_000L, after.reservedCostMicros());
+
+            long revExpired = ingestAndCompleteSingle("pubmed", "PMID-STALE-4", "Dispatch deadline", 4L);
+            JdbcTemplate expireOnReserve = new JdbcTemplate(dataSource) {
+                @Override
+                public int update(String sql, Object... args) {
+                    int updated = super.update(sql, args);
+                    if (sql.contains("INSERT INTO t_news_model_call_receipt")) {
+                        super.update("""
+                                UPDATE t_news_model_call_receipt
+                                SET deadlineAt = UTC_TIMESTAMP(6) WHERE callId = ?
+                                """, args[0]);
+                    }
+                    return updated;
+                }
+            };
+            NewsCurationService deadlineService = new NewsCurationService(expireOnReserve,
+                    curationProperties, modelClient, verifier, promptBuilder, mapper);
+            assertThrows(IllegalStateException.class, () ->
+                    deadlineService.curateRevision(revExpired, POLICY_V1, BUDGET_DATE, SCOPE_GLOBAL));
+            assertEquals(0, modelClient.invocations.get());
+            assertEquals("ABORTED_PRE_IO", jdbc.queryForObject("""
+                    SELECT state FROM t_news_model_call_receipt WHERE materialRevisionId = ?
+                    """, String.class, revExpired));
+            assertEquals(after.reservedCalls(), curationService.getBudget(BUDGET_DATE, SCOPE_GLOBAL)
+                    .orElseThrow().reservedCalls());
         } finally {
             TimeZone.setDefault(original);
         }
@@ -516,6 +542,10 @@ class NewsCurationMySqlIntegrationTest {
         IllegalStateException breakerEx = assertThrows(IllegalStateException.class, () ->
                 curationService.curateRevision(rev2, POLICY_V1, BUDGET_DATE, SCOPE_GLOBAL));
         assertTrue(breakerEx.getMessage().contains("CURATION_CIRCUIT_BROKEN"));
+        LocalDate nextDay = BUDGET_DATE.plusDays(1);
+        IllegalStateException nextDayBlocked = assertThrows(IllegalStateException.class, () ->
+                curationService.curateRevision(rev2, POLICY_V1, nextDay, SCOPE_GLOBAL));
+        assertTrue(nextDayBlocked.getMessage().contains("CURATION_CIRCUIT_BROKEN"));
         assertEquals(1, modelClient.invocations.get());
 
         // After operator resets breaker, curation succeeds.
@@ -524,7 +554,7 @@ class NewsCurationMySqlIntegrationTest {
                 validAcceptJson("Optic nerve head biomechanics", "abstract"),
                 400, 150, 2_200L, "req-auth-recovered"));
         NewsCurationModels.CurationResult ok = curationService.curateRevision(
-                rev2, POLICY_V1, BUDGET_DATE, SCOPE_GLOBAL);
+                rev2, POLICY_V1, nextDay, SCOPE_GLOBAL);
         assertEquals(NewsCurationModels.CandidateStatus.CURATED_ACCEPTED, ok.status());
     }
 

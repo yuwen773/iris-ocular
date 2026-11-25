@@ -163,9 +163,9 @@ public class NewsWorkbenchService {
                        maxCalls, usedCalls, reservedCalls,
                        maxTokens, usedTokens, reservedTokens,
                        maxCostMicros, usedCostMicros, reservedCostMicros,
-                       CAST(circuitBroken AS SIGNED) AS circuitBroken, circuitReason,
+                       circuitReason IS NOT NULL AS circuitBroken, circuitReason,
                        DATE_FORMAT(updatedAt, '%Y-%m-%dT%H:%i:%s.%fZ') AS updatedAtUtc
-                FROM t_news_curation_budget
+                FROM t_news_curation_budget LEFT JOIN t_news_curation_circuit USING (scope)
                 WHERE budgetDate = UTC_DATE() AND scope = ?
                 """, (rs, rowNum) -> mapBudgetRow(rs), DEFAULT_BUDGET_SCOPE);
         NewsWorkbenchModels.BudgetSummaryVO todayBudget = todayRows.isEmpty() ? null : todayRows.getFirst();
@@ -520,9 +520,9 @@ public class NewsWorkbenchService {
                            maxCalls, usedCalls, reservedCalls,
                            maxTokens, usedTokens, reservedTokens,
                            maxCostMicros, usedCostMicros, reservedCostMicros,
-                           CAST(circuitBroken AS SIGNED) AS circuitBroken, circuitReason,
+                           circuitReason IS NOT NULL AS circuitBroken, circuitReason,
                            DATE_FORMAT(updatedAt, '%Y-%m-%dT%H:%i:%s.%fZ') AS updatedAtUtc
-                    FROM t_news_curation_budget
+                    FROM t_news_curation_budget LEFT JOIN t_news_curation_circuit USING (scope)
                     WHERE scope = ?
                     ORDER BY budgetDate DESC, scope ASC
                     LIMIT ?
@@ -533,9 +533,9 @@ public class NewsWorkbenchService {
                        maxCalls, usedCalls, reservedCalls,
                        maxTokens, usedTokens, reservedTokens,
                        maxCostMicros, usedCostMicros, reservedCostMicros,
-                       CAST(circuitBroken AS SIGNED) AS circuitBroken, circuitReason,
+                       circuitReason IS NOT NULL AS circuitBroken, circuitReason,
                        DATE_FORMAT(updatedAt, '%Y-%m-%dT%H:%i:%s.%fZ') AS updatedAtUtc
-                FROM t_news_curation_budget
+                FROM t_news_curation_budget LEFT JOIN t_news_curation_circuit USING (scope)
                 ORDER BY budgetDate DESC, scope ASC
                 LIMIT ?
                 """, (rs, rowNum) -> mapBudgetRow(rs), safeLimit);
@@ -810,9 +810,9 @@ public class NewsWorkbenchService {
                        maxCalls, usedCalls, reservedCalls,
                        maxTokens, usedTokens, reservedTokens,
                        maxCostMicros, usedCostMicros, reservedCostMicros,
-                       CAST(circuitBroken AS SIGNED) AS circuitBroken, circuitReason,
+                       circuitReason IS NOT NULL AS circuitBroken, circuitReason,
                        DATE_FORMAT(updatedAt, '%Y-%m-%dT%H:%i:%s.%fZ') AS updatedAtUtc
-                FROM t_news_curation_budget
+                FROM t_news_curation_budget LEFT JOIN t_news_curation_circuit USING (scope)
                 WHERE budgetDate = ? AND scope = ?
                 """, (rs, rowNum) -> mapBudgetRow(rs), date.toString(), scope);
         if (rows.isEmpty()) {

@@ -432,6 +432,9 @@ class NewsEditorialPublishMySqlIntegrationTest {
         manualUnsafe.setContent(SAFE_BODY_PREFIX + "患者无需就诊即可开具处方并彻底根治病变。");
         manualUnsafe.setStatus(NewsStatus.PUBLISHED);
         assertThrows(BusinessException.class, () -> controller.updateNews(manualUnsafe, req));
+        manualUnsafe.setTitle("眼科研究资料");
+        manualUnsafe.setContent(SAFE_BODY_PREFIX + "研究团队宣称保**证治愈**该病。");
+        assertThrows(BusinessException.class, () -> controller.updateNews(manualUnsafe, req));
 
         NewsUpdateDTO editSafePublishedUnsafe = new NewsUpdateDTO();
         editSafePublishedUnsafe.setId(reviewNewsId);
@@ -444,6 +447,36 @@ class NewsEditorialPublishMySqlIntegrationTest {
         tamperBind.setId(tamperedNewsId);
         tamperBind.setCurationCandidateId(needsReview.candidateId);
         assertThrows(BusinessException.class, () -> lifecycleService.applyEdit(tamperBind, adminActor, null));
+
+        CuratedCandidateFixture wrongReceipt = createCuratedCandidate(
+                "PMID-GATE-RCT", "Retinal image quality repeatability", "ACCEPT", false);
+        Long wrongReceiptNews = controller.createFromCandidate(wrongReceipt.candidateId, true, req).getData();
+        Long invalidatedNews = reviewNewsId;
+        String otherCallId = jdbc.queryForObject("SELECT callId FROM t_news_curation_candidate WHERE id = ?",
+                String.class, tampered.candidateId);
+        jdbc.update("UPDATE t_news_curation_candidate SET callId = ? WHERE id IN (?, ?)",
+                otherCallId, wrongReceipt.candidateId, needsReview.candidateId);
+        assertThrows(BusinessException.class, () -> controller.createFromCandidate(wrongReceipt.candidateId, false, req));
+        long beforeReject = cacheService.readAuthoritativeDbEpoch();
+        Integer publishedRevision = newsService.getById(invalidatedNews).getPublishedRevisionNo();
+        assertThrows(BusinessException.class, () -> lifecycleService.recordCoverUpdate(
+                invalidatedNews, "https://example.org/cover.jpg", null, adminActor));
+        assertEquals(publishedRevision, newsService.getById(invalidatedNews).getPublishedRevisionNo());
+        publishTampered.setId(wrongReceiptNews);
+        publishTampered.setContent(newsService.getById(wrongReceiptNews).getContent());
+        assertThrows(BusinessException.class, () -> controller.updateNews(publishTampered, req));
+        batchTampered.setIds(List.of(wrongReceiptNews));
+        assertEquals(0, controller.changeNewsStatusBatch(batchTampered, req).getData().getSucceeded());
+        assertEquals(beforeReject, cacheService.readAuthoritativeDbEpoch());
+
+        NewsBatchStatusDTO withdraw = new NewsBatchStatusDTO();
+        withdraw.setIds(List.of(invalidatedNews));
+        withdraw.setStatus(NewsStatus.OFFLINE);
+        withdraw.setNote("发现证据绑定错误并撤回");
+        assertEquals(1, controller.changeNewsStatusBatch(withdraw, req).getData().getSucceeded());
+        assertEquals(Integer.valueOf(NewsStatus.OFFLINE), newsService.getById(invalidatedNews).getStatus());
+        assertEquals(needsReview.snapshotSha256, controller.listNewsRevisions(invalidatedNews).getData()
+                .getLast().getEvidenceSnapshotSha256());
     }
 
     // Case 4
@@ -579,6 +612,10 @@ class NewsEditorialPublishMySqlIntegrationTest {
         long cachedEpoch = cacheService.readAuthoritativeDbEpoch();
         String staleRedisKey = buildExpectedCacheKey(cachedEpoch, q);
         assertNotNull(rawRedis.opsForValue().get(staleRedisKey), "Cached list must exist in real Redis 7");
+        long legacyEpoch = cachedEpoch + 50;
+        String aheadKey = buildExpectedCacheKey(legacyEpoch, q);
+        rawRedis.opsForValue().set(NewsListCacheService.NEWS_LIST_CACHE_GENERATION, String.valueOf(legacyEpoch));
+        rawRedis.opsForValue().set(aheadKey, rawRedis.opsForValue().get(staleRedisKey));
 
         // Simulate Redis eviction failure RIGHT WHEN admin withdraws article A!
         ACTIVE_ACTOR.set(adminActor);
@@ -596,7 +633,7 @@ class NewsEditorialPublishMySqlIntegrationTest {
                 rawRedis.opsForValue().get(NewsListCacheService.NEWS_LIST_CACHE_GENERATION));
         assertNotNull(rawRedis.opsForValue().get(staleRedisKey));
 
-        // Visitor reads cached list immediately: DB epoch forces cache bypass + self-heals Redis!
+        // Visitor reads immediately using the DB epoch despite the higher legacy Redis generation.
         faultRedis.failIncrement.set(false);
         ACTIVE_ACTOR.remove();
         Page<NewsVO> afterWithdrawRead = controller.listNewsVOByPageWithCache(q, req).getData();
@@ -605,7 +642,7 @@ class NewsEditorialPublishMySqlIntegrationTest {
         assertFalse(afterWithdrawJson.contains("青光眼眼压昼夜波动监测价值"),
                 "Withdrawn article MUST NOT leak from stale Redis cache");
         assertTrue(afterWithdrawJson.contains("高度近视定期眼底检查指南"));
-        assertEquals(String.valueOf(cacheService.readAuthoritativeDbEpoch()),
+        assertEquals(String.valueOf(legacyEpoch),
                 rawRedis.opsForValue().get(NewsListCacheService.NEWS_LIST_CACHE_GENERATION));
 
         // Total Redis outage while deleting article B: withdrawal still succeeds and reads fall back cleanly to MySQL!

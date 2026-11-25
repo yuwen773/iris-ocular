@@ -617,6 +617,32 @@ class NewsIngestionMySqlIntegrationTest {
         assertEquals("FAILED", service.getTask("task-fail-a").orElseThrow().status());
         assertEquals("SOURCE_UNAVAILABLE", service.getTask("task-fail-a").orElseThrow().lastFailureCode());
 
+        LocalDate start = LocalDate.of(2026, 10, 1);
+        LocalDate end = LocalDate.of(2026, 10, 8);
+        service.enqueueWindow("task-fail-next", "pubmed", 1L, "cornea", end, end.plusDays(1), 2);
+        assertTrue(service.claim(WORKER_A).isEmpty());
+        assertThrows(IllegalArgumentException.class, () ->
+                service.registerSourceConfig("pubmed", 1L, "glaucoma", start));
+        assertThrows(IllegalArgumentException.class, () ->
+                service.enqueueWindow("changed-query", "pubmed", 1L, "glaucoma", start, end, 2));
+        assertTrue(service.getTask("changed-query").isEmpty());
+        assertTrue(service.getCommittedCursor("pubmed", 1L).isEmpty());
+
+        service.enqueueWindow("task-fail-a", "pubmed", 1L, "cornea", start, end, 2);
+        NewsWireModels.Lease recovered = service.claim(WORKER_B).orElseThrow();
+        assertEquals("task-fail-a", recovered.taskId());
+        assertEquals(3L, recovered.generation());
+        assertThrows(NewsControlException.class, () -> service.complete(WORKER_A, "task-fail-a", "2:complete",
+                completeJson(2L, a2.leaseToken(), 0, 0, end)));
+        assertEquals(r2, service.fail(WORKER_A, "task-fail-a", "2:fail",
+                failJson(2L, a2.leaseToken(), "SOURCE_UNAVAILABLE", true)));
+        service.complete(WORKER_B, "task-fail-a", "3:complete",
+                completeJson(3L, recovered.leaseToken(), 0, 0, end));
+        assertEquals(Optional.of(end), service.getCommittedCursor("pubmed", 1L));
+        assertEquals("task-fail-next", service.claim(WORKER_B).orElseThrow().taskId());
+        service.registerSourceConfig("pubmed", 2L, "glaucoma", start);
+        assertEquals(Optional.of(start), service.getCommittedCursor("pubmed", 2L));
+
         // Task B: maxAttempts=3, non-retryable failure immediately transitions to FAILED.
         service.enqueueWindow("task-fail-b", "europe-pmc", 1L, "cornea",
                 LocalDate.of(2026, 10, 1), LocalDate.of(2026, 10, 8), 3);

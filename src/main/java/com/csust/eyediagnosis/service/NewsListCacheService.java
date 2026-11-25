@@ -8,7 +8,6 @@ import com.csust.eyediagnosis.model.vo.news.NewsVO;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -25,15 +24,14 @@ import java.util.concurrent.atomic.AtomicLong;
  *
  * <p>Every committed mutation on {@code t_news} atomically advances {@code t_news_cache_epoch}
  * inside the write transaction and registers a single coalesced {@code afterCommit()} hook to
- * advance Redis {@code diagnosis:newsListGeneration}. If Redis eviction fails or lags behind the
- * committed DB epoch, reads bypass stale cached pages using the DB epoch and self-heal Redis,
- * guaranteeing withdrawn/deleted articles never remain visible to readers.
+ * advance the legacy Redis generation for older readers. Current readers use the committed
+ * database epoch alone in a dedicated key namespace.
  */
 @Slf4j
 @Service
 public class NewsListCacheService {
 
-    public static final String NEWS_LIST_CACHE_PREFIX = "diagnosis:listNewsVOByPage ";
+    public static final String NEWS_LIST_CACHE_PREFIX = "diagnosis:listNewsVOByPage:v2:";
     public static final String NEWS_LIST_CACHE_GENERATION = "diagnosis:newsListGeneration";
     public static final String NEWS_LIST_SCOPE = "news_list";
 
@@ -122,22 +120,14 @@ public class NewsListCacheService {
             return new CacheReadResult(dbEpoch, null);
         }
         try {
-            ValueOperations<String, String> ops = stringRedisTemplate.opsForValue();
-            long redisEpoch = parseEpoch(ops.get(NEWS_LIST_CACHE_GENERATION));
-            long effectiveEpoch = Math.max(dbEpoch, redisEpoch);
-            if (dbEpoch > redisEpoch) {
-                // Fail-closed: prior eviction failed or Redis was reset; self-heal generation best-effort
-                // and compute key against effectiveEpoch (= dbEpoch) so stale cached pages cannot hit.
-                ops.set(NEWS_LIST_CACHE_GENERATION, String.valueOf(dbEpoch));
-            }
-            String redisKey = keyForEpoch(effectiveEpoch, queryCondition);
-            String cacheValue = ops.get(redisKey);
+            String redisKey = keyForEpoch(dbEpoch, queryCondition);
+            String cacheValue = stringRedisTemplate.opsForValue().get(redisKey);
             if (StrUtil.isNotBlank(cacheValue)) {
                 @SuppressWarnings("unchecked")
                 Page<NewsVO> cachePage = JSONUtil.toBean(cacheValue, Page.class);
-                return new CacheReadResult(effectiveEpoch, cachePage);
+                return new CacheReadResult(dbEpoch, cachePage);
             }
-            return new CacheReadResult(effectiveEpoch, null);
+            return new CacheReadResult(dbEpoch, null);
         } catch (RuntimeException ex) {
             log.warn("News list cache lookup failed, falling back to MySQL: {}", ex.getMessage());
             return new CacheReadResult(dbEpoch, null);
@@ -153,7 +143,7 @@ public class NewsListCacheService {
             return;
         }
         long latestDbEpoch = readAuthoritativeDbEpoch();
-        if (latestDbEpoch > snapshotEpoch) {
+        if (latestDbEpoch != snapshotEpoch) {
             return;
         }
         try {
@@ -167,16 +157,7 @@ public class NewsListCacheService {
     }
 
     public String buildCacheKey(String queryCondition) {
-        long dbEpoch = readAuthoritativeDbEpoch();
-        long redisEpoch = 0L;
-        if (stringRedisTemplate != null) {
-            try {
-                redisEpoch = parseEpoch(stringRedisTemplate.opsForValue().get(NEWS_LIST_CACHE_GENERATION));
-            } catch (RuntimeException ex) {
-                log.warn("News list cache key read fell back to DB epoch: {}", ex.getMessage());
-            }
-        }
-        return keyForEpoch(Math.max(dbEpoch, redisEpoch), queryCondition);
+        return keyForEpoch(readAuthoritativeDbEpoch(), queryCondition);
     }
 
     public long readAuthoritativeDbEpoch() {
@@ -209,7 +190,7 @@ public class NewsListCacheService {
             return;
         }
         try {
-            ValueOperations<String, String> ops = stringRedisTemplate.opsForValue();
+            var ops = stringRedisTemplate.opsForValue();
             Long incremented = ops.increment(NEWS_LIST_CACHE_GENERATION);
             if (incremented == null || incremented < targetEpoch) {
                 ops.set(NEWS_LIST_CACHE_GENERATION, String.valueOf(targetEpoch));
@@ -225,17 +206,6 @@ public class NewsListCacheService {
     private static String keyForEpoch(long epoch, String queryCondition) {
         String raw = epoch + ":" + (queryCondition == null ? "" : queryCondition);
         return NEWS_LIST_CACHE_PREFIX + DigestUtils.md5DigestAsHex(raw.getBytes(StandardCharsets.UTF_8));
-    }
-
-    private static long parseEpoch(String raw) {
-        if (raw == null || raw.isBlank()) {
-            return 0L;
-        }
-        try {
-            return Math.max(0L, Long.parseLong(raw.trim()));
-        } catch (NumberFormatException ignored) {
-            return 0L;
-        }
     }
 
     private static final class PendingEpochHolder {

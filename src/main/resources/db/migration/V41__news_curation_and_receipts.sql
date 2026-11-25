@@ -14,15 +14,19 @@ CREATE TABLE IF NOT EXISTS t_news_curation_budget (
     maxCostMicros      BIGINT      NOT NULL,
     usedCostMicros     BIGINT      NOT NULL DEFAULT 0,
     reservedCostMicros BIGINT      NOT NULL DEFAULT 0,
-    circuitBroken      TINYINT     NOT NULL DEFAULT 0,
-    circuitReason      VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
     createdAt          DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     updatedAt          DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
     PRIMARY KEY (budgetDate, scope)
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4
   COLLATE = utf8mb4_unicode_ci
-  COMMENT = 'Daily curation call/token/cost budget and circuit breaker state';
+  COMMENT = 'Daily curation call/token/cost budget';
+
+CREATE TABLE IF NOT EXISTS t_news_curation_circuit (
+    scope          VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY,
+    circuitReason  VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL
+) ENGINE = InnoDB
+  COMMENT = 'Per-scope curation auth circuit, retained across UTC dates';
 
 CREATE TABLE IF NOT EXISTS t_news_model_call_receipt (
     callId             VARCHAR(64)  CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY,

@@ -36,7 +36,7 @@ import static org.mockito.Mockito.when;
 
 /**
  * L1 tests for {@link NewsListCacheService}: post-commit Redis invalidation, intra-tx coalescing,
- * eviction-failure resilience, stale-generation bypass + self-healing, and concurrent write safety.
+ * eviction-failure resilience, stale-generation bypass, and concurrent write safety.
  */
 class NewsListCacheServiceTest {
 
@@ -128,7 +128,7 @@ class NewsListCacheServiceTest {
     }
 
     @Test
-    void evictionFailureDoesNotThrowAndNextReadBypassesStaleRedisEntryAndSelfHeals() {
+    void evictionFailureDoesNotThrowAndNextReadIgnoresAheadRedisGeneration() {
         when(valueOps.increment(NewsListCacheService.NEWS_LIST_CACHE_GENERATION))
                 .thenThrow(new RedisConnectionFailureException("redis down during eviction"));
 
@@ -136,12 +136,12 @@ class NewsListCacheServiceTest {
         assertDoesNotThrow(() -> cacheService.scheduleEvictionAfterCommit(5L));
         assertEquals(1L, cacheService.getEvictionFailureCount());
 
-        // Simulate Redis recovering with stale generation "4" and stale page cached at epoch 4.
+        // A legacy Redis generation ahead of MySQL must not authorize cached pages.
         String staleKey = NewsListCacheService.NEWS_LIST_CACHE_PREFIX
-                + DigestUtils.md5DigestAsHex("4:q=visible".getBytes(StandardCharsets.UTF_8));
+                + DigestUtils.md5DigestAsHex("50:q=visible".getBytes(StandardCharsets.UTF_8));
         String freshKey = NewsListCacheService.NEWS_LIST_CACHE_PREFIX
                 + DigestUtils.md5DigestAsHex("5:q=visible".getBytes(StandardCharsets.UTF_8));
-        when(valueOps.get(NewsListCacheService.NEWS_LIST_CACHE_GENERATION)).thenReturn("4");
+        when(valueOps.get(NewsListCacheService.NEWS_LIST_CACHE_GENERATION)).thenReturn("50");
         when(valueOps.get(staleKey)).thenReturn("{\"records\":[{\"id\":1}]}");
         when(valueOps.get(freshKey)).thenReturn(null);
 
@@ -149,7 +149,7 @@ class NewsListCacheServiceTest {
         assertFalse(result.hit());
         assertNull(result.page());
         assertEquals(5L, result.epoch());
-        verify(valueOps).set(NewsListCacheService.NEWS_LIST_CACHE_GENERATION, "5");
+        verify(valueOps, never()).get(NewsListCacheService.NEWS_LIST_CACHE_GENERATION);
         verify(valueOps, never()).get(staleKey);
     }
 

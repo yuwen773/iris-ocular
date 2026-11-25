@@ -127,14 +127,7 @@ public class NewsIngestionService {
         validateSourceAndConfig(source, sourceConfigVersion, query);
         transactions.executeWithoutResult(status -> {
             jdbc.update("INSERT IGNORE INTO t_news_source (source, enabled) VALUES (?, 1)", source);
-            jdbc.update("""
-                    INSERT INTO t_news_source_cursor (source, sourceConfigVersion, queryText, committedCursor)
-                    VALUES (?, ?, ?, ?)
-                    ON DUPLICATE KEY UPDATE queryText = VALUES(queryText),
-                                            committedCursor = COALESCE(committedCursor, VALUES(committedCursor))
-                    """,
-                    source, sourceConfigVersion, query.trim(),
-                    initialCursor == null ? null : initialCursor.toString());
+            lockOrCreateCursorRow(source, sourceConfigVersion, query.trim(), initialCursor);
         });
     }
 
@@ -149,10 +142,18 @@ public class NewsIngestionService {
         String trimmedQuery = query.trim();
         transactions.executeWithoutResult(status -> {
             jdbc.update("INSERT IGNORE INTO t_news_source (source, enabled) VALUES (?, 1)", source);
-            jdbc.update("""
-                    INSERT IGNORE INTO t_news_source_cursor (source, sourceConfigVersion, queryText, committedCursor)
-                    VALUES (?, ?, ?, NULL)
-                    """, source, sourceConfigVersion, trimmedQuery);
+            int reopened = jdbc.update("""
+                    UPDATE t_news_collection_task
+                    SET status = 'PENDING', maxAttempts = attemptCount + ?, nextAttemptAt = UTC_TIMESTAMP(6)
+                    WHERE taskId = ? AND source = ? AND sourceConfigVersion = ?
+                      AND BINARY queryText = BINARY ? AND windowStartOn = ? AND windowEndBefore = ?
+                      AND status = 'FAILED'
+                    """, maxAttempts, taskId, source, sourceConfigVersion, trimmedQuery,
+                    startOn.toString(), endBefore.toString());
+            lockOrCreateCursorRow(source, sourceConfigVersion, trimmedQuery, null);
+            if (reopened == 1) {
+                return;
+            }
             jdbc.update("""
                     INSERT INTO t_news_collection_task
                         (taskId, source, sourceConfigVersion, queryText, windowStartOn, windowEndBefore, maxAttempts, nextAttemptAt)
@@ -315,7 +316,7 @@ public class NewsIngestionService {
                 throw NewsControlException.incompleteBatches();
             }
 
-            CursorRow cursorRow = lockOrCreateCursorRow(task.source, task.sourceConfigVersion, task.queryText);
+            CursorRow cursorRow = lockOrCreateCursorRow(task.source, task.sourceConfigVersion, task.queryText, null);
             boolean shouldAdvanceCursor = cursorRow.committedCursor == null
                     || task.windowEndBefore.isAfter(cursorRow.committedCursor);
             if (shouldAdvanceCursor) {
@@ -729,18 +730,24 @@ public class NewsIngestionService {
         }
     }
 
-    private CursorRow lockOrCreateCursorRow(String source, long sourceConfigVersion, String queryText) {
+    private CursorRow lockOrCreateCursorRow(String source, long sourceConfigVersion,
+                                          String queryText, LocalDate initialCursor) {
         jdbc.update("""
                 INSERT IGNORE INTO t_news_source_cursor (source, sourceConfigVersion, queryText, committedCursor)
-                VALUES (?, ?, ?, NULL)
-                """, source, sourceConfigVersion, queryText);
-        return jdbc.queryForObject("""
-                SELECT DATE_FORMAT(committedCursor, '%Y-%m-%d') AS committedCursor
+                VALUES (?, ?, ?, ?)
+                """, source, sourceConfigVersion, queryText, initialCursor);
+        CursorRow cursor = jdbc.queryForObject("""
+                SELECT queryText, DATE_FORMAT(committedCursor, '%Y-%m-%d') AS committedCursor
                 FROM t_news_source_cursor
                 WHERE source = ? AND sourceConfigVersion = ?
                 FOR UPDATE
-                """, (rs, rowNum) -> new CursorRow(parseOptionalDate(rs.getString("committedCursor"))),
+                """, (rs, rowNum) -> new CursorRow(rs.getString("queryText"),
+                        parseOptionalDate(rs.getString("committedCursor"))),
                 source, sourceConfigVersion);
+        if (!queryText.equals(cursor.queryText)) {
+            throw new IllegalArgumentException("查询变更需要新的 sourceConfigVersion");
+        }
+        return cursor;
     }
 
     private void promoteStagedItems(String taskId, long generation, String source, String visibleAtDb) {
@@ -984,7 +991,7 @@ public class NewsIngestionService {
     private record ReceiptRow(String workerId, String requestBodySha256, String responseJson) {
     }
 
-    private record CursorRow(LocalDate committedCursor) {
+    private record CursorRow(String queryText, LocalDate committedCursor) {
     }
 
     private record StagedItem(String source, String sourceRecordId, String contentDigest, String canonicalJson) {

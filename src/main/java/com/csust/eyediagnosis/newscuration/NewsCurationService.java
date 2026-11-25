@@ -112,8 +112,8 @@ public class NewsCurationService {
                        maxCalls, usedCalls, reservedCalls,
                        maxTokens, usedTokens, reservedTokens,
                        maxCostMicros, usedCostMicros, reservedCostMicros,
-                       circuitBroken, circuitReason
-                FROM t_news_curation_budget
+                       circuitReason IS NOT NULL AS circuitBroken, circuitReason
+                FROM t_news_curation_budget LEFT JOIN t_news_curation_circuit USING (scope)
                 WHERE budgetDate = ? AND scope = ?
                 """, (rs, rowNum) -> mapBudgetRow(rs), budgetDate.toString(), normalizeScope(scope));
         return rows.isEmpty() ? Optional.empty() : Optional.of(rows.getFirst());
@@ -123,14 +123,12 @@ public class NewsCurationService {
         if (operatorId == null || operatorId.isBlank()) {
             throw new IllegalArgumentException("operatorId is required");
         }
-        ensureBudgetRowExists(budgetDate, normalizeScope(scope));
+        String budgetScope = normalizeScope(scope);
         transactions.executeWithoutResult(status -> {
-            lockBudget(budgetDate, normalizeScope(scope));
+            lockCircuit(budgetScope);
             jdbc.update("""
-                    UPDATE t_news_curation_budget
-                    SET circuitBroken = 0, circuitReason = NULL
-                    WHERE budgetDate = ? AND scope = ?
-                    """, budgetDate.toString(), normalizeScope(scope));
+                    UPDATE t_news_curation_circuit SET circuitReason = NULL WHERE scope = ?
+                    """, budgetScope);
             log.info("Reset curation circuit breaker for date={}, scope={}, operatorId={}",
                     budgetDate, normalizeScope(scope), operatorId.trim());
         });
@@ -167,17 +165,16 @@ public class NewsCurationService {
             return reserved.replayedResult;
         }
 
-        transactions.executeWithoutResult(status -> {
-            int updated = jdbc.update("""
+        boolean dispatched = Boolean.TRUE.equals(transactions.execute(status -> jdbc.update("""
                     UPDATE t_news_model_call_receipt
                     SET state = 'DISPATCHED',
                         dispatchedAt = UTC_TIMESTAMP(6)
-                    WHERE callId = ? AND state = 'RESERVED'
-                    """, reserved.request.callId());
-            if (updated != 1) {
-                throw new IllegalStateException("FAILED_TO_MARK_DISPATCHED");
-            }
-        });
+                    WHERE callId = ? AND state = 'RESERVED' AND deadlineAt > UTC_TIMESTAMP(6)
+                    """, reserved.request.callId()) == 1));
+        if (!dispatched) {
+            transactions.execute(status -> reclaimSingleStaleCall(reserved.request.callId()));
+            throw new IllegalStateException("FAILED_TO_MARK_DISPATCHED");
+        }
 
         NewsCurationModels.ModelCallOutcome outcome;
         try {
@@ -397,7 +394,8 @@ public class NewsCurationService {
                                               LocalDate budgetDate,
                                               String budgetScope,
                                               String callId) {
-        // Canonical lock order: budget -> receipts -> candidate
+        // Canonical lock order: circuit (when needed) -> budget -> receipts -> candidate
+        String circuitReason = lockCircuit(budgetScope);
         NewsCurationModels.BudgetSnapshot budget = lockBudget(budgetDate, budgetScope);
 
         List<ReceiptRow> existingReceipts = jdbc.query("""
@@ -439,8 +437,8 @@ public class NewsCurationService {
             }
         }
 
-        if (budget.circuitBroken()) {
-            throw new IllegalStateException("CURATION_CIRCUIT_BROKEN:" + budget.circuitReason());
+        if (circuitReason != null) {
+            throw new IllegalStateException("CURATION_CIRCUIT_BROKEN:" + circuitReason);
         }
 
         long estTokens = Math.max(1L, properties.getEstimatedTokensPerCall());
@@ -490,6 +488,9 @@ public class NewsCurationService {
                                            LocalDate budgetDate,
                                            String budgetScope,
                                            NewsCurationModels.ModelCallOutcome outcome) {
+        if (outcome instanceof NewsCurationModels.DefinitiveFailure failure && failure.authFailure()) {
+            lockCircuit(budgetScope);
+        }
         lockBudget(budgetDate, budgetScope);
         ReceiptRow receipt = lockReceipt(request.callId());
         if (receipt.state != NewsCurationModels.CallState.DISPATCHED) {
@@ -547,11 +548,8 @@ public class NewsCurationService {
             releaseReservedBudget(budgetDate, budgetScope, reservedTokens, reservedCostMicros);
             if (f.authFailure()) {
                 jdbc.update("""
-                        UPDATE t_news_curation_budget
-                        SET circuitBroken = 1,
-                            circuitReason = ?
-                        WHERE budgetDate = ? AND scope = ?
-                        """, f.errorCode(), budgetDate.toString(), budgetScope);
+                        UPDATE t_news_curation_circuit SET circuitReason = ? WHERE scope = ?
+                        """, f.errorCode(), budgetScope);
             }
             jdbc.update("""
                     UPDATE t_news_model_call_receipt
@@ -776,13 +774,20 @@ public class NewsCurationService {
                 Math.max(0L, properties.getDailyMaxCostMicros()));
     }
 
+    private String lockCircuit(String scope) {
+        jdbc.update("INSERT IGNORE INTO t_news_curation_circuit (scope) VALUES (?)", scope);
+        return jdbc.queryForObject("""
+                SELECT circuitReason FROM t_news_curation_circuit WHERE scope = ? FOR UPDATE
+                """, String.class, scope);
+    }
+
     private NewsCurationModels.BudgetSnapshot lockBudget(LocalDate budgetDate, String scope) {
         return jdbc.queryForObject("""
                 SELECT DATE_FORMAT(budgetDate, '%Y-%m-%d') AS budgetDate, scope,
                        maxCalls, usedCalls, reservedCalls,
                        maxTokens, usedTokens, reservedTokens,
                        maxCostMicros, usedCostMicros, reservedCostMicros,
-                       circuitBroken, circuitReason
+                       0 AS circuitBroken, NULL AS circuitReason
                 FROM t_news_curation_budget
                 WHERE budgetDate = ? AND scope = ?
                 FOR UPDATE
