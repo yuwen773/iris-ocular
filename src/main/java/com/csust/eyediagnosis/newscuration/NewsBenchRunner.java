@@ -287,7 +287,12 @@ public class NewsBenchRunner {
         int licenseComplianceBps = toBps(licenseCaught, licenseTotal);
         int injectionCatchBps = toBps(injectionCaught, injectionTotal);
 
-        boolean gatePassed = passedCases == totalCases
+        // 分母为 0 的类别在 toBps 里记为 10000（无样本 = 指标不适用），
+        // 但「不适用」不能当「通过」：换一个小数据集、把对抗/许可/注入样本整类删掉，
+        // 就能拿到全 10000 的绿灯，而这三类恰恰是门禁要守的东西。
+        boolean gateSamplesPresent = adversarialTotal > 0 && licenseTotal > 0 && injectionTotal > 0;
+        boolean gatePassed = gateSamplesPresent
+                && passedCases == totalCases
                 && precisionBps >= 9000
                 && recallBps >= 9000
                 && evidenceCatchBps == 10_000
