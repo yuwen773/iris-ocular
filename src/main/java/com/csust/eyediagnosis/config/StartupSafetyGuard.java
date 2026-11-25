@@ -5,6 +5,7 @@ import com.csust.eyediagnosis.newsingestion.NewsIngestionProperties;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.cloud.CloudPlatform;
 import org.springframework.boot.context.properties.bind.Bindable;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.core.env.Environment;
@@ -130,9 +131,23 @@ public class StartupSafetyGuard {
      * {@code framework} 策略的 ForwardedHeaderFilter 不校验来源，外部直连带一个
      * {@code X-Forwarded-Proto: https} 就能伪造；{@code native} 策略只信任
      * {@code server.tomcat.remoteip.internal-proxies} 内的远端地址，未显式限定边界等于没核验。
+     *
+     * <p>还有一条隐式路径：策略未配置时，Spring Boot 在云平台（Kubernetes / Cloud Foundry 等）
+     * 上会**自动**启用 native 并套用默认 {@code internal-proxies}（10/8、172.16/12、192.168/16、127/8）。
+     * 那等于「没写配置也开了一个你没决定的信任边界」，所以要求显式写清楚。
      */
     private void verifyForwardedTransport(List<String> violations) {
-        String strategy = environment.getProperty("server.forward-headers-strategy", "none");
+        String strategy = environment.getProperty("server.forward-headers-strategy");
+        if (strategy == null || strategy.isBlank()) {
+            CloudPlatform platform = CloudPlatform.getActive(environment);
+            if (platform != null) {
+                violations.add("server.forward-headers-strategy 未显式配置，但运行在云平台 " + platform
+                        + "（Spring Boot 会自动启用 native 转发处理并使用默认 internal-proxies，"
+                        + "可信代理边界不在你手里；显式设为 native 并配置 server.tomcat.remoteip.internal-proxies，"
+                        + "或设为 none 让伪造头直接失效）");
+            }
+            return;
+        }
         if (strategy.equalsIgnoreCase("framework")) {
             violations.add("server.forward-headers-strategy=framework 且 news-ingestion.require-https=true"
                     + "（ForwardedHeaderFilter 不校验来源，外部请求可伪造 X-Forwarded-Proto 通过 HTTPS 门禁；"

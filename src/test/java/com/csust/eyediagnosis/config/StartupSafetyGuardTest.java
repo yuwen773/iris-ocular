@@ -151,6 +151,34 @@ class StartupSafetyGuardTest {
     }
 
     @Test
+    void newsIngestionUnsetForwardingOutsideCloudPlatformPasses() {
+        // 策略未配置且不在云平台：没有转发处理，伪造 X-Forwarded-Proto 不会把 isSecure() 置真（fail-closed）。
+        MockEnvironment env = deployment()
+                .withProperty("eye-diagnosis.news-ingestion.enabled", "true")
+                .withProperty("eye-diagnosis.news-ingestion.require-https", "true")
+                .withProperty("eye-diagnosis.news-ingestion.workers.w1.key", "k9X2pL8mQ4vR7tW1zN6bC3fH5jD0sA2e");
+        env.setActiveProfiles("prod");
+        assertDoesNotThrow(() -> new StartupSafetyGuard(env).verify());
+    }
+
+    @Test
+    void newsIngestionUnsetForwardingOnCloudPlatformBlocksStartup() {
+        // 云平台上「没写配置」会被 Spring Boot 自动补成 native + 默认 internal-proxies，
+        // 等于开了一条运维没决定的信任边界。
+        MockEnvironment env = deployment()
+                .withProperty("eye-diagnosis.news-ingestion.enabled", "true")
+                .withProperty("eye-diagnosis.news-ingestion.require-https", "true")
+                .withProperty("eye-diagnosis.news-ingestion.workers.w1.key", "k9X2pL8mQ4vR7tW1zN6bC3fH5jD0sA2e")
+                // 与真实部署等价：Boot 在 KUBERNETES_SERVICE_HOST 存在时判定为云平台；
+                // 单元测试里用同名显式覆盖，避免依赖宿主机环境变量。
+                .withProperty("spring.main.cloud-platform", "kubernetes");
+        env.setActiveProfiles("prod");
+        IllegalStateException failure = assertThrows(IllegalStateException.class,
+                () -> new StartupSafetyGuard(env).verify());
+        assertTrue(failure.getMessage().contains("云平台"), failure.getMessage());
+    }
+
+    @Test
     void newsIngestionRejectsForgeableFrameworkForwarding() {
         MockEnvironment env = deployment()
                 .withProperty("eye-diagnosis.news-ingestion.enabled", "true")
