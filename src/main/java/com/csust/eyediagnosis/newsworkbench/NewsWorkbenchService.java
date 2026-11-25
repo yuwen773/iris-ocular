@@ -48,6 +48,8 @@ public class NewsWorkbenchService {
     private static final int DEFAULT_MAX_ATTEMPTS = 3;
     private static final int MAX_ALLOWED_ATTEMPTS = 10;
     private static final long MAX_PAGE_SIZE = 100L;
+    /** 页码算术上限：保证 (current - 1) * pageSize 不溢出 long。 */
+    private static final long MAX_PAGE_NUMBER = 1_000_000L;
 
     private static final Set<String> TASK_STATUSES = Set.of(
             "PENDING", "LEASED", "RETRY_SCHEDULED", "COMPLETED", "FAILED"
@@ -913,7 +915,9 @@ public class NewsWorkbenchService {
     }
 
     private static long clampCurrent(long current) {
-        return Math.max(1L, current);
+        // 上限不是产品口径，是算术边界：current 来自查询串，超大的值会让
+        // (current - 1) * pageSize 溢出成负数，OFFSET 为负时 MySQL 直接报错（500 而非空页）。
+        return Math.min(Math.max(1L, current), MAX_PAGE_NUMBER);
     }
 
     private static long clampPageSize(long pageSize) {
