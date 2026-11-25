@@ -782,39 +782,46 @@ public class NewsLifecycleService {
         if (!isBlank(c.suggestedSummary)) {
             return truncate(c.suggestedSummary.trim(), 512);
         }
-        String collapsed = fallbackContent.replaceAll("\\s+", " ").trim();
+        String collapsed = HtmlUtil.cleanHtmlTag(fallbackContent).replaceAll("\\s+", " ").trim();
         return truncate(collapsed, 512);
     }
 
+    /**
+     * 库内 {@code t_news.content} 的既有约定是富文本：编辑页保存时走 {@code renderNewsHtml}
+     * 把 Markdown 转成 HTML，公开页再按 HTML 渲染。这里直接产出 HTML 并在拼接时逐段转义
+     * （候选与声明文本来自模型输出，不能当可信标记），否则读者看到的是字面的「## 证据要点」。
+     */
     private String buildCandidateEditorialContent(CandidateRow c) {
         StringBuilder sb = new StringBuilder();
         if (!isBlank(c.suggestedSummary)) {
-            sb.append(c.suggestedSummary.trim()).append("\n\n");
+            sb.append("<p>").append(HtmlUtil.escape(c.suggestedSummary.trim())).append("</p>\n");
         }
         List<NewsCurationModels.CurationClaim> claims = readJsonList(c.claimsJson, CLAIM_LIST_TYPE);
         if (!claims.isEmpty()) {
-            sb.append("## 证据要点\n");
+            sb.append("<h2>证据要点</h2>\n<ul>\n");
             for (NewsCurationModels.CurationClaim claim : claims) {
-                sb.append("- [").append(claim.field()).append("] ").append(claim.statement())
-                        .append("（原文引文：\"").append(claim.quote()).append("\"）\n");
+                sb.append("<li><strong>[").append(HtmlUtil.escape(claim.field())).append("]</strong> ")
+                        .append(HtmlUtil.escape(claim.statement()))
+                        .append("（原文引文：&ldquo;").append(HtmlUtil.escape(claim.quote()))
+                        .append("&rdquo;）</li>\n");
             }
-            sb.append('\n');
+            sb.append("</ul>\n");
         }
         List<String> limitations = readJsonList(c.limitationsJson, STRING_LIST_TYPE);
         if (!limitations.isEmpty()) {
-            sb.append("## 局限与边界说明\n");
+            sb.append("<h2>局限与边界说明</h2>\n<ul>\n");
             for (String limitation : limitations) {
-                sb.append("- ").append(limitation).append('\n');
+                sb.append("<li>").append(HtmlUtil.escape(limitation)).append("</li>\n");
             }
-            sb.append('\n');
+            sb.append("</ul>\n");
         }
         String originUrl = extractSnapshotUrl(c.evidenceSnapshotJson);
-        sb.append("## 原始资料索引\n")
-                .append("- 来源：").append(c.source).append(" / ").append(c.sourceRecordId);
+        sb.append("<h2>原始资料索引</h2>\n<p>来源：")
+                .append(HtmlUtil.escape(c.source)).append(" / ").append(HtmlUtil.escape(c.sourceRecordId));
         if (!isBlank(originUrl)) {
-            sb.append("（").append(originUrl).append("）");
+            sb.append("（").append(HtmlUtil.escape(originUrl)).append("）");
         }
-        sb.append('\n');
+        sb.append("</p>");
         return sb.toString().trim();
     }
 
@@ -943,6 +950,11 @@ public class NewsLifecycleService {
 
     private static void stampReview(News patch, Integer from, Integer to, User actor, String note) {
         Date now = new Date();
+        if (NewsStatus.PUBLISHED == to) {
+            // publishTime 是对外可见的时间：公开页按它排序与展示「发布于」，
+            // 刊物预览按它分期刊。建稿时写它只为满足 NOT NULL，真正的发布时刻在这里覆盖。
+            patch.setPublishTime(now);
+        }
         if (NewsStatus.PENDING_REVIEW == to) {
             patch.setSubmittedById(actorId(actor));
             patch.setSubmittedAt(now);

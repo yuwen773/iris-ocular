@@ -53,6 +53,14 @@ test.describe("资讯引擎 · 真实 Spring 业务链路", () => {
     await page.goto("/news")
     await expect(page.getByText(title, { exact: false }).first()).toBeVisible({ timeout: 20_000 })
 
+    // 正文必须是渲染后的富文本：库里存的是 HTML，若候选建稿落了 Markdown 原文，
+    // 读者看到的就是字面的「## 证据要点」，所以这里按结构断言，而不是只看标题在不在。
+    await page.getByRole("link", { name: new RegExp(title) }).first().click()
+    await page.waitForURL(/\/news\/\d+/)
+    await expect(page.getByRole("heading", { name: "证据要点" })).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByText("## 证据要点")).toHaveCount(0)
+    await expect(page.getByRole("heading", { name: "原始资料索引" })).toBeVisible()
+
     // —— 刊物展示：只列证据可追溯的已发布资讯 ——
     await page.goto("/admin/news-workbench?tab=issue")
     await page.getByLabel("开始发布日期").fill(day)
