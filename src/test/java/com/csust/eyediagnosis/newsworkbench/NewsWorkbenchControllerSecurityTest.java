@@ -102,7 +102,7 @@ class NewsWorkbenchControllerSecurityTest {
                 mappedMethods.add(method);
             }
         }
-        assertEquals(17, mappedMethods.size());
+        assertEquals(19, mappedMethods.size());
         for (Method method : mappedMethods) {
             AuthCheck authCheck = method.getAnnotation(AuthCheck.class);
             assertNotNull(authCheck, () -> "Missing @AuthCheck on " + method.getName());
@@ -195,5 +195,50 @@ class NewsWorkbenchControllerSecurityTest {
                 .getResponse()
                 .getContentAsString();
         assertTrue(json.contains("\"workerId\":\"worker-1\""));
+    }
+
+    @Test
+    void failedWindowRetryAndAuditEndpointsAreAdminGated() throws Exception {
+        User admin = new User();
+        admin.setId(1001L);
+        admin.setUserRole(AuthConstant.ADMIN_ROLE);
+        when(userService.getLoginUser(any())).thenThrow(new BusinessException(ErrorCode.NOT_LOGIN_ERROR));
+
+        mockMvc.perform(post("/api/admin/news-workbench/tasks/task-1/retry")
+                        .contextPath("/api")
+                        .header("Origin", "http://localhost")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"maxAttempts\":2}"))
+                .andExpect(jsonPath("$.code").value(ErrorCode.NOT_LOGIN_ERROR.getCode()));
+
+        mockMvc.perform(get("/api/admin/news-workbench/tasks/task-1/events").contextPath("/api"))
+                .andExpect(jsonPath("$.code").value(ErrorCode.NOT_LOGIN_ERROR.getCode()));
+
+        // 之前的桩是「抛异常」，重新打桩要用 doReturn：when(...) 会先真的调用一次 mock。
+        org.mockito.Mockito.doReturn(admin).when(userService).getLoginUser(any());
+        when(workbenchService.retryFailedTask(eq("task-1"), any(), any())).thenReturn(new NewsWorkbenchModels.CollectionTaskVO(
+                "task-1", "pubmed", 1L, "ophthalmology", "2026-10-01", "2026-10-02",
+                "PENDING", 1L, 2, 5, null, null, false, null, null, null, null, null,
+                null, null, null, null, null, false));
+
+        mockMvc.perform(post("/api/admin/news-workbench/tasks/task-1/retry")
+                        .contextPath("/api")
+                        .header("Origin", "http://localhost")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"maxAttempts\":2,\"note\":\"重跑失败窗口\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.taskId").value("task-1"))
+                .andExpect(jsonPath("$.data.status").value("PENDING"));
+
+        when(workbenchService.listTaskEvents("task-1")).thenReturn(List.of(
+                new NewsWorkbenchModels.TaskEventVO(
+                        1L, "task-1", "RETRY", "FAILED", "PENDING", 1001L, "admin", "重跑失败窗口",
+                        Instant.parse("2026-11-25T10:00:00Z"))
+        ));
+        mockMvc.perform(get("/api/admin/news-workbench/tasks/task-1/events").contextPath("/api"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].action").value("RETRY"))
+                .andExpect(jsonPath("$.data[0].fromStatus").value("FAILED"))
+                .andExpect(jsonPath("$.data[0].toStatus").value("PENDING"));
     }
 }

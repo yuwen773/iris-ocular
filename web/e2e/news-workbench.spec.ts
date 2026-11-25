@@ -8,6 +8,7 @@ const emptyIssue = { ...fixture.issue, articleCount: 0, entries: [] }
 async function stubWorkbench(page: Page) {
   const unexpected: string[] = []
   const issueRequests: string[] = []
+  const retryRequests: { path: string; body: string }[] = []
   let issue = fixture.issue
   const responses: Record<string, unknown> = {
     "/api/user/get/login": fixture.session,
@@ -22,10 +23,35 @@ async function stubWorkbench(page: Page) {
       pages: "1",
     },
     "/api/admin/news-workbench/candidates/7001": fixture.candidate,
+    "/api/admin/news-workbench/tasks": {
+      records: [fixture.failedTask],
+      current: "1",
+      size: "10",
+      total: "1",
+      pages: "1",
+    },
+    "/api/admin/news-workbench/tasks/task-failed-1/events": [],
   }
   await page.route("**/api/**", async (route) => {
     const request = route.request()
     const url = new URL(request.url())
+    const isRetryPost =
+      request.method() === "POST" &&
+      url.pathname === "/api/admin/news-workbench/tasks/task-failed-1/retry"
+    if (isRetryPost) {
+      retryRequests.push({
+        path: url.pathname,
+        body: request.postData() ?? "",
+      })
+      await route.fulfill({
+        json: {
+          code: 0,
+          msg: "",
+          data: { ...fixture.failedTask, status: "PENDING", retryable: false },
+        },
+      })
+      return
+    }
     if (
       request.method() !== "GET" ||
       (url.pathname !== issuePath && !(url.pathname in responses))
@@ -45,6 +71,7 @@ async function stubWorkbench(page: Page) {
   })
   return {
     issueRequests,
+    retryRequests,
     unexpected,
     withdrawAll: () => {
       issue = emptyIssue
@@ -137,6 +164,37 @@ for (const theme of ["light", "dark"] as const) {
     })
   })
 }
+
+test("失败采集窗口显示阻塞原因，并能通过重试入口重新打开", async ({
+  page,
+}, testInfo) => {
+  const backend = await stubWorkbench(page)
+  await page.goto(`${basePath}?tab=tasks`)
+  await expect(page.getByText("task-failed-1")).toBeVisible()
+  await expect(page.getByText(/本窗口已失败（SOURCE_TIMEOUT）/)).toBeVisible()
+  await expect(page.getByText(/系统不会自动跳过/)).toBeVisible()
+
+  await page.getByRole("button", { name: "重试" }).click()
+  const dialog = page.getByRole("dialog")
+  await expect(dialog.getByText(/不会推进信源游标/)).toBeVisible()
+  await dialog.getByRole("button", { name: "确认重试" }).click()
+
+  await expect(page.getByText(/已重新打开失败窗口 task-failed-1/)).toBeVisible()
+  expect(backend.retryRequests).toHaveLength(1)
+  expect(backend.retryRequests[0].path).toBe(
+    "/api/admin/news-workbench/tasks/task-failed-1/retry"
+  )
+  expect(JSON.parse(backend.retryRequests[0].body)).toMatchObject({
+    maxAttempts: 3,
+  })
+  expect(backend.unexpected).toEqual([])
+
+  await page.screenshot({
+    path: testInfo.outputPath("news-task-retry.png"),
+    fullPage: true,
+    animations: "disabled",
+  })
+})
 
 test("窄屏刊物预览完整显示长 DOI", async ({ page }, testInfo) => {
   await stubWorkbench(page)

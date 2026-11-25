@@ -1,5 +1,16 @@
 {
   "session": { "id": "9001", "userName": "验收管理员", "userRole": "admin" },
+  "failedTask": {
+    "taskId": "task-failed-1", "source": "pubmed", "sourceConfigVersion": "1", "queryText": "ophthalmology",
+    "windowStartOn": "2026-10-01", "windowEndBefore": "2026-10-02", "status": "FAILED",
+    "generation": 2, "attemptCount": 3, "maxAttempts": 3,
+    "leaseWorkerId": null, "leaseExpiresAt": null, "leaseExpired": false, "nextAttemptAt": null,
+    "lastFailureCode": "SOURCE_TIMEOUT",
+    "committedBatchCount": null, "committedRecordCount": null, "committedCursor": null, "completedAt": null,
+    "createdAt": "2026-10-01T09:50:00Z", "updatedAt": "2026-10-01T09:50:00Z",
+    "blockingReason": "本窗口已失败（SOURCE_TIMEOUT），需从失败窗口重试入口重新打开；系统不会自动跳过",
+    "blockedByTaskId": null, "retryable": true
+  },
   "overview": {
     "curationEnabled": false,
     "sources": { "totalSources": 3, "enabledSources": 2 },
