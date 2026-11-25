@@ -73,6 +73,28 @@ eye-diagnosis:
     base-url: https://dashscope.aliyuncs.com/compatible-mode
     api-key: ${DASHSCOPE_API_KEY}
     model: qwen3-vl-plus
+  # ── Iris News Engine：内部 Worker 通道（默认关闭） ────────────────────────
+  # 采集 Worker 走 /api/internal/news/v1/leases/**，与用户会话、微信小程序令牌完全隔离。
+  # 凭据只由部署环境变量注入，仓库里不出现真实值；Worker 密钥需 32–256 位可见 ASCII。
+  # 采集与自动发布默认关闭：合并进主干不等于在生产启用。
+  news-ingestion:
+    enabled: false
+    workers: {}
+    #   <worker-id>:
+    #     key: ${IRIS_NEWS_WORKER_KEY}
+    #     allowed-sources: [pubmed]
+    # 直连对端白名单（精确 IP）：只认「直接连到本服务」的对端。
+    # 带转发头的请求一律 403——转发头出现即说明对端不是 Worker 本身，
+    # 且原始对端在应用侧不可判定。
+    allowed-remote-addresses: []
+    # 显式声明可信反向代理（精确 IP 或 CIDR）；与上面的 internal-proxies 会被核对。
+    trusted-proxy-addresses: []
+    require-https: false
+    plaintext-allowed: false
+    lease-duration: 5m
+    retry-base-delay: 30s
+    retry-max-delay: 15m
+    default-max-attempts: 3
   rag:
     chunk-size: 800
     chunk-overlap: 100
@@ -114,6 +136,21 @@ server:
       cookie:
         # 站点走 HTTPS 时必须为 true；由 StartupSafetyGuard 强制。
         secure: true
+  # ── 反向代理信任边界（News Worker 通道） ─────────────────────────────────
+  # Worker 的 HTTPS 门禁读 request.isSecure()，该值只由「来源可信」的转发头置真。
+  # 因此：
+  #   1) strategy 只能是 none 或 native。framework 的 ForwardedHeaderFilter 不校验来源，
+  #      外部直连带一个 X-Forwarded-Proto: https 就能伪造，部署基线会直接拒绝启动。
+  #   2) native 必须同时给出下面两处，且两者会被启动基线逐条核对：
+  #      - tomcat.remoteip.internal-proxies：精确到反代 IP 的正则，不要抄默认网段
+  #        （信任整个 10/8 会让同网段任意主机伪造 HTTPS 状态）；
+  #      - eye-diagnosis.news-ingestion.trusted-proxy-addresses：运维视角的可信代理清单。
+  #   3) 反代必须「覆盖」客户端自带的 X-Forwarded-For，而不是追加——否则持可信代理的
+  #      对端仍能伪造生效的客户端地址。
+  forward-headers-strategy: native
+  tomcat:
+    remoteip:
+      internal-proxies: '10\.0\.0\.5'
 
 # ── gRPC 诊断通道 ───────────────────────────────────────────────────────────
 # 影像字节与诊断结论都走这条链路。非回环地址上的明文连接既无加密也无对端校验，

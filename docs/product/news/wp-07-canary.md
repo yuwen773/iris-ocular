@@ -78,11 +78,53 @@ Worker 的 HTTPS 门禁读 `request.isSecure()`，该值只由「来源可信」
 - `native` 必须显式配置 `server.tomcat.remoteip.internal-proxies`，未限定可信代理即拒绝启动；
 - 策略**未显式配置**且运行在云平台（Kubernetes / Cloud Foundry 等）时拒绝启动：Spring Boot 会自动补成 native 并套用默认 `internal-proxies`（10/8、172.16/12、192.168/16、127/8），那是一条运维没决定的信任边界。本地/裸机未配置仍放行——没有转发处理时伪造头不会生效（fail-closed）。
 
-`internal-proxies` 内的地址仍可改写 `getRemoteAddr()`，所以可选的白名单 `allowed-remote-addresses` 在 native 下必须填反代自身地址，并要求反代**覆盖**而非追加客户端传入的 `X-Forwarded-For`。这一条目前靠部署约定与文档约束，代码层未强制。
+`internal-proxies` 内的地址仍可改写 `getRemoteAddr()`，所以可选的白名单 `allowed-remote-addresses` 在 native 下必须填反代自身地址，并要求反代**覆盖**而非追加客户端传入的 `X-Forwarded-For`。
+
+WP-07G 把这条从「部署约定」推进到**代码强制**（真实 Tomcat 10.1.46 实测，见
+`NewsForwardedPeerSemanticsTest`）：
+
+- **实测语义**：native 下 `getRemoteAddr()` 取 `X-Forwarded-For` 的**最右一跳**，
+  也就是代理转述的客户端地址；客户端自带的该头会直接成为生效地址。
+  `org.apache.tomcat.remoteAddr` 与 `org.apache.catalina.AccessLog.RemoteAddr` 在本版本
+  **同样是改写后的地址**，原始 socket 对端在应用侧不可得。
+  未启用转发处理时，`getRemoteAddr()` 恒为真实对端；非可信对端的转发头被 Tomcat 完全忽略，
+  `isSecure()` 不会被置真。
+- **白名单语义收窄**：`allowed-remote-addresses` 现在只表示「直连对端」。
+  请求一旦带任何转发头（`Forwarded` / `X-Forwarded-*` / `X-Real-IP`）或 Tomcat 的转发标记，
+  一律 **403 fail closed**——转发头出现即说明这条请求的对端不是 Worker 本身，
+  而原始对端又不可判定，拿可伪造的地址当物理边界没有意义。
+- **可信代理范围核对**：新增 `eye-diagnosis.news-ingestion.trusted-proxy-addresses`，
+  启动基线逐条核对它与 `server.tomcat.remoteip.internal-proxies` 是否一致——
+  声明的每个代理必须落在正则内，正则也不允许命中声明范围之外的地址
+  （用哨兵地址与网段边界外探针判定，例如信任整个 10/8 会被拒绝）。
+- **未配置即失败**：native 且未声明可信代理、或声明与正则不一致，启动即拒绝；
+  `framework` 策略依然被拒绝。
+
+仍然保留的限制：反代必须**覆盖**客户端自带的 `X-Forwarded-For`（否则持可信代理的对端仍能伪造生效地址）。
+这一点无法由应用侧判定，只能靠反代配置保证。
+
+## 交付口径（已实现 vs 后续功能）
+
+这一节是为了防止把「外围机制已就绪」读成「功能已上线」。
+
+| 能力 | 当前状态 | 说明 |
+| --- | --- | --- |
+| Worker 执行形态 | **run-once 单次执行** | 进程取一批窗口、跑到时间预算或取空即退出。仓库内**没有** cron / systemd timer / K8s CronJob，也没有常驻调度器。窗口不会自己出现，需要管理员手动入队。 |
+| 自动窗口调度 | **未实现** | 归入 [WP-08](wp-08-backlog.md)。调度归属、互斥、失败窗口处置都还没定。 |
+| 模型客户端 | **`DisabledNewsCurationModelClient`** | 任何调用直接失败，不发 HTTP、不产生付费调用。`news-curation.enabled` 默认 `false`。 |
+| 真实模型 Provider | **未接入** | 预算预扣/结算、幂等回执、`OUTCOME_UNKNOWN` 人工对账、鉴权熔断这些**外围机制**已就绪，但真实适配器没有，归入 [WP-08](wp-08-backlog.md)。 |
+| NewsBench 扩充 | **未做** | 门禁已要求三类样本齐备，数据集仍是仓库内冻结夹具，扩充需人工评审，归入 [WP-08](wp-08-backlog.md)。 |
+| 失败窗口恢复 | **已实现**（WP-07G） | 管理员可从工作台重开失败窗口；系统仍不自动跳过失败窗口，也不静默推进游标。 |
+| Worker 凭据强度 | **32–256 位可见 ASCII** | 与代码校验一致（`NewsIngestionProperties.isValidRawKey`），约合 200 bit 熵。此前文档口径与实现不一致，本轮已对齐。 |
+
+采集与自动发布、模型精选均默认关闭；「合并进主干」不等于「在生产启用」。
 
 ## 剩余风险
 
-- 单个确定性失败的采集窗口会让该 `(source, sourceConfigVersion)` 后续窗口无法领取、游标无法推进；恢复手段是把 `sourceConfigVersion` 升一版开新泳道（没有「放弃窗口」的管理动作）。灰度期需要监控 `FAILED` 任务数。
+- 失败窗口不会自动跳过（设计如此）：一个确定性失败的窗口会让该 `(source, sourceConfigVersion)`
+  后续窗口无法领取、游标无法推进。WP-07G 已提供**失败窗口重试入口**（`POST /api/admin/news-workbench/tasks/{taskId}/retry`）
+  与**阻塞原因展示**（工作台任务列表直接写明卡在哪个更早任务上），恢复不再需要升 `sourceConfigVersion` 开新泳道；
+  但「永久放弃某个窗口」这个动作**仍然没有**——它会一直阻塞同泳道的后续窗口，直到该窗口被重试成功。
 - 采集运行中公读 P95 增幅 12.59%，超过设计目标；本机基线不构成目标环境结论。
 - NewsBench 门禁已要求对抗/许可/注入三类样本齐备；数据集本身仍是仓库内的冻结夹具，扩充需人工评审。
 
