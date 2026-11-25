@@ -50,6 +50,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
@@ -309,8 +310,10 @@ class NewsWorkbenchMySqlIntegrationTest {
         assertTrue(reopened.retryable() == false);
         assertNull(reopened.blockingReason());
 
-        // 游标不得因重试而推进
-        assertTrue(ingestionService.getCommittedCursor("pubmed", 7L).isEmpty(),
+        // 游标不得因重试而推进：初始游标是登记时的 2026-10-01，重开窗口后必须仍是它，
+        // 不能被窗口结束日（2026-10-02）顶替。
+        assertEquals(Optional.of(LocalDate.of(2026, 10, 1)),
+                ingestionService.getCommittedCursor("pubmed", 7L),
                 "失败窗口重试不得静默推进信源游标");
 
         // 操作审计
@@ -373,11 +376,16 @@ class NewsWorkbenchMySqlIntegrationTest {
         assertTrue(completedDup.getMessage().contains("COMPLETED"), completedDup.getMessage());
         assertTrue(completedDup.getMessage().contains("游标"), completedDup.getMessage());
 
+        // 失败窗口的重复入队必须指向「失败窗口重试入口」，而不是含糊的「任务 ID 已存在」
+        workbenchService.enqueueTask(new NewsWorkbenchModels.EnqueueTaskRequest(
+                "wb-dup-failed", "pubmed", 7L, "ophthalmology", "2026-10-05", "2026-10-06", 1));
+        jdbc.update("UPDATE t_news_collection_task SET status = 'FAILED' WHERE taskId = 'wb-dup-failed'");
         BusinessException failedDup = assertThrows(BusinessException.class,
                 () -> workbenchService.enqueueTask(new NewsWorkbenchModels.EnqueueTaskRequest(
-                        "wb-retry-1", "pubmed", 7L, "ophthalmology", "2026-10-01", "2026-10-02", 1)));
+                        "wb-dup-failed", "pubmed", 7L, "ophthalmology", "2026-10-05", "2026-10-06", 1)));
         assertEquals(ErrorCode.PARAMS_ERROR.getCode(), failedDup.getCode());
         assertTrue(failedDup.getMessage().contains("失败窗口"), failedDup.getMessage());
+        assertTrue(failedDup.getMessage().contains("重试入口"), failedDup.getMessage());
     }
 
     /**
