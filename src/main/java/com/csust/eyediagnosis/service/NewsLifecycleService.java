@@ -555,6 +555,7 @@ public class NewsLifecycleService {
         if (!computedSha.equals(candidate.evidenceSnapshotSha256)) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "冻结证据快照 SHA-256 校验失败，内容可能被篡改");
         }
+        verifySnapshotIdentity(candidate);
 
         Integer matchingRevision = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM t_news_material_revision
@@ -579,6 +580,28 @@ public class NewsLifecycleService {
         return candidate;
     }
 
+    private void verifySnapshotIdentity(CandidateRow candidate) {
+        JsonNode snapshot;
+        try {
+            snapshot = protocolMapper.readTree(candidate.evidenceSnapshotJson);
+        } catch (JsonProcessingException ex) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "无法读取冻结证据快照");
+        }
+        if (snapshot == null || !snapshot.isObject()
+                || !snapshot.path("materialId").isIntegralNumber()
+                || !snapshot.path("materialId").canConvertToLong()
+                || snapshot.path("materialId").longValue() != candidate.materialId
+                || !snapshot.path("materialRevisionId").isIntegralNumber()
+                || !snapshot.path("materialRevisionId").canConvertToLong()
+                || snapshot.path("materialRevisionId").longValue() != candidate.materialRevisionId
+                || !Objects.equals(snapshot.path("source").textValue(), candidate.source)
+                || !Objects.equals(snapshot.path("sourceRecordId").textValue(), candidate.sourceRecordId)
+                || !Objects.equals(snapshot.path("contentDigest").textValue(), candidate.contentDigest)
+                || !Objects.equals(snapshot.path("evidenceTier").textValue(), candidate.evidenceTier)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "冻结证据快照与候选身份不一致");
+        }
+    }
+
     private void verifyBindingMatchesCandidate(News current, CandidateRow candidate) {
         if (!Objects.equals(current.getCurationCandidateId(), candidate.id)
                 || !Objects.equals(current.getMaterialRevisionId(), candidate.materialRevisionId)
@@ -596,7 +619,7 @@ public class NewsLifecycleService {
     }
 
     private static void validateClinicalAndInjectionSafety(String title, String summary, String content) {
-        String normalizedBody = content == null ? null : HtmlUtil.unescape(content)
+        String normalizedBody = content == null ? null : HtmlUtil.unescape(HtmlUtil.cleanHtmlTag(content))
                 .replaceAll("[\\[\\]*_`~\\\\]", "")
                 .replaceAll("[\\s\\u00A0]+", " ");
         for (String fieldText : new String[]{title, summary, content, normalizedBody}) {

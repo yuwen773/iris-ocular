@@ -31,6 +31,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -556,6 +557,49 @@ class NewsCurationMySqlIntegrationTest {
         NewsCurationModels.CurationResult ok = curationService.curateRevision(
                 rev2, POLICY_V1, nextDay, SCOPE_GLOBAL);
         assertEquals(NewsCurationModels.CandidateStatus.CURATED_ACCEPTED, ok.status());
+
+        long revToBlock = ingestAndCompleteSingle("pubmed", "PMID-AUTH-3", "Reserved before circuit trip", 3L);
+        long revToTrip = ingestAndCompleteSingle("pubmed", "PMID-AUTH-4", "Concurrent provider auth failure", 4L);
+        CountDownLatch dispatchReady = new CountDownLatch(1);
+        CountDownLatch circuitTripped = new CountDownLatch(1);
+        AtomicInteger circuitReads = new AtomicInteger();
+        JdbcTemplate beforeDispatch = new JdbcTemplate(dataSource) {
+            @Override
+            public <T> T queryForObject(String sql, Class<T> requiredType, Object... args) {
+                if (sql.contains("SELECT circuitReason FROM t_news_curation_circuit")
+                        && circuitReads.incrementAndGet() == 2) {
+                    dispatchReady.countDown();
+                    try {
+                        assertTrue(circuitTripped.await(10, TimeUnit.SECONDS));
+                    } catch (InterruptedException ex) {
+                        Thread.currentThread().interrupt();
+                        throw new AssertionError(ex);
+                    }
+                }
+                return super.queryForObject(sql, requiredType, args);
+            }
+        };
+        NewsCurationService blockedService = new NewsCurationService(beforeDispatch, curationProperties,
+                modelClient, verifier, promptBuilder, mapper);
+        try (ExecutorService executor = Executors.newSingleThreadExecutor()) {
+            Future<IllegalStateException> blocked = executor.submit(() -> assertThrows(IllegalStateException.class,
+                    () -> blockedService.curateRevision(revToBlock, POLICY_V1, nextDay, SCOPE_GLOBAL)));
+            try {
+                assertTrue(dispatchReady.await(10, TimeUnit.SECONDS));
+                modelClient.enqueue(req -> new NewsCurationModels.DefinitiveFailure(
+                        "PROVIDER_AUTH_401", 401, "req-auth-401-again", true, 90));
+                assertThrows(IllegalStateException.class, () ->
+                        curationService.curateRevision(revToTrip, POLICY_V1, nextDay, SCOPE_GLOBAL));
+            } finally {
+                circuitTripped.countDown();
+            }
+            assertTrue(blocked.get(10, TimeUnit.SECONDS).getMessage().contains("CURATION_CIRCUIT_BROKEN"));
+        }
+        assertEquals(3, modelClient.invocations.get());
+        assertEquals("ABORTED_PRE_IO", jdbc.queryForObject("""
+                SELECT state FROM t_news_model_call_receipt WHERE materialRevisionId = ?
+                """, String.class, revToBlock));
+        assertEquals(0, curationService.getBudget(nextDay, SCOPE_GLOBAL).orElseThrow().reservedCalls());
     }
 
     // Case 10

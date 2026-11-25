@@ -435,6 +435,8 @@ class NewsEditorialPublishMySqlIntegrationTest {
         manualUnsafe.setTitle("眼科研究资料");
         manualUnsafe.setContent(SAFE_BODY_PREFIX + "研究团队宣称保**证治愈**该病。");
         assertThrows(BusinessException.class, () -> controller.updateNews(manualUnsafe, req));
+        manualUnsafe.setContent("<p>" + SAFE_BODY_PREFIX + "研究团队宣称保<strong>证治愈</strong>该病。</p>");
+        assertThrows(BusinessException.class, () -> controller.updateNews(manualUnsafe, req));
 
         NewsUpdateDTO editSafePublishedUnsafe = new NewsUpdateDTO();
         editSafePublishedUnsafe.setId(reviewNewsId);
@@ -452,6 +454,8 @@ class NewsEditorialPublishMySqlIntegrationTest {
                 "PMID-GATE-RCT", "Retinal image quality repeatability", "ACCEPT", false);
         Long wrongReceiptNews = controller.createFromCandidate(wrongReceipt.candidateId, true, req).getData();
         Long invalidatedNews = reviewNewsId;
+        String originalCallId = jdbc.queryForObject("SELECT callId FROM t_news_curation_candidate WHERE id = ?",
+                String.class, wrongReceipt.candidateId);
         String otherCallId = jdbc.queryForObject("SELECT callId FROM t_news_curation_candidate WHERE id = ?",
                 String.class, tampered.candidateId);
         jdbc.update("UPDATE t_news_curation_candidate SET callId = ? WHERE id IN (?, ?)",
@@ -468,6 +472,16 @@ class NewsEditorialPublishMySqlIntegrationTest {
         batchTampered.setIds(List.of(wrongReceiptNews));
         assertEquals(0, controller.changeNewsStatusBatch(batchTampered, req).getData().getSucceeded());
         assertEquals(beforeReject, cacheService.readAuthoritativeDbEpoch());
+
+        jdbc.update("""
+                UPDATE t_news_curation_candidate target JOIN t_news_curation_candidate other ON other.id = ?
+                SET target.callId = ?, target.evidenceSnapshotJson = other.evidenceSnapshotJson,
+                    target.evidenceSnapshotSha256 = other.evidenceSnapshotSha256
+                WHERE target.id = ?
+                """, needsReview.candidateId, originalCallId, wrongReceipt.candidateId);
+        BusinessException wrongSnapshot = assertThrows(BusinessException.class,
+                () -> controller.createFromCandidate(wrongReceipt.candidateId, false, req));
+        assertTrue(wrongSnapshot.getMessage().contains("快照与候选身份不一致"));
 
         NewsBatchStatusDTO withdraw = new NewsBatchStatusDTO();
         withdraw.setIds(List.of(invalidatedNews));

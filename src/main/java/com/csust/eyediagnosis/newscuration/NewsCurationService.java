@@ -124,6 +124,8 @@ public class NewsCurationService {
             throw new IllegalArgumentException("operatorId is required");
         }
         String budgetScope = normalizeScope(scope);
+        ensureBudgetRowExists(budgetDate, budgetScope);
+        ensureCircuitRowExists(budgetScope);
         transactions.executeWithoutResult(status -> {
             lockCircuit(budgetScope);
             jdbc.update("""
@@ -156,6 +158,7 @@ public class NewsCurationService {
 
         // Ensure budget row exists outside reserve transaction so SELECT ... FOR UPDATE hits a real row without gap locks.
         ensureBudgetRowExists(effectiveDate, effectiveScope);
+        ensureCircuitRowExists(effectiveScope);
 
         ReservationOutcome reserved = transactions.execute(status -> reserveAttempt(
                 revision, snapshot, snapshotJson, snapshotSha256,
@@ -165,15 +168,13 @@ public class NewsCurationService {
             return reserved.replayedResult;
         }
 
-        boolean dispatched = Boolean.TRUE.equals(transactions.execute(status -> jdbc.update("""
-                    UPDATE t_news_model_call_receipt
-                    SET state = 'DISPATCHED',
-                        dispatchedAt = UTC_TIMESTAMP(6)
-                    WHERE callId = ? AND state = 'RESERVED' AND deadlineAt > UTC_TIMESTAMP(6)
-                    """, reserved.request.callId()) == 1));
-        if (!dispatched) {
+        String dispatchFailure = transactions.execute(status ->
+                dispatchReservedCall(reserved.request.callId(), effectiveDate, effectiveScope));
+        if ("FAILED_TO_MARK_DISPATCHED".equals(dispatchFailure)) {
             transactions.execute(status -> reclaimSingleStaleCall(reserved.request.callId()));
-            throw new IllegalStateException("FAILED_TO_MARK_DISPATCHED");
+        }
+        if (dispatchFailure != null) {
+            throw new IllegalStateException(dispatchFailure);
         }
 
         NewsCurationModels.ModelCallOutcome outcome;
@@ -200,6 +201,24 @@ public class NewsCurationService {
             throw new IllegalStateException(settled.definitiveFailureMessage());
         }
         return settled.result();
+    }
+
+    private String dispatchReservedCall(String callId, LocalDate budgetDate, String budgetScope) {
+        String circuitReason = lockCircuit(budgetScope);
+        if (circuitReason != null) {
+            lockBudget(budgetDate, budgetScope);
+            ReceiptRow receipt = lockReceipt(callId);
+            if (receipt.state == NewsCurationModels.CallState.RESERVED) {
+                abortReservedCall(receipt, "CURATION_CIRCUIT_BROKEN");
+            }
+            return "CURATION_CIRCUIT_BROKEN:" + circuitReason;
+        }
+        int updated = jdbc.update("""
+                UPDATE t_news_model_call_receipt
+                SET state = 'DISPATCHED', dispatchedAt = UTC_TIMESTAMP(6)
+                WHERE callId = ? AND state = 'RESERVED' AND deadlineAt > UTC_TIMESTAMP(6)
+                """, callId);
+        return updated == 1 ? null : "FAILED_TO_MARK_DISPATCHED";
     }
 
     public NewsCurationModels.StaleReclaimResult reclaimStaleCalls() {
@@ -620,15 +639,7 @@ public class NewsCurationService {
             return null;
         }
         if (locked.state == NewsCurationModels.CallState.RESERVED) {
-            releaseReservedBudget(locked.budgetDate, locked.budgetScope,
-                    locked.reservedTokens, locked.reservedCostMicros);
-            jdbc.update("""
-                    UPDATE t_news_model_call_receipt
-                    SET state = 'ABORTED_PRE_IO',
-                        errorCode = 'PRE_IO_DEADLINE_EXCEEDED',
-                        completedAt = UTC_TIMESTAMP(6)
-                    WHERE callId = ?
-                    """, callId);
+            abortReservedCall(locked, "PRE_IO_DEADLINE_EXCEEDED");
             return NewsCurationModels.CallState.ABORTED_PRE_IO;
         }
         if (locked.state == NewsCurationModels.CallState.DISPATCHED) {
@@ -650,6 +661,16 @@ public class NewsCurationService {
             return NewsCurationModels.CallState.OUTCOME_UNKNOWN;
         }
         return null;
+    }
+
+    private void abortReservedCall(ReceiptRow receipt, String errorCode) {
+        releaseReservedBudget(receipt.budgetDate, receipt.budgetScope,
+                receipt.reservedTokens, receipt.reservedCostMicros);
+        jdbc.update("""
+                UPDATE t_news_model_call_receipt
+                SET state = 'ABORTED_PRE_IO', errorCode = ?, completedAt = UTC_TIMESTAMP(6)
+                WHERE callId = ?
+                """, errorCode, receipt.callId);
     }
 
     private void settleChargedBudget(LocalDate budgetDate,
@@ -774,8 +795,11 @@ public class NewsCurationService {
                 Math.max(0L, properties.getDailyMaxCostMicros()));
     }
 
-    private String lockCircuit(String scope) {
+    private void ensureCircuitRowExists(String scope) {
         jdbc.update("INSERT IGNORE INTO t_news_curation_circuit (scope) VALUES (?)", scope);
+    }
+
+    private String lockCircuit(String scope) {
         return jdbc.queryForObject("""
                 SELECT circuitReason FROM t_news_curation_circuit WHERE scope = ? FOR UPDATE
                 """, String.class, scope);
