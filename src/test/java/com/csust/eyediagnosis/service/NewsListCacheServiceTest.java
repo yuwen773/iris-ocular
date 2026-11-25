@@ -6,15 +6,17 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.RedisConnectionFailureException;
-import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
+import org.springframework.data.redis.core.ReactiveValueOperations;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.DigestUtils;
+import reactor.core.publisher.Mono;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -22,11 +24,10 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -40,8 +41,8 @@ import static org.mockito.Mockito.when;
  */
 class NewsListCacheServiceTest {
 
-    private StringRedisTemplate redis;
-    private ValueOperations<String, String> valueOps;
+    private ReactiveStringRedisTemplate redis;
+    private ReactiveValueOperations<String, String> valueOps;
     private JdbcTemplate jdbc;
     private NewsListCacheService cacheService;
     private AtomicLong dbEpoch;
@@ -49,8 +50,8 @@ class NewsListCacheServiceTest {
     @SuppressWarnings("unchecked")
     @BeforeEach
     void setUp() {
-        redis = mock(StringRedisTemplate.class);
-        valueOps = mock(ValueOperations.class);
+        redis = mock(ReactiveStringRedisTemplate.class);
+        valueOps = mock(ReactiveValueOperations.class);
         when(redis.opsForValue()).thenReturn(valueOps);
         jdbc = mock(JdbcTemplate.class);
         dbEpoch = new AtomicLong(0L);
@@ -69,6 +70,7 @@ class NewsListCacheServiceTest {
 
     @AfterEach
     void cleanSynchronization() {
+        cacheService.shutdownRedisSubscriptions();
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             for (TransactionSynchronization sync : List.copyOf(TransactionSynchronizationManager.getSynchronizations())) {
                 sync.afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK);
@@ -93,7 +95,7 @@ class NewsListCacheServiceTest {
 
         // Simulate committed transaction: afterCommit invalidates Redis generation.
         TransactionSynchronizationManager.initSynchronization();
-        when(valueOps.increment(NewsListCacheService.NEWS_LIST_CACHE_GENERATION)).thenReturn(2L);
+        when(valueOps.increment(NewsListCacheService.NEWS_LIST_CACHE_GENERATION)).thenReturn(Mono.just(2L));
         long epoch2 = cacheService.bumpEpochInTransaction();
         assertEquals(2L, epoch2);
         verifyNoInteractions(valueOps);
@@ -108,7 +110,8 @@ class NewsListCacheServiceTest {
 
     @Test
     void coalescesMultipleEpochBumpsWithinSingleTransactionIntoOneRedisEviction() {
-        when(valueOps.increment(NewsListCacheService.NEWS_LIST_CACHE_GENERATION)).thenReturn(1L);
+        when(valueOps.increment(NewsListCacheService.NEWS_LIST_CACHE_GENERATION)).thenReturn(Mono.just(1L));
+        when(valueOps.set(NewsListCacheService.NEWS_LIST_CACHE_GENERATION, "3")).thenReturn(Mono.just(true));
 
         TransactionSynchronizationManager.initSynchronization();
         assertEquals(1L, cacheService.bumpEpochInTransaction());
@@ -141,9 +144,9 @@ class NewsListCacheServiceTest {
                 + DigestUtils.md5DigestAsHex("50:q=visible".getBytes(StandardCharsets.UTF_8));
         String freshKey = NewsListCacheService.NEWS_LIST_CACHE_PREFIX
                 + DigestUtils.md5DigestAsHex("5:q=visible".getBytes(StandardCharsets.UTF_8));
-        when(valueOps.get(NewsListCacheService.NEWS_LIST_CACHE_GENERATION)).thenReturn("50");
-        when(valueOps.get(staleKey)).thenReturn("{\"records\":[{\"id\":1}]}");
-        when(valueOps.get(freshKey)).thenReturn(null);
+        when(valueOps.get(NewsListCacheService.NEWS_LIST_CACHE_GENERATION)).thenReturn(Mono.just("50"));
+        when(valueOps.get(staleKey)).thenReturn(Mono.just("{\"records\":[{\"id\":1}]}"));
+        when(valueOps.get(freshKey)).thenReturn(Mono.empty());
 
         NewsListCacheService.CacheReadResult result = cacheService.getCachedPage("q=visible");
         assertFalse(result.hit());
@@ -156,21 +159,22 @@ class NewsListCacheServiceTest {
     @Test
     void redisOutageDuringReadAndWriteFallsBackToDatabaseWithoutError() {
         dbEpoch.set(2L);
-        when(valueOps.get(anyString())).thenThrow(new RedisConnectionFailureException("read outage"));
-        doAnswer(inv -> {
-            throw new RedisConnectionFailureException("write outage");
-        }).when(valueOps).set(anyString(), anyString(), anyLong(), any());
+        when(valueOps.get(anyString())).thenReturn(Mono.never());
+        when(valueOps.set(anyString(), anyString(), any(Duration.class))).thenReturn(Mono.never());
 
-        NewsListCacheService.CacheReadResult read = assertDoesNotThrow(() -> cacheService.getCachedPage("q=outage"));
-        assertFalse(read.hit());
-        assertEquals(2L, read.epoch());
-        assertDoesNotThrow(() -> cacheService.putCachedPage(2L, "q=outage", new Page<>()));
+        assertTimeoutPreemptively(Duration.ofSeconds(3), () -> {
+            NewsListCacheService.CacheReadResult read = cacheService.getCachedPage("q=outage");
+            assertFalse(read.hit());
+            assertFalse(read.redisAvailable());
+            assertEquals(2L, read.epoch());
+            cacheService.putCachedPage(2L, "q=outage", new Page<>());
+        });
     }
 
     @Test
     void skipsCacheWriteWhenDbEpochAdvancesConcurrentlyDuringRead() {
         dbEpoch.set(3L);
         cacheService.putCachedPage(2L, "q=race", new Page<>());
-        verify(valueOps, never()).set(anyString(), anyString(), anyLong(), any());
+        verify(valueOps, never()).set(anyString(), anyString(), any(Duration.class));
     }
 }

@@ -5,18 +5,22 @@ import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.csust.eyediagnosis.model.vo.news.NewsVO;
+import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.DigestUtils;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Scheduler;
+import reactor.core.scheduler.Schedulers;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -34,24 +38,32 @@ public class NewsListCacheService {
     public static final String NEWS_LIST_CACHE_PREFIX = "diagnosis:listNewsVOByPage:v2:";
     public static final String NEWS_LIST_CACHE_GENERATION = "diagnosis:newsListGeneration";
     public static final String NEWS_LIST_SCOPE = "news_list";
+    private static final Duration REDIS_WAIT = Duration.ofMillis(500);
 
-    private final StringRedisTemplate stringRedisTemplate;
+    private final ReactiveStringRedisTemplate redis;
     private final JdbcTemplate jdbc;
+    // Lettuce can acquire a shared reactive connection synchronously on its first subscription.
+    private final Scheduler redisSubscriptions = Schedulers.newBoundedElastic(2, 32, "news-list-redis");
     private final AtomicLong localMinEpoch = new AtomicLong(0L);
     private final AtomicLong evictionFailureCount = new AtomicLong(0L);
     private final Object txResourceKey = new Object();
 
     @Autowired
-    public NewsListCacheService(@Autowired(required = false) StringRedisTemplate stringRedisTemplate,
+    public NewsListCacheService(@Autowired(required = false) ReactiveStringRedisTemplate redis,
                                 @Autowired(required = false) JdbcTemplate jdbc) {
-        this.stringRedisTemplate = stringRedisTemplate;
+        this.redis = redis;
         this.jdbc = jdbc;
     }
 
-    public record CacheReadResult(long epoch, Page<NewsVO> page) {
+    public record CacheReadResult(long epoch, Page<NewsVO> page, boolean redisAvailable) {
         public boolean hit() {
             return page != null;
         }
+    }
+
+    @PreDestroy
+    void shutdownRedisSubscriptions() {
+        redisSubscriptions.dispose();
     }
 
     /**
@@ -116,21 +128,21 @@ public class NewsListCacheService {
      */
     public CacheReadResult getCachedPage(String queryCondition) {
         long dbEpoch = readAuthoritativeDbEpoch();
-        if (stringRedisTemplate == null) {
-            return new CacheReadResult(dbEpoch, null);
+        if (redis == null) {
+            return new CacheReadResult(dbEpoch, null, false);
         }
         try {
             String redisKey = keyForEpoch(dbEpoch, queryCondition);
-            String cacheValue = stringRedisTemplate.opsForValue().get(redisKey);
+            String cacheValue = awaitRedis(redis.opsForValue().get(redisKey));
             if (StrUtil.isNotBlank(cacheValue)) {
                 @SuppressWarnings("unchecked")
                 Page<NewsVO> cachePage = JSONUtil.toBean(cacheValue, Page.class);
-                return new CacheReadResult(dbEpoch, cachePage);
+                return new CacheReadResult(dbEpoch, cachePage, true);
             }
-            return new CacheReadResult(dbEpoch, null);
+            return new CacheReadResult(dbEpoch, null, true);
         } catch (RuntimeException ex) {
             log.warn("News list cache lookup failed, falling back to MySQL: {}", ex.getMessage());
-            return new CacheReadResult(dbEpoch, null);
+            return new CacheReadResult(dbEpoch, null, false);
         }
     }
 
@@ -139,7 +151,7 @@ public class NewsListCacheService {
      * stale-read cache repopulation across concurrent withdrawals or edits.
      */
     public void putCachedPage(long snapshotEpoch, String queryCondition, Page<NewsVO> page) {
-        if (stringRedisTemplate == null || page == null) {
+        if (redis == null || page == null) {
             return;
         }
         long latestDbEpoch = readAuthoritativeDbEpoch();
@@ -150,7 +162,7 @@ public class NewsListCacheService {
             String redisKey = keyForEpoch(snapshotEpoch, queryCondition);
             String toCache = JSONUtil.toJsonStr(page);
             int ttlSeconds = 300 + RandomUtil.randomInt(0, 300);
-            stringRedisTemplate.opsForValue().set(redisKey, toCache, ttlSeconds, TimeUnit.SECONDS);
+            awaitRedis(redis.opsForValue().set(redisKey, toCache, Duration.ofSeconds(ttlSeconds)));
         } catch (RuntimeException ex) {
             log.warn("News list cache write skipped due to Redis error: {}", ex.getMessage());
         }
@@ -185,15 +197,15 @@ public class NewsListCacheService {
     }
 
     private void evictRedisBestEffort(long targetEpoch) {
-        if (stringRedisTemplate == null) {
+        if (redis == null) {
             localMinEpoch.accumulateAndGet(targetEpoch, Math::max);
             return;
         }
         try {
-            var ops = stringRedisTemplate.opsForValue();
-            Long incremented = ops.increment(NEWS_LIST_CACHE_GENERATION);
+            var ops = redis.opsForValue();
+            Long incremented = awaitRedis(ops.increment(NEWS_LIST_CACHE_GENERATION));
             if (incremented == null || incremented < targetEpoch) {
-                ops.set(NEWS_LIST_CACHE_GENERATION, String.valueOf(targetEpoch));
+                awaitRedis(ops.set(NEWS_LIST_CACHE_GENERATION, String.valueOf(targetEpoch)));
             }
         } catch (RuntimeException ex) {
             evictionFailureCount.incrementAndGet();
@@ -201,6 +213,10 @@ public class NewsListCacheService {
             log.error("Post-commit Redis cache eviction failed at epoch={}; reads remain fail-closed via DB epoch: {}",
                     targetEpoch, ex.getMessage());
         }
+    }
+
+    private <T> T awaitRedis(Mono<T> operation) {
+        return operation.subscribeOn(redisSubscriptions).block(REDIS_WAIT);
     }
 
     private static String keyForEpoch(long epoch, String queryCondition) {

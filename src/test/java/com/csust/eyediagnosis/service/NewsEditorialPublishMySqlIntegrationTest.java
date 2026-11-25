@@ -57,8 +57,9 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
+import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
+import org.springframework.data.redis.core.ReactiveValueOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
@@ -120,7 +121,7 @@ class NewsEditorialPublishMySqlIntegrationTest {
     private static DriverManagerDataSource dataSource;
     private static LettuceConnectionFactory redisFactory;
     private static StringRedisTemplate rawRedis;
-    private static FaultInjectableStringRedisTemplate faultRedis;
+    private static FaultInjectableReactiveRedisTemplate faultRedis;
     private static AnnotationConfigApplicationContext appContext;
     private static final ThreadLocal<User> ACTIVE_ACTOR = new ThreadLocal<>();
 
@@ -244,7 +245,7 @@ class NewsEditorialPublishMySqlIntegrationTest {
         redisFactory = new LettuceConnectionFactory(new RedisStandaloneConfiguration(redisHost, redisPort));
         redisFactory.afterPropertiesSet();
         rawRedis = new StringRedisTemplate(redisFactory);
-        faultRedis = new FaultInjectableStringRedisTemplate(redisFactory);
+        faultRedis = new FaultInjectableReactiveRedisTemplate(redisFactory);
 
         UserService mockUserService = mock(UserService.class);
         when(mockUserService.getLoginUser(any())).thenAnswer(inv -> {
@@ -918,7 +919,7 @@ class NewsEditorialPublishMySqlIntegrationTest {
 
         @Bean
         StringRedisTemplate stringRedisTemplate() {
-            return faultRedis;
+            return rawRedis;
         }
 
         @Bean(name = "newsProtocolObjectMapper")
@@ -969,8 +970,8 @@ class NewsEditorialPublishMySqlIntegrationTest {
         }
 
         @Bean
-        NewsListCacheService newsListCacheService(StringRedisTemplate redisTemplate, JdbcTemplate jdbcTemplate) {
-            return new NewsListCacheService(redisTemplate, jdbcTemplate);
+        NewsListCacheService newsListCacheService(JdbcTemplate jdbcTemplate) {
+            return new NewsListCacheService(faultRedis, jdbcTemplate);
         }
 
         @Bean
@@ -1009,22 +1010,22 @@ class NewsEditorialPublishMySqlIntegrationTest {
     private record CuratedCandidateFixture(long candidateId, long materialRevisionId, String snapshotSha256) {
     }
 
-    private static final class FaultInjectableStringRedisTemplate extends StringRedisTemplate {
+    private static final class FaultInjectableReactiveRedisTemplate extends ReactiveStringRedisTemplate {
         private final AtomicBoolean failIncrement = new AtomicBoolean(false);
         private final AtomicBoolean failAllOps = new AtomicBoolean(false);
         private final AtomicInteger incrementCalls = new AtomicInteger(0);
 
-        private FaultInjectableStringRedisTemplate(LettuceConnectionFactory factory) {
+        private FaultInjectableReactiveRedisTemplate(LettuceConnectionFactory factory) {
             super(factory);
         }
 
         @Override
         @SuppressWarnings("unchecked")
-        public ValueOperations<String, String> opsForValue() {
-            ValueOperations<String, String> delegate = super.opsForValue();
-            return (ValueOperations<String, String>) Proxy.newProxyInstance(
-                    ValueOperations.class.getClassLoader(),
-                    new Class<?>[]{ValueOperations.class},
+        public ReactiveValueOperations<String, String> opsForValue() {
+            ReactiveValueOperations<String, String> delegate = super.opsForValue();
+            return (ReactiveValueOperations<String, String>) Proxy.newProxyInstance(
+                    ReactiveValueOperations.class.getClassLoader(),
+                    new Class<?>[]{ReactiveValueOperations.class},
                     (proxy, method, args) -> {
                         if ("increment".equals(method.getName())
                                 && args != null && args.length >= 1

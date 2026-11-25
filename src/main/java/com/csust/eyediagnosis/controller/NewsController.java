@@ -107,7 +107,9 @@ public class NewsController {
                     newsService.getNewsQueryWrapper(newsQueryDTO));
             Page<NewsVO> newsVOPage = new Page<>(current, pageSize, newsPage.getTotal());
             newsVOPage.setRecords(newsService.getNewsVOList(newsPage.getRecords()));
-            newsListCacheService.putCachedPage(cached.epoch(), queryCondition, newsVOPage);
+            if (cached.redisAvailable()) {
+                newsListCacheService.putCachedPage(cached.epoch(), queryCondition, newsVOPage);
+            }
             return ResultUtils.success(newsVOPage);
         }
 
