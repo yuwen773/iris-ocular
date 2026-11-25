@@ -116,7 +116,32 @@ public final class NewsWorkbenchModels {
             String committedCursor,
             Instant completedAt,
             Instant createdAt,
-            Instant updatedAt
+            Instant updatedAt,
+            /**
+             * 阻塞原因：更早的窗口任务没有完成时，本窗口不会被 Worker 领取。
+             * 系统不自动跳过失败窗口，所以这里必须说清「卡在谁身上」。
+             */
+            String blockingReason,
+            /** 阻塞本窗口的更早任务 ID；无阻塞时为 null。 */
+            String blockedByTaskId,
+            /** 是否处于「失败窗口」状态（可走失败窗口重试入口重新打开）。 */
+            boolean retryable
+    ) {
+    }
+
+    /**
+     * Admin operation audit record for a collection window task (WP-07G).
+     */
+    public record TaskEventVO(
+            long id,
+            String taskId,
+            String action,
+            String fromStatus,
+            String toStatus,
+            Long actorId,
+            String actorRole,
+            String note,
+            Instant createdAt
     ) {
     }
 
@@ -276,6 +301,16 @@ public final class NewsWorkbenchModels {
             String windowStartOn,
             String windowEndBefore,
             Integer maxAttempts
+    ) {
+    }
+
+    /**
+     * 失败窗口重试请求。{@code maxAttempts} 是**追加**的尝试次数，不是任务的总尝试上限；
+     * {@code note} 会写进操作审计。
+     */
+    public record RetryTaskRequest(
+            Integer maxAttempts,
+            String note
     ) {
     }
 

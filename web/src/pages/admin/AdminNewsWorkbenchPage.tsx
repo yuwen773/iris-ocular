@@ -27,6 +27,7 @@ import {
   formatMicrosUsd,
   getWorkbenchCandidateDetail,
   getWorkbenchOverview,
+  listTaskEvents,
   listTaskLeases,
   listWorkbenchBenchRuns,
   listWorkbenchBudgets,
@@ -39,6 +40,7 @@ import {
   reconcileWorkbenchReceipt,
   registerWorkbenchSourceConfig,
   resetWorkbenchCircuitBreaker,
+  retryWorkbenchTask,
   taskStatusView,
   toggleWorkbenchSource,
   type BenchRunSummary,
@@ -89,6 +91,9 @@ export function AdminNewsWorkbenchPage(): ReactElement {
   const [selectedLeaseTaskId, setSelectedLeaseTaskId] = useState<string | null>(null)
   const [enqueueOpen, setEnqueueOpen] = useState(false)
   const [enqueueBusy, setEnqueueBusy] = useState(false)
+  const [retryTarget, setRetryTarget] = useState<CollectionTask | null>(null)
+  const [retryBusy, setRetryBusy] = useState(false)
+  const [retryForm, setRetryForm] = useState({ maxAttempts: "3", note: "" })
   const [enqueueForm, setEnqueueForm] = useState({
     taskId: "",
     source: "pubmed",
@@ -187,6 +192,12 @@ export function AdminNewsWorkbenchPage(): ReactElement {
     enabled: Boolean(selectedLeaseTaskId),
   })
 
+  const taskEventsQuery = useQuery({
+    queryKey: queryKeys.admin.newsWorkbench.taskEvents(selectedLeaseTaskId ?? ""),
+    queryFn: () => listTaskEvents(selectedLeaseTaskId!),
+    enabled: Boolean(selectedLeaseTaskId),
+  })
+
   const sourcesQuery = useQuery({
     queryKey: queryKeys.admin.newsWorkbench.sources,
     queryFn: listWorkbenchSources,
@@ -277,8 +288,28 @@ export function AdminNewsWorkbenchPage(): ReactElement {
     }
   }
 
-  async function handleToggleSource() {
-    if (!toggleTarget || toggleBusy) return
+  async function handleRetryTask(event: FormEvent) {
+    event.preventDefault()
+    if (!retryTarget || retryBusy) return
+    setRetryBusy(true)
+    setActionError(null)
+    setActionNote(null)
+    try {
+      const reopened = await retryWorkbenchTask(retryTarget.taskId, {
+        maxAttempts: Number(retryForm.maxAttempts) || 3,
+        ...(retryForm.note.trim() ? { note: retryForm.note.trim() } : {}),
+      })
+      setRetryTarget(null)
+      setActionNote(`已重新打开失败窗口 ${reopened.taskId}，当前状态 ${reopened.status}。`)
+      await refreshAll()
+    } catch (cause) {
+      setActionError(describeError(cause))
+    } finally {
+      setRetryBusy(false)
+    }
+  }
+
+  async function handleToggleSource() {    if (!toggleTarget || toggleBusy) return
     setToggleBusy(true)
     setActionError(null)
     setActionNote(null)
@@ -495,7 +526,7 @@ export function AdminNewsWorkbenchPage(): ReactElement {
     {
       key: "taskId",
       title: "任务 ID / 信源",
-      width: "28%",
+      width: "22%",
       render: (row) => (
         <div>
           <span className="admin-workbench__mono">{row.taskId}</span>
@@ -508,14 +539,14 @@ export function AdminNewsWorkbenchPage(): ReactElement {
     {
       key: "windowStartOn",
       title: "采集窗口",
-      width: "18%",
+      width: "15%",
       mono: true,
       render: (row) => `${row.windowStartOn} → ${row.windowEndBefore}`,
     },
     {
       key: "status",
       title: "状态 / 租约",
-      width: "20%",
+      width: "17%",
       render: (row) => {
         const view = taskStatusView(row.status)
         return (
@@ -530,9 +561,20 @@ export function AdminNewsWorkbenchPage(): ReactElement {
       },
     },
     {
+      key: "blockingReason",
+      title: "阻塞 / 失败原因",
+      width: "24%",
+      render: (row) =>
+        row.blockingReason ? (
+          <span className="admin-workbench__note">{row.blockingReason}</span>
+        ) : (
+          <span className="admin-workbench__note">—</span>
+        ),
+    },
+    {
       key: "generation",
       title: "世代 / 尝试",
-      width: "18%",
+      width: "10%",
       mono: true,
       render: (row) =>
         `gen ${row.generation} · ${row.attemptCount}/${row.maxAttempts}` +
@@ -541,15 +583,29 @@ export function AdminNewsWorkbenchPage(): ReactElement {
     {
       key: "action",
       title: "操作",
-      width: "16%",
+      width: "12%",
       render: (row) => (
-        <button
-          type="button"
-          className="admin-btn admin-btn--ghost admin-btn--sm"
-          onClick={() => setSelectedLeaseTaskId(row.taskId)}
-        >
-          租约历史
-        </button>
+        <div className="admin-dt__row-actions">
+          <button
+            type="button"
+            className="admin-btn admin-btn--ghost admin-btn--sm"
+            onClick={() => setSelectedLeaseTaskId(row.taskId)}
+          >
+            租约历史
+          </button>
+          {row.retryable ? (
+            <button
+              type="button"
+              className="admin-btn admin-btn--primary admin-btn--sm"
+              onClick={() => {
+                setRetryTarget(row)
+                setRetryForm({ maxAttempts: "3", note: "" })
+              }}
+            >
+              重试
+            </button>
+          ) : null}
+        </div>
       ),
     },
   ]
@@ -1339,10 +1395,10 @@ export function AdminNewsWorkbenchPage(): ReactElement {
         ) : null}
       </Drawer>
 
-      {/* 采集任务租约历史 Drawer */}
+      {/* 采集任务租约历史 + 操作审计 Drawer */}
       <Drawer
         open={Boolean(selectedLeaseTaskId)}
-        title={`租约历史 · ${selectedLeaseTaskId ?? ""}`}
+        title={`任务轨迹 · ${selectedLeaseTaskId ?? ""}`}
         onClose={() => setSelectedLeaseTaskId(null)}
       >
         {leaseQuery.isPending ? (
@@ -1375,7 +1431,103 @@ export function AdminNewsWorkbenchPage(): ReactElement {
             ))}
           </ul>
         )}
+
+        <section className="admin-workbench__section" aria-label="操作审计">
+          <h3 className="admin-workbench__sectiontitle">操作审计 · AUDIT</h3>
+          {taskEventsQuery.isPending ? (
+            <p className="admin-workbench__note">正在读取操作审计…</p>
+          ) : taskEventsQuery.error ? (
+            <FaultNote
+              fault={fault({
+                severity: "attention",
+                kind: "client",
+                title: describeError(taskEventsQuery.error).text,
+                code: describeError(taskEventsQuery.error).code,
+              })}
+            />
+          ) : (taskEventsQuery.data ?? []).length === 0 ? (
+            <p className="admin-workbench__note">该任务暂无人工操作记录。</p>
+          ) : (
+            <ul className="admin-workbench__revlist">
+              {(taskEventsQuery.data ?? []).map((event) => (
+                <li key={`${event.taskId}-${event.id}`} className="admin-workbench__revcard">
+                  <span className="admin-workbench__mono">
+                    {event.action}
+                    {event.fromStatus || event.toStatus
+                      ? ` · ${event.fromStatus ?? "—"} → ${event.toStatus ?? "—"}`
+                      : ""}
+                  </span>
+                  <span className="admin-workbench__mono">
+                    操作人：{event.actorId ?? "—"}
+                    {event.actorRole ? `（${event.actorRole}）` : ""}
+                  </span>
+                  <span className="admin-workbench__mono">
+                    时间：{formatTimestamp(event.createdAt ?? undefined)}
+                  </span>
+                  {event.note ? <span className="admin-workbench__note">{event.note}</span> : null}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       </Drawer>
+
+      {/* 失败窗口重试 Modal */}
+      <Modal
+        open={Boolean(retryTarget)}
+        title="重新打开失败窗口"
+        onClose={() => !retryBusy && setRetryTarget(null)}
+        footer={
+          <>
+            <button
+              type="button"
+              className="admin-btn admin-btn--ghost"
+              onClick={() => setRetryTarget(null)}
+              disabled={retryBusy}
+            >
+              取消
+            </button>
+            <button
+              type="submit"
+              form="retry-task-form"
+              className="admin-btn admin-btn--primary"
+              disabled={retryBusy}
+            >
+              {retryBusy ? "提交中…" : "确认重试"}
+            </button>
+          </>
+        }
+      >
+        <form id="retry-task-form" className="admin-workbench__formgrid" onSubmit={handleRetryTask}>
+          <p className="admin-workbench__note">
+            任务 {retryTarget?.taskId ?? ""}（窗口 {retryTarget?.windowStartOn ?? ""} →{" "}
+            {retryTarget?.windowEndBefore ?? ""}）当前为 FAILED。重新打开只会追加尝试次数，
+            不会推进信源游标，也不会跳过这个窗口。
+          </p>
+          <label className="admin-workbench__field">
+            <span className="admin-workbench__label">追加尝试次数 · ATTEMPTS</span>
+            <input
+              className="admin-workbench__input"
+              type="number"
+              min={1}
+              max={10}
+              required
+              value={retryForm.maxAttempts}
+              onChange={(e) => setRetryForm((f) => ({ ...f, maxAttempts: e.target.value }))}
+            />
+          </label>
+          <label className="admin-workbench__field">
+            <span className="admin-workbench__label">备注 · NOTE</span>
+            <textarea
+              className="admin-workbench__textarea"
+              rows={3}
+              maxLength={512}
+              value={retryForm.note}
+              onChange={(e) => setRetryForm((f) => ({ ...f, note: e.target.value }))}
+            />
+          </label>
+        </form>
+      </Modal>
 
       {/* 手动入队窗口 Modal */}
       <Modal

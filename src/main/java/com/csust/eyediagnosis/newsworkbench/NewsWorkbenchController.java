@@ -97,8 +97,29 @@ public class NewsWorkbenchController {
     @AuthCheck(mustRole = AuthConstant.ADMIN_ROLE)
     @Operation(summary = "手动入队资讯采集时间窗任务")
     public BaseResponse<NewsWorkbenchModels.CollectionTaskVO> enqueueTask(
-            @RequestBody(required = false) NewsWorkbenchModels.EnqueueTaskRequest body) {
-        return ResultUtils.success(workbenchService.enqueueTask(body));
+            @RequestBody(required = false) NewsWorkbenchModels.EnqueueTaskRequest body,
+            HttpServletRequest request) {
+        User operator = userService.getLoginUser(request);
+        return ResultUtils.success(workbenchService.enqueueTask(body, operator));
+    }
+
+    @PostMapping("/tasks/{taskId}/retry")
+    @AuthCheck(mustRole = AuthConstant.ADMIN_ROLE)
+    @Operation(summary = "重新打开失败的采集时间窗任务")
+    public BaseResponse<NewsWorkbenchModels.CollectionTaskVO> retryFailedTask(
+            @PathVariable("taskId") String taskId,
+            @RequestBody(required = false) NewsWorkbenchModels.RetryTaskRequest body,
+            HttpServletRequest request) {
+        User operator = userService.getLoginUser(request);
+        return ResultUtils.success(workbenchService.retryFailedTask(taskId, body, operator));
+    }
+
+    @GetMapping("/tasks/{taskId}/events")
+    @AuthCheck(mustRole = AuthConstant.ADMIN_ROLE)
+    @Operation(summary = "查看采集任务的操作审计记录")
+    public BaseResponse<List<NewsWorkbenchModels.TaskEventVO>> listTaskEvents(
+            @PathVariable("taskId") String taskId) {
+        return ResultUtils.success(workbenchService.listTaskEvents(taskId));
     }
 
     @GetMapping("/tasks/{taskId}/leases")

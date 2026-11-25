@@ -11,6 +11,7 @@ import {
   getWorkbenchCandidateDetail,
   getWorkbenchOverview,
   getNewsIssuePreview,
+  listTaskEvents,
   listTaskLeases,
   listWorkbenchBenchRuns,
   listWorkbenchBudgets,
@@ -19,6 +20,7 @@ import {
   listWorkbenchSources,
   listWorkbenchTasks,
   reconcileWorkbenchReceipt,
+  retryWorkbenchTask,
   toggleWorkbenchSource,
 } from "@/lib/newsWorkbenchApi"
 
@@ -40,7 +42,9 @@ vi.mock("@/lib/newsWorkbenchApi", async (importOriginal) => {
     getWorkbenchCandidateDetail: vi.fn(),
     listWorkbenchTasks: vi.fn(),
     enqueueWorkbenchTask: vi.fn(),
+    retryWorkbenchTask: vi.fn(),
     listTaskLeases: vi.fn(),
+    listTaskEvents: vi.fn(),
     listWorkbenchSources: vi.fn(),
     toggleWorkbenchSource: vi.fn(),
     listWorkbenchBudgets: vi.fn(),
@@ -184,6 +188,9 @@ beforeEach(() => {
         completedAt: null,
         createdAt: "2026-10-01T09:50:00Z",
         updatedAt: "2026-10-01T09:50:00Z",
+        blockingReason: null,
+        blockedByTaskId: null,
+        retryable: false,
       },
     ],
     total: 1,
@@ -192,6 +199,7 @@ beforeEach(() => {
     pages: 1,
   })
   vi.mocked(listTaskLeases).mockResolvedValue([])
+  vi.mocked(listTaskEvents).mockResolvedValue([])
   vi.mocked(enqueueWorkbenchTask).mockResolvedValue({
     taskId: "manual-task-2",
     source: "pubmed",
@@ -214,6 +222,9 @@ beforeEach(() => {
     completedAt: null,
     createdAt: "2026-10-22T12:00:00Z",
     updatedAt: "2026-10-22T12:00:00Z",
+    blockingReason: null,
+    blockedByTaskId: null,
+    retryable: false,
   })
   vi.mocked(listWorkbenchSources).mockResolvedValue([
     {
@@ -436,5 +447,84 @@ describe("AdminNewsWorkbenchPage", () => {
     await screen.findByText("nb-1")
     expect(screen.getByText("18 / 18")).toBeTruthy()
     expect(screen.getByText("100.0% / 100.0% / 100.0%")).toBeTruthy()
+  })
+
+  it("shows blocking reason and retries a failed collection window", async () => {
+    vi.mocked(listWorkbenchTasks).mockResolvedValue({
+      records: [
+        {
+          taskId: "task-failed-1",
+          source: "pubmed",
+          sourceConfigVersion: "1",
+          queryText: "ophthalmology",
+          windowStartOn: "2026-10-01",
+          windowEndBefore: "2026-10-02",
+          status: "FAILED",
+          generation: 2,
+          attemptCount: 3,
+          maxAttempts: 3,
+          leaseWorkerId: null,
+          leaseExpiresAt: null,
+          leaseExpired: false,
+          nextAttemptAt: null,
+          lastFailureCode: "SOURCE_TIMEOUT",
+          committedBatchCount: null,
+          committedRecordCount: null,
+          committedCursor: null,
+          completedAt: null,
+          createdAt: "2026-10-01T09:50:00Z",
+          updatedAt: "2026-10-01T09:50:00Z",
+          blockingReason: "本窗口已失败（SOURCE_TIMEOUT），需从失败窗口重试入口重新打开；系统不会自动跳过",
+          blockedByTaskId: null,
+          retryable: true,
+        },
+      ],
+      total: 1,
+      current: 1,
+      size: 10,
+      pages: 1,
+    })
+    vi.mocked(retryWorkbenchTask).mockResolvedValue({
+      taskId: "task-failed-1",
+      source: "pubmed",
+      sourceConfigVersion: "1",
+      queryText: "ophthalmology",
+      windowStartOn: "2026-10-01",
+      windowEndBefore: "2026-10-02",
+      status: "PENDING",
+      generation: 2,
+      attemptCount: 3,
+      maxAttempts: 6,
+      leaseWorkerId: null,
+      leaseExpiresAt: null,
+      leaseExpired: false,
+      nextAttemptAt: null,
+      lastFailureCode: null,
+      committedBatchCount: null,
+      committedRecordCount: null,
+      committedCursor: null,
+      completedAt: null,
+      createdAt: "2026-10-01T09:50:00Z",
+      updatedAt: "2026-10-01T09:50:00Z",
+      blockingReason: null,
+      blockedByTaskId: null,
+      retryable: false,
+    })
+
+    renderWorkbench()
+
+    fireEvent.click(screen.getByRole("tab", { name: "采集任务" }))
+    await screen.findByText("task-failed-1")
+    expect(screen.getByText(/本窗口已失败（SOURCE_TIMEOUT）/)).toBeTruthy()
+    expect(screen.getByText(/系统不会自动跳过/)).toBeTruthy()
+
+    fireEvent.click(screen.getByRole("button", { name: "重试" }))
+    fireEvent.click(await screen.findByRole("button", { name: "确认重试" }))
+    await waitFor(() =>
+      expect(vi.mocked(retryWorkbenchTask)).toHaveBeenCalledWith("task-failed-1", {
+        maxAttempts: 3,
+      }),
+    )
+    await screen.findByText(/已重新打开失败窗口 task-failed-1/)
   })
 })

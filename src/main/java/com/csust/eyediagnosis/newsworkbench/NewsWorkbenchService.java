@@ -31,6 +31,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -54,6 +55,8 @@ public class NewsWorkbenchService {
     private static final Set<String> TASK_STATUSES = Set.of(
             "PENDING", "LEASED", "RETRY_SCHEDULED", "COMPLETED", "FAILED"
     );
+    private static final String TASK_STATUS_FAILED = "FAILED";
+    private static final String TASK_STATUS_COMPLETED = "COMPLETED";
 
     private static final DateTimeFormatter STRICT_ISO_DATE = DateTimeFormatter.ofPattern("uuuu-MM-dd")
             .withResolverStyle(ResolverStyle.STRICT);
@@ -72,6 +75,53 @@ public class NewsWorkbenchService {
             "(SELECT n.id FROM t_news n WHERE n.curationCandidateId = c.id AND n.isDelete = 0 ORDER BY n.id DESC LIMIT 1)";
     private static final String LINKED_NEWS_STATUS_SQL =
             "(SELECT CAST(n.status AS SIGNED) FROM t_news n WHERE n.curationCandidateId = c.id AND n.isDelete = 0 ORDER BY n.id DESC LIMIT 1)";
+
+    /**
+     * 阻塞判定，与 Worker 领取逻辑（{@code NewsIngestionService.claimForSource} 的 NOT EXISTS 子句）
+     * 完全同源：同一信源、同一配置版本下，更早的窗口任务没有 COMPLETED 时，本窗口不会被领取。
+     *
+     * <p>系统**不会自动跳过失败窗口**，所以卡住时必须说清「卡在谁身上」，而不是让运营猜。
+     */
+    private static final String BLOCKING_TASK_SELECT = """
+            SELECT e.%s
+              FROM t_news_collection_task e
+             WHERE e.source = t.source
+               AND e.sourceConfigVersion = t.sourceConfigVersion
+               AND e.status <> 'COMPLETED'
+               AND (e.windowStartOn < t.windowStartOn
+                    OR (e.windowStartOn = t.windowStartOn AND e.windowEndBefore < t.windowEndBefore))
+             ORDER BY e.windowStartOn ASC, e.windowEndBefore ASC, e.taskId ASC
+             LIMIT 1""";
+    private static final String BLOCKING_TASK_ID_SQL =
+            "(" + String.format(BLOCKING_TASK_SELECT, "taskId") + ")";
+    private static final String BLOCKING_TASK_STATUS_SQL =
+            "(" + String.format(BLOCKING_TASK_SELECT, "status") + ")";
+
+    /**
+     * 采集任务的公共查询列（列表与单条详情共用），含阻塞判定子查询。
+     */
+    private static final String TASK_SELECT_SQL = """
+            SELECT t.taskId, t.source, t.sourceConfigVersion, t.queryText,
+                   DATE_FORMAT(t.windowStartOn, '%Y-%m-%d') AS windowStartOn,
+                   DATE_FORMAT(t.windowEndBefore, '%Y-%m-%d') AS windowEndBefore,
+                   t.status, t.generation, t.attemptCount, t.maxAttempts, t.leaseWorkerId,
+                   DATE_FORMAT(t.leaseExpiresAt, '%Y-%m-%dT%H:%i:%s.%fZ') AS leaseExpiresAtUtc,
+                   CAST(CASE WHEN t.status = 'LEASED' AND t.leaseExpiresAt <= UTC_TIMESTAMP(6) THEN 1 ELSE 0 END AS SIGNED)
+                       AS leaseExpired,
+                   DATE_FORMAT(t.nextAttemptAt, '%Y-%m-%dT%H:%i:%s.%fZ') AS nextAttemptAtUtc,
+                   t.lastFailureCode, t.committedBatchCount, t.committedRecordCount,
+                   DATE_FORMAT(t.committedCursor, '%Y-%m-%d') AS committedCursor,
+                   DATE_FORMAT(t.completedAt, '%Y-%m-%dT%H:%i:%s.%fZ') AS completedAtUtc,
+                   DATE_FORMAT(t.createdAt, '%Y-%m-%dT%H:%i:%s.%fZ') AS createdAtUtc,
+                   DATE_FORMAT(t.updatedAt, '%Y-%m-%dT%H:%i:%s.%fZ') AS updatedAtUtc,
+            """
+            + "                   " + BLOCKING_TASK_ID_SQL + " AS blockedByTaskId,\n"
+            + "                   " + BLOCKING_TASK_STATUS_SQL + " AS blockedByStatus\n"
+            + "            FROM t_news_collection_task t\n";
+
+    /** 操作审计动作。 */
+    private static final String TASK_EVENT_ACTION_ENQUEUE = "ENQUEUE";
+    private static final String TASK_EVENT_ACTION_RETRY = "RETRY";
 
     private final JdbcTemplate jdbc;
     private final NewsIngestionService ingestionService;
@@ -249,16 +299,16 @@ public class NewsWorkbenchService {
         StringBuilder where = new StringBuilder(" WHERE 1=1");
         List<Object> args = new ArrayList<>();
         if (normalizedSource != null) {
-            where.append(" AND source = ?");
+            where.append(" AND t.source = ?");
             args.add(normalizedSource);
         }
         if (normalizedStatus != null) {
-            where.append(" AND status = ?");
+            where.append(" AND t.status = ?");
             args.add(normalizedStatus);
         }
 
         Long totalBoxed = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM t_news_collection_task" + where,
+                "SELECT COUNT(*) FROM t_news_collection_task t" + where,
                 Long.class,
                 args.toArray()
         );
@@ -268,22 +318,8 @@ public class NewsWorkbenchService {
         pagedArgs.add(safeSize);
         pagedArgs.add((safeCurrent - 1) * safeSize);
 
-        List<NewsWorkbenchModels.CollectionTaskVO> records = total == 0 ? List.of() : jdbc.query("""
-                SELECT taskId, source, sourceConfigVersion, queryText,
-                       DATE_FORMAT(windowStartOn, '%Y-%m-%d') AS windowStartOn,
-                       DATE_FORMAT(windowEndBefore, '%Y-%m-%d') AS windowEndBefore,
-                       status, generation, attemptCount, maxAttempts, leaseWorkerId,
-                       DATE_FORMAT(leaseExpiresAt, '%Y-%m-%dT%H:%i:%s.%fZ') AS leaseExpiresAtUtc,
-                       CAST(CASE WHEN status = 'LEASED' AND leaseExpiresAt <= UTC_TIMESTAMP(6) THEN 1 ELSE 0 END AS SIGNED)
-                           AS leaseExpired,
-                       DATE_FORMAT(nextAttemptAt, '%Y-%m-%dT%H:%i:%s.%fZ') AS nextAttemptAtUtc,
-                       lastFailureCode, committedBatchCount, committedRecordCount,
-                       DATE_FORMAT(committedCursor, '%Y-%m-%d') AS committedCursor,
-                       DATE_FORMAT(completedAt, '%Y-%m-%dT%H:%i:%s.%fZ') AS completedAtUtc,
-                       DATE_FORMAT(createdAt, '%Y-%m-%dT%H:%i:%s.%fZ') AS createdAtUtc,
-                       DATE_FORMAT(updatedAt, '%Y-%m-%dT%H:%i:%s.%fZ') AS updatedAtUtc
-                FROM t_news_collection_task
-                """ + where + " ORDER BY createdAt DESC, taskId DESC LIMIT ? OFFSET ?",
+        List<NewsWorkbenchModels.CollectionTaskVO> records = total == 0 ? List.of() : jdbc.query(
+                TASK_SELECT_SQL + where + " ORDER BY t.createdAt DESC, t.taskId DESC LIMIT ? OFFSET ?",
                 (rs, rowNum) -> mapTaskRow(rs),
                 pagedArgs.toArray()
         );
@@ -292,6 +328,11 @@ public class NewsWorkbenchService {
     }
 
     public NewsWorkbenchModels.CollectionTaskVO enqueueTask(NewsWorkbenchModels.EnqueueTaskRequest req) {
+        return enqueueTask(req, null);
+    }
+
+    public NewsWorkbenchModels.CollectionTaskVO enqueueTask(NewsWorkbenchModels.EnqueueTaskRequest req,
+                                                            User operator) {
         if (req == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "入队请求不能为空");
         }
@@ -321,36 +362,152 @@ public class NewsWorkbenchService {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "taskId 格式不合法");
         }
 
+        // 重复入队的语义要分情况说清楚，而不是一律回一句「任务 ID 已存在」：
+        // 失败窗口要走重试入口；已完成的窗口重复入队会被游标推进规则直接拒绝。
+        Optional<NewsIngestionService.TaskSnapshot> existing = ingestionService.getTask(taskId);
+        if (existing.isPresent()) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, describeExistingTask(taskId, existing.get()));
+        }
+
         try {
             ingestionService.enqueueWindow(
                     taskId, normalizedSource, req.sourceConfigVersion(), req.query(), start, end, maxAttempts);
         } catch (DuplicateKeyException ex) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "任务 ID 已存在: " + taskId);
+            // 并发入队同一 taskId：另一路已经建好任务，按同样的口径报错。
+            String status = ingestionService.getTask(taskId)
+                    .map(NewsIngestionService.TaskSnapshot::status)
+                    .orElse("UNKNOWN");
+            throw new BusinessException(ErrorCode.PARAMS_ERROR,
+                    "任务 ID " + taskId + " 已存在且当前状态为 " + status + "，本次入队未生效");
         } catch (IllegalArgumentException ex) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, ex.getMessage());
         }
 
-        List<NewsWorkbenchModels.CollectionTaskVO> rows = jdbc.query("""
-                SELECT taskId, source, sourceConfigVersion, queryText,
-                       DATE_FORMAT(windowStartOn, '%Y-%m-%d') AS windowStartOn,
-                       DATE_FORMAT(windowEndBefore, '%Y-%m-%d') AS windowEndBefore,
-                       status, generation, attemptCount, maxAttempts, leaseWorkerId,
-                       DATE_FORMAT(leaseExpiresAt, '%Y-%m-%dT%H:%i:%s.%fZ') AS leaseExpiresAtUtc,
-                       CAST(CASE WHEN status = 'LEASED' AND leaseExpiresAt <= UTC_TIMESTAMP(6) THEN 1 ELSE 0 END AS SIGNED)
-                           AS leaseExpired,
-                       DATE_FORMAT(nextAttemptAt, '%Y-%m-%dT%H:%i:%s.%fZ') AS nextAttemptAtUtc,
-                       lastFailureCode, committedBatchCount, committedRecordCount,
-                       DATE_FORMAT(committedCursor, '%Y-%m-%d') AS committedCursor,
-                       DATE_FORMAT(completedAt, '%Y-%m-%dT%H:%i:%s.%fZ') AS completedAtUtc,
-                       DATE_FORMAT(createdAt, '%Y-%m-%dT%H:%i:%s.%fZ') AS createdAtUtc,
-                       DATE_FORMAT(updatedAt, '%Y-%m-%dT%H:%i:%s.%fZ') AS updatedAtUtc
-                FROM t_news_collection_task
+        recordTaskEvent(taskId, TASK_EVENT_ACTION_ENQUEUE, null, "PENDING", operator, null);
+        return loadTaskView(taskId);
+    }
+
+    /**
+     * 失败窗口重试：把已经 {@code FAILED} 的窗口重新打开，等价于「再给几次尝试机会」。
+     *
+     * <p>刻意复用 {@code NewsIngestionService.enqueueWindow} 已有的 FAILED 重开能力，
+     * 不另建第二套状态机：状态回退、尝试次数、租约字段都由那一条既有路径负责。
+     * 这里额外保证三件事：
+     * <ul>
+     *   <li>只有 {@code FAILED} 能重试，其他状态明确拒绝（不静默覆盖进行中的窗口）；</li>
+     *   <li>并发重试只有一路生效，另一路收到「已被并发重试」的明确错误；</li>
+     *   <li>重试不推进游标——游标只在 {@code complete()} 时前进。</li>
+     * </ul>
+     */
+    public NewsWorkbenchModels.CollectionTaskVO retryFailedTask(String taskId,
+                                                                NewsWorkbenchModels.RetryTaskRequest req,
+                                                                User operator) {
+        if (taskId == null || !NewsWireCodec.isValidIdentifier(taskId.trim())) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "taskId 格式不合法");
+        }
+        String normalizedTaskId = taskId.trim();
+        int extraAttempts = req == null || req.maxAttempts() == null ? DEFAULT_MAX_ATTEMPTS : req.maxAttempts();
+        if (extraAttempts < 1 || extraAttempts > MAX_ALLOWED_ATTEMPTS) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "maxAttempts 必须在 1 到 10 之间");
+        }
+        NewsIngestionService.TaskSnapshot snapshot = ingestionService.getTask(normalizedTaskId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.PARAMS_ERROR, "任务不存在: " + normalizedTaskId));
+        if (!TASK_STATUS_FAILED.equals(snapshot.status())) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR,
+                    "任务 " + normalizedTaskId + " 当前状态为 " + snapshot.status()
+                            + "，只有 FAILED 的失败窗口可以重试");
+        }
+
+        try {
+            // 复用既有重开路径：同一 taskId + 同一窗口 + FAILED ⇒ enqueueWindow 会把它重新打开。
+            ingestionService.enqueueWindow(
+                    normalizedTaskId,
+                    snapshot.source(),
+                    snapshot.sourceConfigVersion(),
+                    snapshot.query(),
+                    snapshot.windowStartOn(),
+                    snapshot.windowEndBefore(),
+                    extraAttempts);
+        } catch (DuplicateKeyException ex) {
+            String current = ingestionService.getTask(normalizedTaskId)
+                    .map(NewsIngestionService.TaskSnapshot::status)
+                    .orElse("UNKNOWN");
+            throw new BusinessException(ErrorCode.OPERATION_ERROR,
+                    "任务 " + normalizedTaskId + " 已被并发重试（当前状态 " + current + "），本次重试未生效");
+        } catch (IllegalArgumentException ex) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, ex.getMessage());
+        }
+
+        String note = req == null || req.note() == null ? null : req.note().trim();
+        recordTaskEvent(normalizedTaskId, TASK_EVENT_ACTION_RETRY, TASK_STATUS_FAILED, "PENDING",
+                operator, note);
+        return loadTaskView(normalizedTaskId);
+    }
+
+    /** 采集任务的操作审计记录。 */
+    public List<NewsWorkbenchModels.TaskEventVO> listTaskEvents(String taskId) {
+        if (taskId == null || !NewsWireCodec.isValidIdentifier(taskId.trim())) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "taskId 格式不合法");
+        }
+        String normalizedTaskId = taskId.trim();
+        return jdbc.query("""
+                SELECT id, taskId, action, fromStatus, toStatus, actorId, actorRole, note,
+                       DATE_FORMAT(createdAt, '%Y-%m-%dT%H:%i:%s.%fZ') AS createdAtUtc
+                FROM t_news_collection_task_event
                 WHERE taskId = ?
-                """, (rs, rowNum) -> mapTaskRow(rs), taskId);
+                ORDER BY id ASC
+                """, (rs, rowNum) -> new NewsWorkbenchModels.TaskEventVO(
+                rs.getLong("id"),
+                rs.getString("taskId"),
+                rs.getString("action"),
+                rs.getString("fromStatus"),
+                rs.getString("toStatus"),
+                (Long) rs.getObject("actorId"),
+                rs.getString("actorRole"),
+                rs.getString("note"),
+                parseUtcInstant(rs.getString("createdAtUtc"))
+        ), normalizedTaskId);
+    }
+
+    private NewsWorkbenchModels.CollectionTaskVO loadTaskView(String taskId) {
+        List<NewsWorkbenchModels.CollectionTaskVO> rows = jdbc.query(
+                TASK_SELECT_SQL + " WHERE t.taskId = ?",
+                (rs, rowNum) -> mapTaskRow(rs), taskId);
         if (rows.isEmpty()) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "任务创建后未能读取");
         }
         return rows.getFirst();
+    }
+
+    private void recordTaskEvent(String taskId, String action, String fromStatus, String toStatus,
+                                 User operator, String note) {
+        Long actorId = operator == null ? null : operator.getId();
+        String actorRole = operator == null ? null : operator.getUserRole();
+        jdbc.update("""
+                INSERT INTO t_news_collection_task_event
+                    (taskId, action, fromStatus, toStatus, actorId, actorRole, note)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                taskId, action, fromStatus, toStatus, actorId, actorRole,
+                note == null || note.isBlank() ? null : note);
+    }
+
+    /**
+     * 重复入队的错误口径：把「当前状态」和「该走哪条路」一起说清楚。
+     */
+    private static String describeExistingTask(String taskId, NewsIngestionService.TaskSnapshot existing) {
+        String window = existing.windowStartOn() + " → " + existing.windowEndBefore();
+        String suffix = "（既有窗口 " + window + "）";
+        if (TASK_STATUS_FAILED.equals(existing.status())) {
+            return "任务 ID " + taskId + " 已存在且当前状态为 FAILED（失败窗口）" + suffix
+                    + "：请使用失败窗口重试入口重新打开，不要重复入队";
+        }
+        if (TASK_STATUS_COMPLETED.equals(existing.status())) {
+            return "任务 ID " + taskId + " 已存在且当前状态为 COMPLETED" + suffix
+                    + "：该窗口已完成，重复入队会被游标推进规则拒绝；请改用新的 taskId";
+        }
+        return "任务 ID " + taskId + " 已存在且当前状态为 " + existing.status() + suffix
+                + "：请改用新的 taskId";
     }
 
     public List<NewsWorkbenchModels.LeaseRecordVO> listTaskLeases(String taskId) {
@@ -932,6 +1089,10 @@ public class NewsWorkbenchService {
     }
 
     private static NewsWorkbenchModels.CollectionTaskVO mapTaskRow(ResultSet rs) throws SQLException {
+        String status = rs.getString("status");
+        String lastFailureCode = rs.getString("lastFailureCode");
+        String blockedByTaskId = rs.getString("blockedByTaskId");
+        String blockedByStatus = rs.getString("blockedByStatus");
         return new NewsWorkbenchModels.CollectionTaskVO(
                 rs.getString("taskId"),
                 rs.getString("source"),
@@ -939,7 +1100,7 @@ public class NewsWorkbenchService {
                 rs.getString("queryText"),
                 rs.getString("windowStartOn"),
                 rs.getString("windowEndBefore"),
-                rs.getString("status"),
+                status,
                 rs.getLong("generation"),
                 rs.getInt("attemptCount"),
                 rs.getInt("maxAttempts"),
@@ -947,14 +1108,42 @@ public class NewsWorkbenchService {
                 parseUtcInstant(rs.getString("leaseExpiresAtUtc")),
                 rs.getInt("leaseExpired") == 1,
                 parseUtcInstant(rs.getString("nextAttemptAtUtc")),
-                rs.getString("lastFailureCode"),
+                lastFailureCode,
                 getOptionalInt(rs, "committedBatchCount"),
                 getOptionalInt(rs, "committedRecordCount"),
                 rs.getString("committedCursor"),
                 parseUtcInstant(rs.getString("completedAtUtc")),
                 parseUtcInstant(rs.getString("createdAtUtc")),
-                parseUtcInstant(rs.getString("updatedAtUtc"))
+                parseUtcInstant(rs.getString("updatedAtUtc")),
+                describeBlockingReason(status, lastFailureCode, blockedByTaskId, blockedByStatus),
+                blockedByTaskId,
+                TASK_STATUS_FAILED.equals(status)
         );
+    }
+
+    /**
+     * 阻塞原因的口径：先说本窗口自己的问题（失败），再说被谁挡住；都没有就不给理由。
+     *
+     * <p>系统不会自动跳过失败窗口——所以「卡住了」必须在这里说清楚，
+     * 而不是让运营从一堆 PENDING 里猜。
+     */
+    static String describeBlockingReason(String status, String lastFailureCode,
+                                         String blockedByTaskId, String blockedByStatus) {
+        StringBuilder reason = new StringBuilder();
+        if (TASK_STATUS_FAILED.equals(status)) {
+            reason.append("本窗口已失败")
+                    .append(lastFailureCode == null || lastFailureCode.isBlank() ? "" : "（" + lastFailureCode + "）")
+                    .append("，需从失败窗口重试入口重新打开；系统不会自动跳过");
+        }
+        if (blockedByTaskId != null && !blockedByTaskId.isBlank()) {
+            if (reason.length() > 0) {
+                reason.append("；同时");
+            }
+            reason.append("被更早窗口任务 ").append(blockedByTaskId)
+                    .append(blockedByStatus == null || blockedByStatus.isBlank() ? "" : "（状态 " + blockedByStatus + "）")
+                    .append(" 阻塞，需先处理该窗口");
+        }
+        return reason.length() == 0 ? null : reason.toString();
     }
 
     private static NewsWorkbenchModels.CandidateSummaryVO mapCandidateSummary(ResultSet rs) throws SQLException {

@@ -43,12 +43,16 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -96,6 +100,7 @@ class NewsWorkbenchMySqlIntegrationTest {
                 "Set FLYWAY_TEST_URL to run the real MySQL News Workbench gate");
         ensureDatabase();
 
+        jdbc.execute("DELETE FROM t_news_collection_task_event");
         jdbc.execute("DELETE FROM t_news_revision");
         jdbc.execute("DELETE FROM t_news_audit");
         jdbc.execute("DELETE FROM t_news");
@@ -273,9 +278,148 @@ class NewsWorkbenchMySqlIntegrationTest {
         assertEquals(1L, leases.getFirst().generation());
     }
 
+    /**
+     * WP-07G：失败窗口恢复。
+     *
+     * <p>覆盖：失败窗口可被重新打开（复用既有 enqueueWindow 重开能力）、重试不推进游标、
+     * 非 FAILED 状态拒绝重试、并发重试只有一路生效、重复入队的错误语义按状态区分。
+     */
     @Test
-    void candidateQueueDetailAndLinkedNewsStatus() throws Exception {
-        long revAccepted = ingestSingleMaterial(
+    void failedWindowCanBeReopenedWithoutAdvancingCursorAndRejectsBadRetries() throws Exception {
+        workbenchService.registerSourceConfig(
+                "pubmed",
+                new NewsWorkbenchModels.RegisterSourceConfigRequest(7L, "ophthalmology", "2026-10-01"));
+        NewsWorkbenchModels.CollectionTaskVO created = workbenchService.enqueueTask(
+                new NewsWorkbenchModels.EnqueueTaskRequest(
+                        "wb-retry-1", "pubmed", 7L, "ophthalmology", "2026-10-01", "2026-10-02", 2));
+        assertEquals("PENDING", created.status());
+
+        // 人为把任务置为 FAILED（模拟 Worker 报告不可重试失败）
+        jdbc.update("""
+                UPDATE t_news_collection_task
+                SET status = 'FAILED', attemptCount = 2, lastFailureCode = 'SOURCE_TIMEOUT'
+                WHERE taskId = 'wb-retry-1'
+                """);
+
+        NewsWorkbenchModels.CollectionTaskVO reopened = workbenchService.retryFailedTask(
+                "wb-retry-1", new NewsWorkbenchModels.RetryTaskRequest(2, "重跑失败窗口"), adminActor);
+        assertEquals("PENDING", reopened.status());
+        assertEquals(2, reopened.attemptCount(), "重试不应清空已消耗的尝试次数");
+        assertEquals(4, reopened.maxAttempts(), "重试应按追加次数抬高尝试上限");
+        assertTrue(reopened.retryable() == false);
+        assertNull(reopened.blockingReason());
+
+        // 游标不得因重试而推进
+        assertTrue(ingestionService.getCommittedCursor("pubmed", 7L).isEmpty(),
+                "失败窗口重试不得静默推进信源游标");
+
+        // 操作审计
+        List<NewsWorkbenchModels.TaskEventVO> events = workbenchService.listTaskEvents("wb-retry-1");
+        assertEquals(2, events.size());
+        assertEquals("ENQUEUE", events.get(0).action());
+        assertEquals("RETRY", events.get(1).action());
+        assertEquals("FAILED", events.get(1).fromStatus());
+        assertEquals("PENDING", events.get(1).toStatus());
+        assertEquals("重跑失败窗口", events.get(1).note());
+        assertEquals(1001L, events.get(1).actorId());
+
+        // 再次重试同一任务必须被明确拒绝（幂等负例）
+        BusinessException duplicateRetry = assertThrows(BusinessException.class,
+                () -> workbenchService.retryFailedTask(
+                        "wb-retry-1", new NewsWorkbenchModels.RetryTaskRequest(2, null), adminActor));
+        assertEquals(ErrorCode.OPERATION_ERROR.getCode(), duplicateRetry.getCode());
+        assertTrue(duplicateRetry.getMessage().contains("PENDING"), duplicateRetry.getMessage());
+
+        // 并发重试：只有一路生效，另一路必须失败而不是静默覆盖
+        jdbc.update("""
+                UPDATE t_news_collection_task
+                SET status = 'FAILED', lastFailureCode = 'SOURCE_TIMEOUT'
+                WHERE taskId = 'wb-retry-1'
+                """);
+        CyclicBarrier barrier = new CyclicBarrier(2);
+        List<Throwable> failures = Collections.synchronizedList(new ArrayList<>());
+        List<Boolean> successes = Collections.synchronizedList(new ArrayList<>());
+        Runnable retry = () -> {
+            try {
+                barrier.await(10, TimeUnit.SECONDS);
+                workbenchService.retryFailedTask(
+                        "wb-retry-1", new NewsWorkbenchModels.RetryTaskRequest(1, "并发重试"), adminActor);
+                successes.add(Boolean.TRUE);
+            } catch (Throwable ex) {
+                failures.add(ex);
+            }
+        };
+        Thread first = new Thread(retry);
+        Thread second = new Thread(retry);
+        first.start();
+        second.start();
+        first.join(20_000);
+        second.join(20_000);
+        assertEquals(1, successes.size(), "并发重试必须只有一路生效");
+        assertEquals(1, failures.size(), "并发重试的落败方必须收到明确错误");
+        assertTrue(failures.getFirst() instanceof BusinessException, String.valueOf(failures.getFirst()));
+
+        // 重复入队：已完成的窗口与失败窗口要给出不同的、指向正确入口的错误
+        workbenchService.registerSourceConfig(
+                "europe-pmc",
+                new NewsWorkbenchModels.RegisterSourceConfigRequest(3L, "ophthalmology", "2026-10-01"));
+        workbenchService.enqueueTask(new NewsWorkbenchModels.EnqueueTaskRequest(
+                "wb-dup-completed", "europe-pmc", 3L, "ophthalmology", "2026-10-01", "2026-10-02", 1));
+        jdbc.update("UPDATE t_news_collection_task SET status = 'COMPLETED' WHERE taskId = 'wb-dup-completed'");
+        BusinessException completedDup = assertThrows(BusinessException.class,
+                () -> workbenchService.enqueueTask(new NewsWorkbenchModels.EnqueueTaskRequest(
+                        "wb-dup-completed", "europe-pmc", 3L, "ophthalmology", "2026-10-01", "2026-10-02", 1)));
+        assertEquals(ErrorCode.PARAMS_ERROR.getCode(), completedDup.getCode());
+        assertTrue(completedDup.getMessage().contains("COMPLETED"), completedDup.getMessage());
+        assertTrue(completedDup.getMessage().contains("游标"), completedDup.getMessage());
+
+        BusinessException failedDup = assertThrows(BusinessException.class,
+                () -> workbenchService.enqueueTask(new NewsWorkbenchModels.EnqueueTaskRequest(
+                        "wb-retry-1", "pubmed", 7L, "ophthalmology", "2026-10-01", "2026-10-02", 1)));
+        assertEquals(ErrorCode.PARAMS_ERROR.getCode(), failedDup.getCode());
+        assertTrue(failedDup.getMessage().contains("失败窗口"), failedDup.getMessage());
+    }
+
+    /**
+     * WP-07G：更早窗口失败时，后面的窗口要被说清「卡在谁身上」——系统不自动跳过失败窗口。
+     */
+    @Test
+    void laterWindowReportsTheEarlierFailedWindowThatBlocksIt() throws Exception {
+        workbenchService.registerSourceConfig(
+                "pubmed",
+                new NewsWorkbenchModels.RegisterSourceConfigRequest(9L, "ophthalmology", "2026-10-01"));
+        workbenchService.enqueueTask(new NewsWorkbenchModels.EnqueueTaskRequest(
+                "wb-block-early", "pubmed", 9L, "ophthalmology", "2026-10-01", "2026-10-02", 1));
+        workbenchService.enqueueTask(new NewsWorkbenchModels.EnqueueTaskRequest(
+                "wb-block-late", "pubmed", 9L, "ophthalmology", "2026-10-02", "2026-10-03", 1));
+        jdbc.update("""
+                UPDATE t_news_collection_task
+                SET status = 'FAILED', attemptCount = 1, lastFailureCode = 'SOURCE_TIMEOUT'
+                WHERE taskId = 'wb-block-early'
+                """);
+
+        NewsWorkbenchModels.PageVO<NewsWorkbenchModels.CollectionTaskVO> page =
+                workbenchService.listTasks("pubmed", null, 1, 10);
+        NewsWorkbenchModels.CollectionTaskVO late = page.records().stream()
+                .filter(row -> "wb-block-late".equals(row.taskId()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals("wb-block-early", late.blockedByTaskId());
+        assertNotNull(late.blockingReason());
+        assertTrue(late.blockingReason().contains("wb-block-early"), late.blockingReason());
+        assertTrue(late.blockingReason().contains("FAILED"), late.blockingReason());
+
+        NewsWorkbenchModels.CollectionTaskVO early = page.records().stream()
+                .filter(row -> "wb-block-early".equals(row.taskId()))
+                .findFirst()
+                .orElseThrow();
+        assertTrue(early.retryable());
+        assertTrue(early.blockingReason().contains("SOURCE_TIMEOUT"), early.blockingReason());
+        assertTrue(early.blockingReason().contains("不会自动跳过"), early.blockingReason());
+    }
+
+    @Test
+    void candidateQueueDetailAndLinkedNewsStatus() throws Exception {        long revAccepted = ingestSingleMaterial(
                 "wb-cand-1", "pubmed", "PMID-C1",
                 "Diabetic Retinopathy Screening Diagnostic Accuracy", "CC0",
                 "Deep learning screening reached high sensitivity for referable diabetic retinopathy in multi-center evaluation."

@@ -136,6 +136,25 @@ export type CollectionTask = {
   completedAt: string | null
   createdAt: string | null
   updatedAt: string | null
+  /** 阻塞原因：为什么这个窗口还轮不到 Worker / 需要人工处理。 */
+  blockingReason: string | null
+  /** 阻塞本窗口的更早任务 ID。 */
+  blockedByTaskId: string | null
+  /** 是否是「失败窗口」（可走失败窗口重试入口重新打开）。 */
+  retryable: boolean
+}
+
+/** 采集任务的操作审计记录。 */
+export type TaskEvent = {
+  id: number
+  taskId: string
+  action: string
+  fromStatus: string | null
+  toStatus: string | null
+  actorId: number | null
+  actorRole: string | null
+  note: string | null
+  createdAt: string | null
 }
 
 export type LeaseRecord = {
@@ -312,6 +331,9 @@ function toTask(raw: Record<string, unknown>): CollectionTask {
     completedAt: optStr(raw.completedAt),
     createdAt: optStr(raw.createdAt),
     updatedAt: optStr(raw.updatedAt),
+    blockingReason: optStr(raw.blockingReason),
+    blockedByTaskId: optStr(raw.blockedByTaskId),
+    retryable: Boolean(raw.retryable),
   }
 }
 
@@ -554,6 +576,45 @@ export async function listTaskLeases(taskId: string): Promise<LeaseRecord[]> {
     workerId: reqStr(row.workerId),
     leaseExpiresAt: optStr(row.leaseExpiresAt),
     claimedAt: optStr(row.claimedAt),
+  }))
+}
+
+/**
+ * 重新打开一个失败的采集窗口。服务端只接受 FAILED 状态的任务，
+ * 重复提交会被明确拒绝（不会静默重开）。
+ */
+export async function retryWorkbenchTask(
+  taskId: string,
+  body: { maxAttempts?: number; note?: string } = {},
+): Promise<CollectionTask> {
+  const raw = await request<Record<string, unknown>>(
+    `/admin/news-workbench/tasks/${encodeURIComponent(taskId)}/retry`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        ...(body.maxAttempts ? { maxAttempts: body.maxAttempts } : {}),
+        ...(body.note ? { note: body.note } : {}),
+      }),
+    },
+  )
+  return toTask(raw)
+}
+
+export async function listTaskEvents(taskId: string): Promise<TaskEvent[]> {
+  const rows = await request<Record<string, unknown>[]>(
+    `/admin/news-workbench/tasks/${encodeURIComponent(taskId)}/events`,
+    { method: "GET" },
+  )
+  return (rows ?? []).map((row) => ({
+    id: num(row.id),
+    taskId: reqStr(row.taskId),
+    action: reqStr(row.action),
+    fromStatus: optStr(row.fromStatus),
+    toStatus: optStr(row.toStatus),
+    actorId: row.actorId === null || row.actorId === undefined ? null : num(row.actorId),
+    actorRole: optStr(row.actorRole),
+    note: optStr(row.note),
+    createdAt: optStr(row.createdAt),
   }))
 }
 
