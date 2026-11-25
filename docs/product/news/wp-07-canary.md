@@ -1,6 +1,6 @@
 # WP-07 · 资讯采集灰度验收
 
-验收日期为 2026-11-25，最终核验基线为 `0e442e1e`（在 `e0dabebf` 之上叠加 WP-07C 整改与 Europe PMC 单页修复）。本次使用 Windows 工作站、隔离的 Spring Boot `ci` 实例及临时 MySQL 8、Redis 7、Chroma 容器。模型精选保持关闭，实测只涉及眼科资讯采集。以下结论按验证手段分组，**不互相顶替**：官方 API 探针、离线夹具重放、正式 Worker 实采、真实端到端联调各有独立口径。
+验收日期为 2026-11-25，最终核验基线为 `dca52493`（在 `e0dabebf` 之上叠加 WP-07C 整改、Europe PMC 单页修复、转发头可信边界与浏览器业务联调）。本次使用 Windows 工作站、隔离的 Spring Boot `ci` 实例及临时 MySQL 8、Redis 7、Chroma 容器。模型精选保持关闭，实测只涉及眼科资讯采集。以下结论按验证手段分组，**不互相顶替**：官方 API 探针、离线夹具重放、正式 Worker 实采、真实端到端联调各有独立口径。
 
 ## 信源结果
 
@@ -41,7 +41,50 @@
 | 采集关闭 | 480 | 0 | 8.26 ms |
 | 采集运行中 | 480 | 0 | 9.30 ms |
 
-眼底推理 P95 本轮未纳入（无推理负载），**目标环境 P95 与门槛判定为 `NOT_RUN`**，上表仅本机基线意义。
+增幅 **+12.59%**，**超过此前 10% 的设计目标**——本机基线下压测未通过该门槛，不能记为达标；本轮未做进一步归因（采样时 Worker 采集与公读请求时间窗重叠，Java 只读路径本轮未改动）。眼底推理 P95 本轮未纳入（无推理负载），**目标环境 P95 与门槛判定为 `NOT_RUN`**，上表仅本机基线意义。
+
+## 浏览器业务联调（直连 Spring）
+
+`web/e2e/news-engine-live.spec.ts` 是一条不拦任何请求的浏览器用例：页面 → nginx → Spring → MySQL 全是真的，覆盖 `建稿 → 审核 → 发布 → 公开读取 → 刊物展示 → 撤回`。默认跳过（`IRIS_LIVE_E2E=1` 才运行），因为它需要一套已启动的栈和一条预置候选。
+
+**预置数据**（仓库外临时脚本，不入库）：材料行 + 材料修订（`visibleAt` 非空）+ `SUCCEEDED` 模型调用回执 + `CURATED_ACCEPTED` 候选。证据快照的 SHA-256 由 MySQL `SHA2()` 就地计算后写入，保证与 `lockAndVerifyCandidate` 的重算一致；只有付费模型调用被一条回执替代，其余门禁（候选状态、违规为空、快照身份、材料修订元组、回执绑定）全部真实走一遍。
+
+**本次实跑**（隔离栈 `18087`/`15187`，HEAD `dca52493`）：
+
+- 用例通过（13.2 s）；
+- 审计链完整：`CREATE_FROM_CANDIDATE`（NULL → PENDING_REVIEW）→ `PUBLISH`（PENDING_REVIEW → PUBLISHED）→ `OFFLINE`（PUBLISHED → OFFLINE），`actorRole=admin`；
+- 落库正文以 `<p>` 开头并含 `<h2>证据要点</h2>`（本轮修复前该路径落的是 Markdown 原文，公开页会显示字面的 `## 证据要点`）；
+- 公开页在撤回后不再出现该标题；
+- 刊物预览按发布日期窗口列出该篇（要求「已发布 + 证据快照可追溯」两个条件同时成立）。
+
+复跑方式：起栈后执行预置脚本，再用 `E2E_BASE_URL=http://127.0.0.1:15187 IRIS_LIVE_E2E=1 IRIS_LIVE_E2E_ACCOUNT=… IRIS_LIVE_E2E_PASSWORD=… IRIS_LIVE_E2E_TITLE=… IRIS_LIVE_E2E_DATE=YYYY-MM-DD npx playwright test e2e/news-engine-live.spec.ts`。
+
+## 验证证据与 HEAD 对应
+
+| 证据 | HEAD | 结果 |
+| --- | --- | --- |
+| `scripts/verify.sh`（L3） | `dca52493` | pass 1/3 1234 例（跳过 306，均为协作套件，按设计在 pass 3 跑）0 失败 0 错误；pass 2/3 64 例全过；pass 3/3 305 例全过；收尾断言无残留容器/卷/网络 |
+| Worker 离线套件 | `0e442e1e`（此后 worker 目录未改） | 35 例通过 |
+| 浏览器业务联调 | `dca52493` | 1 例通过（见上节） |
+| 真实信源实采 | `0e442e1e` | 三源 502 条资料修订落库，公开资讯 0 条 |
+
+L3 的 306 条跳过不是「静默不跑」：它们是 4 个协作套件在 pass 1/2 的按设计跳过，pass 3 用独立库全量执行。
+
+## 反向代理可信边界
+
+Worker 的 HTTPS 门禁读 `request.isSecure()`，该值只由「来源可信」的转发头置真。因此部署基线在校验 `require-https=true` 时强制：
+
+- 拒绝 `server.forward-headers-strategy=framework`——`ForwardedHeaderFilter` 不校验来源，外部直连带一个 `X-Forwarded-Proto: https` 就能伪造；
+- `native` 必须显式配置 `server.tomcat.remoteip.internal-proxies`，未限定可信代理即拒绝启动；
+- 策略**未显式配置**且运行在云平台（Kubernetes / Cloud Foundry 等）时拒绝启动：Spring Boot 会自动补成 native 并套用默认 `internal-proxies`（10/8、172.16/12、192.168/16、127/8），那是一条运维没决定的信任边界。本地/裸机未配置仍放行——没有转发处理时伪造头不会生效（fail-closed）。
+
+`internal-proxies` 内的地址仍可改写 `getRemoteAddr()`，所以可选的白名单 `allowed-remote-addresses` 在 native 下必须填反代自身地址，并要求反代**覆盖**而非追加客户端传入的 `X-Forwarded-For`。这一条目前靠部署约定与文档约束，代码层未强制。
+
+## 剩余风险
+
+- 单个确定性失败的采集窗口会让该 `(source, sourceConfigVersion)` 后续窗口无法领取、游标无法推进；恢复手段是把 `sourceConfigVersion` 升一版开新泳道（没有「放弃窗口」的管理动作）。灰度期需要监控 `FAILED` 任务数。
+- 采集运行中公读 P95 增幅 12.59%，超过设计目标；本机基线不构成目标环境结论。
+- NewsBench 门禁已要求对抗/许可/注入三类样本齐备；数据集本身仍是仓库内的冻结夹具，扩充需人工评审。
 
 ## 降级验证
 
