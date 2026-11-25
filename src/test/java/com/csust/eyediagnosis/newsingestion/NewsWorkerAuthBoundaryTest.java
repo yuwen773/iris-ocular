@@ -5,10 +5,13 @@ import com.csust.eyediagnosis.config.JsonConfig;
 import com.csust.eyediagnosis.config.SameOriginFilter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.MediaType;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -21,6 +24,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -43,6 +47,11 @@ class NewsWorkerAuthBoundaryTest {
     static class DummyPublicController {
         @PostMapping("/news/add")
         public String addNews() {
+            return "ok";
+        }
+
+        @GetMapping("/news/list")
+        public String listNews() {
             return "ok";
         }
     }
@@ -214,8 +223,7 @@ class NewsWorkerAuthBoundaryTest {
     }
 
     @Test
-    void oversizedBodyReturnsRaw400ControlErrorWithoutBaseResponseWrapper() throws Exception {
-        byte[] oversized = new byte[NewsWireModels.MAX_REQUEST_BYTES + 1];
+    void oversizedBodyReturnsRaw400ControlErrorWithoutBaseResponseWrapper() throws Exception {        byte[] oversized = new byte[NewsWireModels.MAX_REQUEST_BYTES + 1];
         mockMvc.perform(post("/api/internal/news/v1/leases/task-001/batches")
                         .contextPath("/api")
                         .header(NewsWorkerAuthFilter.WORKER_KEY_HEADER, VALID_WORKER_KEY)
@@ -226,5 +234,114 @@ class NewsWorkerAuthBoundaryTest {
                 .andExpect(content().json("{\"code\":\"INVALID_REQUEST\"}", true))
                 .andExpect(jsonPath("$.data").doesNotExist())
                 .andExpect(jsonPath("$.msg").doesNotExist());
+    }
+
+    /**
+     * 白名单语义：allowed-remote-addresses 比对的是**直连对端**。
+     * 一旦请求带转发头，直连对端就不可判定（Tomcat 的 native 处理会用 X-Forwarded-For
+     * 改写 getRemoteAddr()，且不暴露改写前的地址），此时必须 fail closed。
+     */
+    @Test
+    void forwardingHeaderBearingRequestIsRejectedEvenWhenRemoteAddressIsAllowlisted() throws Exception {
+        properties.setAllowedRemoteAddresses(List.of("10.0.0.5"));
+
+        mockMvc.perform(post("/api/internal/news/v1/leases/claim")
+                        .contextPath("/api")
+                        .header(NewsWorkerAuthFilter.WORKER_KEY_HEADER, VALID_WORKER_KEY)
+                        .header("X-Forwarded-For", "10.0.0.5")
+                        .with(req -> {
+                            req.setRemoteAddr("10.0.0.5");
+                            return req;
+                        }))
+                .andExpect(status().isForbidden())
+                .andExpect(content().json("{\"code\":\"FORBIDDEN\"}", true));
+
+        verifyNoInteractions(ingestionService);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "Forwarded",
+            "X-Forwarded-For",
+            "X-Forwarded-By",
+            "X-Forwarded-Host",
+            "X-Forwarded-Port",
+            "X-Forwarded-Proto",
+            "X-Forwarded-Server",
+            "X-Real-IP"})
+    void anyKnownForwardingHeaderTriggersRejection(String headerName) throws Exception {
+        properties.setAllowedRemoteAddresses(List.of("10.0.0.5"));
+
+        mockMvc.perform(post("/api/internal/news/v1/leases/claim")
+                        .contextPath("/api")
+                        .header(NewsWorkerAuthFilter.WORKER_KEY_HEADER, VALID_WORKER_KEY)
+                        .header(headerName, "10.0.0.5")
+                        .with(req -> {
+                            req.setRemoteAddr("10.0.0.5");
+                            return req;
+                        }))
+                .andExpect(status().isForbidden())
+                .andExpect(content().json("{\"code\":\"FORBIDDEN\"}", true));
+
+        verifyNoInteractions(ingestionService);
+    }
+
+    @Test
+    void tomcatForwardedMarkerAloneTriggersRejection() throws Exception {
+        properties.setAllowedRemoteAddresses(List.of("10.0.0.5"));
+
+        mockMvc.perform(post("/api/internal/news/v1/leases/claim")
+                        .contextPath("/api")
+                        .header(NewsWorkerAuthFilter.WORKER_KEY_HEADER, VALID_WORKER_KEY)
+                        .with(req -> {
+                            req.setRemoteAddr("10.0.0.5");
+                            req.setAttribute(NewsWorkerPeerTrust.TOMCAT_FORWARDED_ATTRIBUTE, "true");
+                            return req;
+                        }))
+                .andExpect(status().isForbidden())
+                .andExpect(content().json("{\"code\":\"FORBIDDEN\"}", true));
+
+        verifyNoInteractions(ingestionService);
+    }
+
+    @Test
+    void directConnectionWithoutForwardingHeadersStillPassesTheAllowlist() throws Exception {
+        properties.setAllowedRemoteAddresses(List.of("10.0.0.5"));
+
+        mockMvc.perform(post("/api/internal/news/v1/leases/claim")
+                        .contextPath("/api")
+                        .header(NewsWorkerAuthFilter.WORKER_KEY_HEADER, VALID_WORKER_KEY)
+                        .with(req -> {
+                            req.setRemoteAddr("10.0.0.5");
+                            return req;
+                        }))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void workerPeerRulesDoNotAffectWebOrMiniAppChannels() throws Exception {
+        // 白名单与转发头规则只作用于内部 Worker 通道；
+        // Web / 小程序通道不得因为这些新规则而改变行为。
+        properties.setAllowedRemoteAddresses(List.of("10.0.0.5"));
+
+        mockMvc.perform(get("/api/news/list")
+                        .contextPath("/api")
+                        .header("X-Forwarded-For", "203.0.113.9")
+                        .with(req -> {
+                            req.setRemoteAddr("127.0.0.1");
+                            return req;
+                        }))
+                .andExpect(status().isOk())
+                .andExpect(content().string("ok"));
+
+        mockMvc.perform(get("/api/mp/auth/profile")
+                        .contextPath("/api")
+                        .header("Authorization", "Bearer miniapp-jwt-token")
+                        .header("X-Forwarded-For", "203.0.113.9")
+                        .with(req -> {
+                            req.setRemoteAddr("127.0.0.1");
+                            return req;
+                        }))
+                .andExpect(status().isNotFound());
     }
 }

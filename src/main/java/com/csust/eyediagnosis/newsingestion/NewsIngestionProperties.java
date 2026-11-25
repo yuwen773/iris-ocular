@@ -34,7 +34,22 @@ public class NewsIngestionProperties {
 
     private boolean enabled = false;
     private Map<String, WorkerConfig> workers = new LinkedHashMap<>();
+    /**
+     * 允许**直连**到本服务的对端地址（Worker 自身地址）。
+     *
+     * <p>语义只有一种：直连对端。它<b>不是</b>「反代转发的客户端地址」——Tomcat 的 native
+     * 转发处理会用 {@code X-Forwarded-For} 改写 {@code getRemoteAddr()}，应用侧拿不到原始对端，
+     * 因此带转发头的请求无法判定对端，会被 {@link NewsWorkerAuthFilter} 直接拒绝（fail closed）。
+     */
     private List<String> allowedRemoteAddresses = new ArrayList<>();
+    /**
+     * 显式声明可信反向代理的地址（精确 IP 或 CIDR）。
+     *
+     * <p>启用 {@code server.forward-headers-strategy=native} 时必须声明：它与 Tomcat 的
+     * {@code server.tomcat.remoteip.internal-proxies} 必须一致，启动基线会核对两者的吻合度，
+     * 并拒绝「Tomcat 实际信任的范围比声明宽」的配置（例如信任整个 10/8）。
+     */
+    private List<String> trustedProxyAddresses = new ArrayList<>();
     private boolean requireHttps = false;
     private boolean plaintextAllowed = false;
     private Duration leaseDuration = Duration.ofMinutes(5);
@@ -72,8 +87,15 @@ public class NewsIngestionProperties {
         return Optional.ofNullable(matched);
     }
 
+    /**
+     * 机器凭据格式：32–256 位可见 ASCII。
+     *
+     * <p>下限取 32 而不是 16：这条通道的凭据是唯一真正的认证（IP 白名单只是纵深防御，
+     * 且在转发头存在时会被 fail closed 掉），16 位可见 ASCII 的熵不足以当作凭据。
+     * 32 位随机可见 ASCII 约合 200 bit 熵。
+     */
     public static boolean isValidRawKey(String key) {
-        if (key == null || key.length() < 16 || key.length() > 256) {
+        if (key == null || key.length() < 32 || key.length() > 256) {
             return false;
         }
         for (int i = 0; i < key.length(); i++) {

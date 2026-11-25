@@ -2,6 +2,7 @@ package com.csust.eyediagnosis.config;
 
 import com.csust.eyediagnosis.grpc.GrpcHosts;
 import com.csust.eyediagnosis.newsingestion.NewsIngestionProperties;
+import com.csust.eyediagnosis.newsingestion.NewsProxyTrustRules;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -103,7 +104,7 @@ public class StartupSafetyGuard {
             hasConfiguredKey = true;
             if (!NewsIngestionProperties.isValidRawKey(key)) {
                 violations.add("eye-diagnosis.news-ingestion.workers." + workerId
-                        + ".key 格式无效（需 16–256 位可见 ASCII 字符）");
+                        + ".key 格式无效（需 32–256 位可见 ASCII 字符）");
             } else if (NewsIngestionProperties.isPlaceholderKey(key)) {
                 violations.add("eye-diagnosis.news-ingestion.workers." + workerId
                         + ".key 不能使用示例或占位凭据");
@@ -152,10 +153,20 @@ public class StartupSafetyGuard {
             violations.add("server.forward-headers-strategy=framework 且 news-ingestion.require-https=true"
                     + "（ForwardedHeaderFilter 不校验来源，外部请求可伪造 X-Forwarded-Proto 通过 HTTPS 门禁；"
                     + "改用 native 并显式设置 server.tomcat.remoteip.internal-proxies 限定可信代理）");
-        } else if (strategy.equalsIgnoreCase("native")
-                && environment.getProperty("server.tomcat.remoteip.internal-proxies", "").isBlank()) {
-            violations.add("server.forward-headers-strategy=native 但未设置 "
-                    + "server.tomcat.remoteip.internal-proxies（未限定可信代理，可信边界不清）");
+        } else if (strategy.equalsIgnoreCase("native")) {
+            String internalProxies = environment.getProperty("server.tomcat.remoteip.internal-proxies", "");
+            if (internalProxies.isBlank()) {
+                violations.add("server.forward-headers-strategy=native 但未设置 "
+                        + "server.tomcat.remoteip.internal-proxies（未限定可信代理，可信边界不清）");
+                return;
+            }
+            List<String> declaredProxies = Binder.get(environment)
+                    .bind("eye-diagnosis.news-ingestion.trusted-proxy-addresses",
+                            Bindable.listOf(String.class))
+                    .orElse(List.of());
+            for (NewsProxyTrustRules.Finding finding : NewsProxyTrustRules.check(internalProxies, declaredProxies)) {
+                violations.add("可信代理边界不一致：" + finding.detail());
+            }
         }
     }
 

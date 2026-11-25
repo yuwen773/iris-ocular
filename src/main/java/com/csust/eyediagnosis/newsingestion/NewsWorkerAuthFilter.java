@@ -67,10 +67,19 @@ public class NewsWorkerAuthFilter extends OncePerRequestFilter {
 
         List<String> allowedAddresses = properties.getAllowedRemoteAddresses();
         if (allowedAddresses != null && !allowedAddresses.isEmpty()) {
-            String remoteAddr = request.getRemoteAddr();
-            if (remoteAddr == null || !allowedAddresses.contains(remoteAddr)) {
+            NewsWorkerPeerTrust.Peer peer = NewsWorkerPeerTrust.resolve(request);
+            if (!peer.directPeerKnown()) {
+                // 转发头存在 ⇒ 直连对端不可判定（Tomcat 的 native 处理会用 X-Forwarded-For
+                // 改写 getRemoteAddr()，且不暴露改写前的地址）。此时拿「代理转述的客户端地址」
+                // 去比对白名单，等于把可伪造的地址当物理边界。fail closed。
+                log.warn("Rejected internal news worker request carrying forwarding headers while an IP allowlist is configured, workerId={}, header={}",
+                        identity.get().workerId(), NewsWorkerPeerTrust.describeForwardingHeaders(request));
+                writeError(response, HttpServletResponse.SC_FORBIDDEN, "FORBIDDEN");
+                return;
+            }
+            if (peer.address() == null || !allowedAddresses.contains(peer.address())) {
                 log.warn("Rejected internal news worker request from unauthorized remote address, workerId={}, remoteAddr={}",
-                        identity.get().workerId(), remoteAddr);
+                        identity.get().workerId(), peer.address());
                 writeError(response, HttpServletResponse.SC_FORBIDDEN, "FORBIDDEN");
                 return;
             }

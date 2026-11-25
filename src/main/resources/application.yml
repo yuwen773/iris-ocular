@@ -228,7 +228,13 @@ eye-diagnosis:
   news-ingestion:
     enabled: false
     workers: {}
+    # 直连对端白名单（精确 IP）：只认「直接连到本服务」的对端。带转发头的请求一律拒绝，
+    # 因为 native 转发处理会用 X-Forwarded-For 改写 getRemoteAddr()，直连对端不可判定。
     allowed-remote-addresses: []
+    # 显式声明可信反向代理（精确 IP 或 CIDR）。启用 server.forward-headers-strategy=native
+    # 时必须声明，且要与 server.tomcat.remoteip.internal-proxies 一致：启动基线会核对两者，
+    # 并拒绝「Tomcat 实际信任的范围比声明宽」的配置（例如信任整个 10/8）。
+    trusted-proxy-addresses: []
     require-https: false
     plaintext-allowed: false
     lease-duration: 5m
