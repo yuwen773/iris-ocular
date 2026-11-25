@@ -22,6 +22,7 @@ MAX_BATCH_RECORDS = 50
 MAX_REQUEST_BYTES = 2 * 1024 * 1024
 MAX_WINDOW_RECORDS = 10_000
 MAX_WINDOW_BATCHES = MAX_WINDOW_RECORDS
+MAX_TRIAL_CONDITIONS = 100
 
 Identifier = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")]
 Token = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{16,256}$")]
@@ -93,7 +94,7 @@ class TrialDetails(WireModel):
     study_type: Identifier | None = None
     overall_status: Identifier | None = None
     phases: Annotated[list[Identifier], Field(max_length=16)] | None = None
-    conditions: Annotated[list[Text], Field(max_length=100)] | None = None
+    conditions: Annotated[list[Text], Field(max_length=MAX_TRIAL_CONDITIONS)] | None = None
 
 
 class Material(WireModel):

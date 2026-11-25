@@ -26,6 +26,8 @@ Java 控制面的 `require-https=true` 依赖 Servlet 容器确认连接安全�
 
 输出一条 JSON 运行回执。全部任务完成或空闲时退出 0，任一任务失败或无法确认完成时退出 1，配置或参数错误时退出 2。错误按分类码输出，诊断不含机器凭证、请求 URL、分页令牌或原始响应。失败窗口由控制面保留游标并按租约规则处理。
 
+ClinicalTrials.gov 的病种字段按源站顺序保留前 100 项，完整条目可通过 NCT 原始链接查询。Europe PMC 达到分页上限时可以再请求一次空终止页，数据页和记录数上限保持不变。
+
 ## 资源测量与真实信源验证
 
 分别在新进程执行 `uv run --locked python -m tests.measure startup`、`normal`、`dense`、`retry`。结果包含 CPU 时间、墙钟时间、峰值工作集、请求数和提交条数。峰值包含运行在同一进程内的模拟器和夹具，适用于本机离线基线。资源与信源实测状态见 [本轮验收记录](../docs/archive/2026-12/news-worker-acceptance.md)。

@@ -13,7 +13,14 @@ from iris_news_worker.adapters.fields import (
     required_text,
     text_field,
 )
-from iris_news_worker.contracts import CollectionWindow, FailureCode, Material, Source, TrialDetails
+from iris_news_worker.contracts import (
+    MAX_TRIAL_CONDITIONS,
+    CollectionWindow,
+    FailureCode,
+    Material,
+    Source,
+    TrialDetails,
+)
 from iris_news_worker.errors import WorkerError
 from iris_news_worker.transport import SourceHttp
 
@@ -50,6 +57,9 @@ def _record(data: dict) -> Material:
     status = object_field(protocol.get("statusModule", {}))
     design = object_field(protocol.get("designModule", {}))
     conditions = object_field(protocol.get("conditionsModule", {}))
+    condition_list = _optional_list(conditions.get("conditions"))
+    if condition_list is not None:
+        condition_list = condition_list[:MAX_TRIAL_CONDITIONS]
     return Material(
         source=Source.CLINICAL_TRIALS,
         source_record_id=identifier,
@@ -61,7 +71,7 @@ def _record(data: dict) -> Material:
             study_type=text_field(design.get("studyType")),
             overall_status=text_field(status.get("overallStatus")),
             phases=_optional_list(design.get("phases")),
-            conditions=_optional_list(conditions.get("conditions")),
+            conditions=condition_list,
         ),
     )
 

@@ -69,7 +69,7 @@ class EuropePmc:
         cursor = "*"
         used_cursors = {cursor}
         count = 0
-        for _ in range(MAX_PAGES):
+        for page_number in range(MAX_PAGES + 1):
             data = await self._http.get_json(
                 HOST,
                 "/europepmc/webservices/rest/search",
@@ -90,6 +90,8 @@ class EuropePmc:
             next_cursor = text_field(data.get("nextCursorMark"))
             if not results and count >= hits and next_cursor in {None, cursor}:
                 return
+            if page_number == MAX_PAGES:
+                raise WorkerError(FailureCode.WINDOW_TOO_LARGE)
             if next_cursor is None or next_cursor in used_cursors or not results:
                 raise WorkerError(FailureCode.BAD_SOURCE_DATA)
             count += len(results)
@@ -101,4 +103,3 @@ class EuropePmc:
                 raise WorkerError(FailureCode.BAD_SOURCE_DATA) from None
             cursor = next_cursor
             used_cursors.add(cursor)
-        raise WorkerError(FailureCode.WINDOW_TOO_LARGE)

@@ -12,6 +12,7 @@ async function stubWorkbench(page: Page) {
   const responses: Record<string, unknown> = {
     "/api/user/get/login": fixture.session,
     "/api/admin/feedback/pending-count": 0,
+    "/api/notifications/unread-count": 0,
     "/api/admin/news-workbench/overview": fixture.overview,
     "/api/admin/news-workbench/candidates": {
       records: [fixture.candidate],

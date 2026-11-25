@@ -8,6 +8,7 @@ import pytest
 import respx
 
 from iris_news_worker import cli, runtime
+from iris_news_worker.adapters import europe_pmc
 from iris_news_worker.contracts import FailureCode, Source
 from tests.mock_control import MockControl
 from tests.support import (
@@ -75,6 +76,7 @@ def test_pubmed_multi_page_preserves_history_and_date_precision(monkeypatch):
 def test_europe_pmc_cursor_and_abstract_rights(monkeypatch):
     mock = MockControl(Source.EUROPE_PMC)
     configure_cli(monkeypatch, mock)
+    monkeypatch.setattr(europe_pmc, "MAX_PAGES", 2)
     item = {
         "id": "1",
         "source": "MED",
@@ -98,6 +100,23 @@ def test_europe_pmc_cursor_and_abstract_rights(monkeypatch):
         ("MED:2", None),
     ]
     assert [call.request.url.params["cursorMark"] for call in route.calls] == ["*", "b", "c"]
+
+
+@respx.mock
+def test_clinical_trials_projects_at_most_one_hundred_conditions_and_continues(monkeypatch):
+    mock = MockControl()
+    configure_cli(monkeypatch, mock)
+    first = trial()
+    conditions = [f"Condition {index}" for index in range(105)]
+    first["protocolSection"]["conditionsModule"] = {"conditions": conditions}
+    respx.get(url__startswith=TRIALS).mock(
+        side_effect=[trial_page([first], "page-2"), trial_page([trial(2)])]
+    )
+
+    assert cli.main(CLI) == 0
+    assert mock.complete_cursor == mock.lease.window.end_before
+    assert len(mock.visible) == 2
+    assert list(mock.visible.values())[0].trial.conditions == conditions[:100]
 
 
 @pytest.mark.parametrize(
