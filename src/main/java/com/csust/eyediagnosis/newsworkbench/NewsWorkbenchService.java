@@ -351,10 +351,7 @@ public class NewsWorkbenchService {
         if (!start.isBefore(end)) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "windowStartOn 必须早于 windowEndBefore");
         }
-        int maxAttempts = req.maxAttempts() == null ? DEFAULT_MAX_ATTEMPTS : req.maxAttempts();
-        if (maxAttempts < 1 || maxAttempts > MAX_ALLOWED_ATTEMPTS) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "maxAttempts 必须在 1 到 10 之间");
-        }
+        int maxAttempts = requireAllowedAttempts(req.maxAttempts());
 
         String taskId = (req.taskId() == null || req.taskId().isBlank())
                 ? "manual-" + normalizedSource + "-" + start + "-" + end + "-"
@@ -365,7 +362,7 @@ public class NewsWorkbenchService {
         }
 
         // 重复入队的语义要分情况说清楚，而不是一律回一句「任务 ID 已存在」：
-        // 失败窗口要走重试入口；已完成的窗口重复入队会被游标推进规则直接拒绝。
+        // 失败窗口要走重试入口，已完成的窗口重复采集只会产生重复记录（不推进游标）。
         Optional<NewsIngestionService.TaskSnapshot> existing = ingestionService.getTask(taskId);
         if (existing.isPresent()) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, describeExistingTask(taskId, existing.get()));
@@ -408,10 +405,7 @@ public class NewsWorkbenchService {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "taskId 格式不合法");
         }
         String normalizedTaskId = taskId.trim();
-        int extraAttempts = req == null || req.maxAttempts() == null ? DEFAULT_MAX_ATTEMPTS : req.maxAttempts();
-        if (extraAttempts < 1 || extraAttempts > MAX_ALLOWED_ATTEMPTS) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "maxAttempts 必须在 1 到 10 之间");
-        }
+        int extraAttempts = requireAllowedAttempts(req == null ? null : req.maxAttempts());
         String note = req == null || req.note() == null ? null : req.note().trim();
         if (note != null && note.length() > MAX_TASK_EVENT_NOTE_LENGTH) {
             // 必须在重开窗口之前拒绝：审计写入发生在 enqueueWindow 提交之后。
@@ -497,6 +491,21 @@ public class NewsWorkbenchService {
                 """,
                 taskId, action, fromStatus, toStatus, actorId, actorRole,
                 note == null || note.isBlank() ? null : note);
+    }
+
+    /**
+     * 尝试次数的唯一校验口径：入队与失败窗口重试共用，避免两处各写一遍再慢慢漂移。
+     *
+     * @param maxAttempts 请求里的次数，null 表示用默认值
+     * @return 解析后的次数
+     */
+    private static int requireAllowedAttempts(Integer maxAttempts) {
+        int resolved = maxAttempts == null ? DEFAULT_MAX_ATTEMPTS : maxAttempts;
+        if (resolved < 1 || resolved > MAX_ALLOWED_ATTEMPTS) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR,
+                    "maxAttempts 必须在 1 到 " + MAX_ALLOWED_ATTEMPTS + " 之间");
+        }
+        return resolved;
     }
 
     /**
