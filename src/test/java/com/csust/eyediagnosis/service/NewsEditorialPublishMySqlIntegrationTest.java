@@ -437,6 +437,8 @@ class NewsEditorialPublishMySqlIntegrationTest {
         assertThrows(BusinessException.class, () -> controller.updateNews(manualUnsafe, req));
         manualUnsafe.setContent("<p>" + SAFE_BODY_PREFIX + "研究团队宣称保<strong>证治愈</strong>该病。</p>");
         assertThrows(BusinessException.class, () -> controller.updateNews(manualUnsafe, req));
+        manualUnsafe.setContent("<p>" + SAFE_BODY_PREFIX + "Guaranteed<br>cure</p>");
+        assertThrows(BusinessException.class, () -> controller.updateNews(manualUnsafe, req));
 
         NewsUpdateDTO editSafePublishedUnsafe = new NewsUpdateDTO();
         editSafePublishedUnsafe.setId(reviewNewsId);

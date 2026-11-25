@@ -39,6 +39,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  * 新闻发布生命周期的写入 module：证据绑定、服务层发布门禁、不可变内容修订、审计、
@@ -50,6 +51,8 @@ public class NewsLifecycleService {
     private static final TypeReference<List<String>> STRING_LIST_TYPE = new TypeReference<>() {};
     private static final TypeReference<List<NewsCurationModels.CurationClaim>> CLAIM_LIST_TYPE = new TypeReference<>() {};
     private static final TypeReference<List<NewsCurationModels.EvidenceViolation>> VIOLATION_LIST_TYPE = new TypeReference<>() {};
+    private static final Pattern HTML_BODY_BREAK = Pattern.compile(
+            "(?i)<(?:br\\b[^<>]*|/(?:p|div|h[1-6]|li|blockquote|pre|td|th|tr)\\s*)>");
 
     private static final Map<Integer, Set<Integer>> ALLOWED = Map.of(
             NewsStatus.DRAFT, Set.of(NewsStatus.PENDING_REVIEW, NewsStatus.PUBLISHED),
@@ -619,10 +622,9 @@ public class NewsLifecycleService {
     }
 
     private static void validateClinicalAndInjectionSafety(String title, String summary, String content) {
-        String normalizedBody = content == null ? null : HtmlUtil.unescape(HtmlUtil.cleanHtmlTag(content))
-                .replaceAll("[\\[\\]*_`~\\\\]", "")
-                .replaceAll("[\\s\\u00A0]+", " ");
-        for (String fieldText : new String[]{title, summary, content, normalizedBody}) {
+        String separatedBody = content == null ? null : HTML_BODY_BREAK.matcher(content).replaceAll(" ");
+        for (String fieldText : new String[]{title, summary, content,
+                normalizeBodyForSafetyCheck(content), normalizeBodyForSafetyCheck(separatedBody)}) {
             NewsEvidenceVerifier.findProhibitedClinicalMarker(fieldText).ifPresent(marker -> {
                 throw new BusinessException(ErrorCode.PARAMS_ERROR,
                         "发布内容触及医学安全边界，包含禁用表述: " + marker);
@@ -632,6 +634,12 @@ public class NewsLifecycleService {
                         "发布内容包含疑似提示词注入指令: " + marker);
             });
         }
+    }
+
+    private static String normalizeBodyForSafetyCheck(String content) {
+        return content == null ? null : HtmlUtil.unescape(HtmlUtil.cleanHtmlTag(content))
+                .replaceAll("[\\[\\]*_`~\\\\]", "")
+                .replaceAll("[\\s\\u00A0]+", " ");
     }
 
     private News selectCurrentState(Long newsId) {
