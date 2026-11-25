@@ -120,6 +120,28 @@ public class StartupSafetyGuard {
             violations.add("eye-diagnosis.news-ingestion.enabled=true 且 require-https=false"
                     + "（部署环境必须设 require-https=true，或由内网 TLS 终止覆盖并显式设置 plaintext-allowed=true）");
         }
+        if (requireHttps) {
+            verifyForwardedTransport(violations);
+        }
+    }
+
+    /**
+     * Worker 的 HTTPS 判定读 {@code request.isSecure()}。只有「来源可信」的转发头才能把它置真：
+     * {@code framework} 策略的 ForwardedHeaderFilter 不校验来源，外部直连带一个
+     * {@code X-Forwarded-Proto: https} 就能伪造；{@code native} 策略只信任
+     * {@code server.tomcat.remoteip.internal-proxies} 内的远端地址，未显式限定边界等于没核验。
+     */
+    private void verifyForwardedTransport(List<String> violations) {
+        String strategy = environment.getProperty("server.forward-headers-strategy", "none");
+        if (strategy.equalsIgnoreCase("framework")) {
+            violations.add("server.forward-headers-strategy=framework 且 news-ingestion.require-https=true"
+                    + "（ForwardedHeaderFilter 不校验来源，外部请求可伪造 X-Forwarded-Proto 通过 HTTPS 门禁；"
+                    + "改用 native 并显式设置 server.tomcat.remoteip.internal-proxies 限定可信代理）");
+        } else if (strategy.equalsIgnoreCase("native")
+                && environment.getProperty("server.tomcat.remoteip.internal-proxies", "").isBlank()) {
+            violations.add("server.forward-headers-strategy=native 但未设置 "
+                    + "server.tomcat.remoteip.internal-proxies（未限定可信代理，可信边界不清）");
+        }
     }
 
     private void verifyNewsCuration(List<String> violations) {

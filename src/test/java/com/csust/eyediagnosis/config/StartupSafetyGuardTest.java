@@ -151,6 +151,41 @@ class StartupSafetyGuardTest {
     }
 
     @Test
+    void newsIngestionRejectsForgeableFrameworkForwarding() {
+        MockEnvironment env = deployment()
+                .withProperty("eye-diagnosis.news-ingestion.enabled", "true")
+                .withProperty("eye-diagnosis.news-ingestion.require-https", "true")
+                .withProperty("eye-diagnosis.news-ingestion.workers.w1.key", "k9X2pL8mQ4vR7tW1zN6bC3fH5jD0sA2e")
+                .withProperty("server.forward-headers-strategy", "framework");
+        env.setActiveProfiles("prod");
+        IllegalStateException failure = assertThrows(IllegalStateException.class,
+                () -> new StartupSafetyGuard(env).verify());
+        assertTrue(failure.getMessage().contains("forward-headers-strategy=framework"), failure.getMessage());
+    }
+
+    @Test
+    void newsIngestionNativeForwardingRequiresExplicitTrustedProxies() {
+        MockEnvironment unbounded = deployment()
+                .withProperty("eye-diagnosis.news-ingestion.enabled", "true")
+                .withProperty("eye-diagnosis.news-ingestion.require-https", "true")
+                .withProperty("eye-diagnosis.news-ingestion.workers.w1.key", "k9X2pL8mQ4vR7tW1zN6bC3fH5jD0sA2e")
+                .withProperty("server.forward-headers-strategy", "native");
+        unbounded.setActiveProfiles("prod");
+        IllegalStateException failure = assertThrows(IllegalStateException.class,
+                () -> new StartupSafetyGuard(unbounded).verify());
+        assertTrue(failure.getMessage().contains("remoteip.internal-proxies"), failure.getMessage());
+
+        MockEnvironment bounded = deployment()
+                .withProperty("eye-diagnosis.news-ingestion.enabled", "true")
+                .withProperty("eye-diagnosis.news-ingestion.require-https", "true")
+                .withProperty("eye-diagnosis.news-ingestion.workers.w1.key", "k9X2pL8mQ4vR7tW1zN6bC3fH5jD0sA2e")
+                .withProperty("server.forward-headers-strategy", "native")
+                .withProperty("server.tomcat.remoteip.internal-proxies", "10\\.0\\.0\\.0/8");
+        bounded.setActiveProfiles("prod");
+        assertDoesNotThrow(() -> new StartupSafetyGuard(bounded).verify());
+    }
+
+    @Test
     void newsCurationDisabledPassesWithoutBudgetConfig() {
         MockEnvironment env = deployment()
                 .withProperty("eye-diagnosis.news-curation.enabled", "false");
