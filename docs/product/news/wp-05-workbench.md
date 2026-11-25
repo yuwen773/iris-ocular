@@ -1,6 +1,6 @@
 # WP-05 · Iris News Engine 管理员工作台与编辑台溯源接入
 
-WP-05 在 WP-02（资料池与调度）、WP-03（精选与费用回执）及 WP-04（审核发布与修订历史）已落库数据之上，交付管理员资讯引擎工作台前后端闭环；本阶段**不新增 Flyway 迁移**（保持 `V41`），也不在界面开放实时付费 LLM 调用或外部联网抓取入口。
+WP-05 在 WP-02（资料池与调度）、WP-03（精选与费用回执）及 WP-04（审核发布与修订历史）已落库数据之上，交付管理员资讯引擎工作台前后端闭环；本阶段**不新增 Flyway 迁移**（保持 `V42`），也不在界面开放实时付费 LLM 调用或外部联网抓取入口。
 
 ## 1. 后端工作台控制面（`newsworkbench`）
 
@@ -14,7 +14,7 @@ WP-05 在 WP-02（资料池与调度）、WP-03（精选与费用回执）及 WP
 
 ## 2. React 管理端工作台与编辑台集成（`web/`）
 
-- **工作台页面（[AdminNewsWorkbenchPage](../../../web/src/pages/admin/AdminNewsWorkbenchPage.tsx)）**：纳入侧栏导航 `07 资讯引擎`（`/admin/news-workbench`）并修复 [AdminLayout](../../../web/src/components/admin/AdminLayout.tsx) 面包屑前缀匹配；提供 4 枚概览 KPI 卡与 URL 同步五分栏（精选候选 / 采集任务 / 信源与游标 / 预算与回执 / NewsBench），候选证据抽屉可直接调用 `POST /news/from-candidate/{candidateId}` 建稿并跳转编辑页。
+- **工作台页面（[AdminNewsWorkbenchPage](../../../web/src/pages/admin/AdminNewsWorkbenchPage.tsx)）**：纳入侧栏导航 `08 资讯引擎`（`/admin/news-workbench`）并修复 [AdminLayout](../../../web/src/components/admin/AdminLayout.tsx) 面包屑前缀匹配；提供 4 枚概览 KPI 卡与 URL 同步五分栏（精选候选 / 采集任务 / 信源与游标 / 预算与回执 / NewsBench），候选证据抽屉可直接调用 `POST /news/from-candidate/{candidateId}` 建稿并跳转编辑页。
 - **新闻管理与编辑页衔接**：在 [AdminNewsPage](../../../web/src/pages/admin/AdminNewsPage.tsx) 页头增加工作台跳转按钮；在 [AdminNewsEditPage](../../../web/src/pages/admin/AdminNewsEditPage.tsx) 右侧栏为已落库资讯提供**证据溯源与修订**卡片，并按需拉取 [GET /news/{id}/revisions](../../../src/main/java/com/csust/eyediagnosis/controller/NewsController.java) 在抽屉中展示不可变修订历史与冻结快照。
 
 ## 3. 本地验证

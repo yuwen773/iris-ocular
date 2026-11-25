@@ -2,6 +2,7 @@ package com.csust.eyediagnosis.newsworkbench;
 
 import com.csust.eyediagnosis.annotation.AuthCheck;
 import com.csust.eyediagnosis.aop.AuthInterceptor;
+import com.csust.eyediagnosis.config.ControlCenterProperties;
 import com.csust.eyediagnosis.config.JsonConfig;
 import com.csust.eyediagnosis.config.SameOriginFilter;
 import com.csust.eyediagnosis.constant.AuthConstant;
@@ -69,7 +70,7 @@ class NewsWorkbenchControllerSecurityTest {
         admin.setUserRole(AuthConstant.ADMIN_ROLE);
         when(userService.getLoginUser(any())).thenReturn(admin);
 
-        SameOriginFilter sameOriginFilter = new SameOriginFilter();
+        SameOriginFilter sameOriginFilter = new SameOriginFilter(new ControlCenterProperties(), (request, action, reason) -> { });
         ReflectionTestUtils.setField(sameOriginFilter, "additionalHosts", List.of());
 
         MappingJackson2HttpMessageConverter jsonConverter = new MappingJackson2HttpMessageConverter(

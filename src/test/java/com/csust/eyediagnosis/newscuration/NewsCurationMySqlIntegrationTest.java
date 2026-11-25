@@ -159,7 +159,7 @@ class NewsCurationMySqlIntegrationTest {
             Integer count = jdbc.queryForObject(
                     "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = ? AND table_name = ?",
                     Integer.class, schema, table);
-            assertEquals(1, count, "Missing V40 table: " + table);
+            assertEquals(1, count, "Missing V41 table: " + table);
         }
     }
 

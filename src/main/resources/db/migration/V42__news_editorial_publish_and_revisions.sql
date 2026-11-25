@@ -1,6 +1,6 @@
 -- WP-04: Editorial review & publish gate, immutable content revisions bound to frozen evidence snapshots,
 -- and durable news-list cache epoch invalidation.
--- Additive only (V1-V40 untouched; V35-V38 reserved for open sibling PRs).
+-- Additive to the V41 curation schema.
 
 ALTER TABLE t_news
     ADD COLUMN curationCandidateId BIGINT NULL COMMENT 'WP-04 绑定的精选候选 id（人工创建可空）',
@@ -9,7 +9,8 @@ ALTER TABLE t_news
     ADD COLUMN currentRevisionNo INT NOT NULL DEFAULT 0 COMMENT '当前内容修订序号',
     ADD COLUMN publishedRevisionNo INT NULL COMMENT '当前已发布的内容修订序号',
     ADD INDEX idx_news_curation_candidate (curationCandidateId),
-    ADD INDEX idx_news_material_revision (materialRevisionId);
+    ADD INDEX idx_news_material_revision (materialRevisionId),
+    ALGORITHM=INPLACE, LOCK=NONE;
 
 CREATE TABLE IF NOT EXISTS t_news_revision (
     id                     BIGINT        PRIMARY KEY AUTO_INCREMENT,

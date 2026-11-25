@@ -1,5 +1,5 @@
 -- WP-02: Iris News Engine scheduling, lease fencing, idempotent receipts, and material pool.
--- Additive only (V1-V34 untouched; V35-V38 reserved for open sibling PRs #160, #164, #166).
+-- Additive to master V39.
 -- Naming convention: camelCase columns (mybatis-plus map-underscore-to-camel-case: false),
 -- UTC DATETIME(6) timestamps, and ascii_bin collations for case-exact wire identifiers and hashes.
 

@@ -3,6 +3,7 @@ import { Link, NavLink, useLocation } from "react-router-dom"
 
 import { AccountMenu } from "@/components/AccountMenu"
 import { MobileNav } from "@/components/MobileNav"
+import { NotificationBell } from "@/components/NotificationBell"
 import { useTheme } from "@/components/theme-provider"
 import { NAV_LINKS } from "./navLinks"
 import { Wordmark } from "./Wordmark"
@@ -71,6 +72,10 @@ export function ProductHeader({ scene = "brand" }: { scene?: ProductScene }) {
           </button>
 
           <AccountMenu />
+
+          {/* 通知铃铛：登录后才出现（组件内部读会话）。落在账号菜单右侧、
+              主 CTA 之前——身份位仍是账号菜单，跨产品目的地仍是末尾的 CTA。 */}
+          <NotificationBell />
 
           {/* 主 CTA 所有页面恒在（U2 复检）：判读页上它指向本页，语义退化成
               「回到上传起点」，视觉与新闻 / 落地页保持同一套构图。 */}

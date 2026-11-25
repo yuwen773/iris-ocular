@@ -646,6 +646,35 @@ jobs:
       - run: npm run check:e2e-fixme
       - run: npm run check:gate-tests
 
+  miniapp:
+    # 微信小程序（Taro 4 + React）。微信开发者工具只有桌面版，CI 里能做的只有
+    # 类型检查、单测与 weapp 构建；真机验证与上传体验版都在本机手工完成。
+    # 令牌样式由 web/src/styles/tokens.css 生成，故先跑 gen:tokens 再检查。
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: miniapp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: miniapp/package-lock.json
+      - run: npm ci
+      - run: npm run gen:tokens
+      # 生成物新鲜度：tokens.scss 与 theme.json 都是生成文件，手改能过 typecheck / build，
+      # 只有和 web/src/styles/tokens.css 重新生成的结果逐字节比对才拦得住。
+      - name: 令牌与主题生成物必须与 tokens.css 一致
+        run: |
+          if ! git diff --exit-code -- src/styles/tokens.scss src/theme.json; then
+            echo "::error::miniapp 的 tokens.scss / theme.json 与 web/src/styles/tokens.css 不一致：不要手改生成文件，改令牌去 tokens.css 后重跑 npm run gen:tokens 并提交。"
+            exit 1
+          fi
+      - run: npm run typecheck
+      - run: npm run test
+      - run: npm run build:weapp
+
   web-e2e-system-states:
     # R2 核心浏览器契约门禁：认证表单与资讯错误恢复的 14 条 Playwright。
     # 全部用 page.route 注入合成故障，不需要 Java / MySQL / Redis；playwright.config.ts

@@ -418,7 +418,11 @@ class GraphExecutionTest {
             jdbc.update("UPDATE t_patient_graph_execution SET leaseUntil=TIMESTAMPADD(SECOND,-1,NOW(6)) WHERE taskId=?", taskId);
             if (parts[1].equals("WITHDRAWN")) jdbc.update("UPDATE t_controlled_reference SET reviewStatus='WITHDRAWN'");
             if (parts[1].equals("EXHAUSTED_BUDGET")) jdbc.update("UPDATE t_patient_draft_run SET callCount=8 WHERE taskId=?", taskId);
-            if (parts[1].equals("DEADLINE")) jdbc.update("UPDATE t_patient_draft_run SET deadlineAt=TIMESTAMPADD(SECOND,-1,NOW(6)) WHERE taskId=?", taskId);
+            if (parts[1].equals("DEADLINE")) {
+                // The recovery JVM checks this deadline against its own clock. MySQL's current
+                // time can be ahead of the JVM's even when both use UTC.
+                jdbc.update("UPDATE t_patient_draft_run SET deadlineAt=TIMESTAMP '2000-01-01 00:00:00' WHERE taskId=?", taskId);
+            }
             if (parts[1].equals("INFERENCE_CHANGED")) jdbc.update("UPDATE t_diagnosis_task SET inferenceSnapshot=JSON_SET(inferenceSnapshot,'$.objectVersion','changed') WHERE taskId=?", taskId);
             Process second = child(taskId, "RESUME", feedback, marker, log, directory.resolve("second.log"));
             try { assertTrue(second.waitFor(10, TimeUnit.SECONDS), "Recovery child must finish"); assertEquals(0, second.exitValue(), () -> read(directory.resolve("second.log"))); }
@@ -533,8 +537,10 @@ class GraphExecutionTest {
         answer = p -> { entered.countDown(); uninterruptible(release); return valid(p); };
         try {
             var run = create(); assertTrue(entered.await(5, TimeUnit.SECONDS));
-            jdbc.update("UPDATE t_patient_graph_execution SET leaseUntil=TIMESTAMPADD(SECOND,3,NOW(6)) WHERE taskId=?", taskId);
-            await(() -> jdbc.queryForObject("SELECT leaseUntil>TIMESTAMPADD(SECOND,5,NOW(6)) FROM t_patient_graph_execution WHERE taskId=?", Boolean.class, taskId));
+            // Observe a renewal of the real lease while both provider calls are held at the latch.
+            String leaseQuery = "SELECT leaseUntil FROM t_patient_graph_execution WHERE taskId=?";
+            var initialLease = jdbc.queryForObject(leaseQuery, LocalDateTime.class, taskId);
+            await(() -> !Objects.equals(initialLease, jdbc.queryForObject(leaseQuery, LocalDateTime.class, taskId)));
             try (var competitor = new PatientDraftCoordinator(jdbc, new ControlledEvidenceRetriever(jdbc), p -> { throw new AssertionError("Live lease was stolen"); })) {
                 competitor.setCollaborationEvents(events); competitor.run(taskId);
             }

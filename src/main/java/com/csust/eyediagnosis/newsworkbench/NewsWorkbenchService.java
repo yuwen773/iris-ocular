@@ -39,7 +39,7 @@ import java.util.UUID;
  *
  * <p>Builds read projections over WP-02..WP-04 tables and delegates write/state transitions to
  * {@link NewsIngestionService} and {@link NewsCurationService} without adding paid live LLM triggers
- * or touching {@code V1..V41} schemas.
+ * or touching {@code V1..V42} schemas.
  */
 @Service
 public class NewsWorkbenchService {

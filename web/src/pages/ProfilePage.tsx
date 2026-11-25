@@ -373,6 +373,15 @@ export function ProfilePage() {
             </form>
           </section>
         </div>
+
+        {/* 意见反馈入口：放个人中心而不是顶栏——顶栏只放跨产品的目的地，
+            反馈是跟着账号走的个人事项。 */}
+        <div className="profile__ledger-link">
+          <Link className="link" to="/feedback">
+            我的反馈 · 意见与处理进度
+            <ArrowRight className="link__mark" size={14} strokeWidth={2} aria-hidden="true" />
+          </Link>
+        </div>
       </main>
 
       <DisclaimerBar />

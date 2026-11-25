@@ -9,6 +9,8 @@
 #     UploadTaskMapperMySqlIntegrationTest 直连 JDBC 做 CRUD、ToolAuditMySqlIntegrationTest
 #     校验审计表、DiagnosisRunMySqlIntegrationTest 验证取消与落库的条件更新仲裁）
 #     与 Spring 上下文的 Flyway 共用一个 schema 会互相污染，故按 CI 的编排分两遍跑。
+#   - ControlCenterMultiProcessTest 也放在第二遍：它会拉起多个子 JVM 连同一个库，
+#     放在第一遍会与全套单元测试抢内存，也可能读到第一遍残留的配置中心行。
 #
 # 资源生命周期（2026-11-21 起）：
 #   - 所有容器 / 卷都带 eye.owner=eye-diagnosis、eye.run-id=<本次运行> 标签；
@@ -23,8 +25,19 @@
 #     scripts/docker-test-resources.sh 列出后手动回收）。
 #
 # 用法：scripts/verify.sh [额外的 mvn 参数...]
-# 覆盖：VERIFY_MYSQL_PORT / VERIFY_REDIS_PORT / MYSQL_IMAGE / REDIS_IMAGE / JAVA_HOME
+# 覆盖：VERIFY_MYSQL_PORT / VERIFY_REDIS_PORT / MYSQL_IMAGE / REDIS_IMAGE / JAVA_HOME /
+#       VERIFY_TEST_XMX（forked 测试 JVM 的堆上限，默认 1500m）
+#
+# 为什么给测试 JVM 设堆上限：Surefire 默认不设 -Xmx，JVM 会按物理内存取 1/4。在 16GB
+# 开发机上与 Docker（MySQL/Redis 容器）、浏览器同时跑时，它可能把系统内存吃满并被
+# 直接杀掉——症状是 surefire 流 EOF（`TestSet has not finished before stream error`），
+# 日志里没有任何 [ERROR]，很容易被误读成「测试没跑完」。1.5GB 对本套件足够，
+# 需要更大时用 VERIFY_TEST_XMX=2g 覆盖。
 set -euo pipefail
+
+VERIFY_TEST_XMX="${VERIFY_TEST_XMX:-1500m}"
+# 三个 pass 共用；-Dfile.encoding=UTF-8 与 pom 里的 argLine 保持一致。
+MVN_TEST_ARGS=("-DargLine=-Dfile.encoding=UTF-8 -Xmx${VERIFY_TEST_XMX}")
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
@@ -50,6 +63,16 @@ export JAVA_HOME
 
 echo "==> run id: ${EYE_DOCKER_RUN_ID}"
 echo "==> images: ${MYSQL_IMAGE} + ${REDIS_IMAGE}"
+
+# 同机并发跑两个 L3 会争抢内存（Docker VM 通常只有 8GB），症状是 surefire 流 EOF 或
+# MySQL 连接被拒——那种红不是产品失败，很容易被误读。这里只警告，不阻止（随机端口
+# 本意就是允许并行，是否并行由人决定）。
+OTHER_STACKS="$(docker ps --format '{{.Names}}' 2>/dev/null | grep -c '^eye-test-' || true)"
+if [[ "${OTHER_STACKS:-0}" -gt 0 ]]; then
+  echo "!!! 警告：本机已有 ${OTHER_STACKS} 个 eye-test-* 容器，另一个 verify 可能正在跑。"
+  echo "    同时跑两个 L3 可能因内存不足出现「surefire 流 EOF」或「MySQL 连接被拒」，"
+  echo "    那不是产品失败；建议等对方结束后重跑。"
+fi
 eye_docker_require_image "$MYSQL_IMAGE"
 eye_docker_require_image "$REDIS_IMAGE"
 
@@ -140,7 +163,7 @@ export SPRING_DATA_REDIS_HOST=127.0.0.1
 export SPRING_DATA_REDIS_PORT="$REDIS_PORT"
 
 echo "==> pass 1/3: full unit suite (including contextLoads)"
-mvn -o test -Dtest='!FlywayMySqlIntegrationTest,!UploadTaskMapperMySqlIntegrationTest,!ToolAuditMySqlIntegrationTest,!ToolTerminalPersistenceMySqlIntegrationTest,!DiagnosisRunMySqlIntegrationTest,!NewsIngestionMySqlIntegrationTest,!NewsCurationMySqlIntegrationTest,!NewsEditorialPublishMySqlIntegrationTest,!NewsWorkbenchMySqlIntegrationTest' "$@"
+mvn -o test -Dtest='!FlywayMySqlIntegrationTest,!UploadTaskMapperMySqlIntegrationTest,!ToolAuditMySqlIntegrationTest,!ToolTerminalPersistenceMySqlIntegrationTest,!DiagnosisRunMySqlIntegrationTest,!NewsIngestionMySqlIntegrationTest,!NewsCurationMySqlIntegrationTest,!NewsEditorialPublishMySqlIntegrationTest,!NewsWorkbenchMySqlIntegrationTest,!ControlCenterMultiProcessTest' "${MVN_TEST_ARGS[@]}" "$@"
 
 # 第二遍要一个从未被 Spring 的 Flyway 碰过的空库。
 echo "==> pass 2/3: MySQL integration gates on a fresh schema"
@@ -151,7 +174,7 @@ export FLYWAY_TEST_URL="$IT_URL"
 export FLYWAY_TEST_USERNAME=root
 export FLYWAY_TEST_PASSWORD=root-password
 export FLYWAY_TEST_SCHEMA=diagnosis_ci
-mvn -o test -Dtest='FlywayMySqlIntegrationTest,UploadTaskMapperMySqlIntegrationTest,ToolAuditMySqlIntegrationTest,ToolTerminalPersistenceMySqlIntegrationTest,DiagnosisRunMySqlIntegrationTest,NewsIngestionMySqlIntegrationTest,NewsCurationMySqlIntegrationTest,NewsEditorialPublishMySqlIntegrationTest,NewsWorkbenchMySqlIntegrationTest' "$@"
+mvn -o test -Dtest='FlywayMySqlIntegrationTest,UploadTaskMapperMySqlIntegrationTest,ToolAuditMySqlIntegrationTest,ToolTerminalPersistenceMySqlIntegrationTest,DiagnosisRunMySqlIntegrationTest,NewsIngestionMySqlIntegrationTest,NewsCurationMySqlIntegrationTest,NewsEditorialPublishMySqlIntegrationTest,NewsWorkbenchMySqlIntegrationTest,ControlCenterMultiProcessTest' "${MVN_TEST_ARGS[@]}" "$@"
 
 # 第三遍：协作 / 患者草稿 / 医生复核 / 任务恢复等隔离库套件。
 #
@@ -190,7 +213,7 @@ export ISSUE23_TEST_URL="jdbc:mysql://127.0.0.1:${MYSQL_PORT}/issue23_test"
 # 容器默认 UTC，而 Windows 开发机是 +08，差 8 小时会让租约看起来已过期、被竞争者抢走。
 # GitHub runner 上两边本来就是 UTC，这里显式对齐；JAVA_TOOL_OPTIONS 会传给 forked surefire JVM。
 export JAVA_TOOL_OPTIONS="${JAVA_TOOL_OPTIONS:-} -Duser.timezone=UTC"
-mvn -o test -Dtest='CollaborationRunTest,GraphExecutionTest,ProductSchemaTest,ControlledReferenceApiTest,DiagnosisTaskApiTest,DiagnosisTaskRecoveryTest,DoctorReviewApiTest,PatientAuthorizationApiTest,PatientDraftTest,PatientExplanationApiTest,PatientFollowUpApiTest,CoordinationMySqlTest' "$@"
+mvn -o test -Dtest='CollaborationRunTest,GraphExecutionTest,ProductSchemaTest,ControlledReferenceApiTest,DiagnosisTaskApiTest,DiagnosisTaskRecoveryTest,DoctorReviewApiTest,PatientAuthorizationApiTest,PatientDraftTest,PatientExplanationApiTest,PatientFollowUpApiTest,CoordinationMySqlTest' "${MVN_TEST_ARGS[@]}" "$@"
 unset JAVA_TOOL_OPTIONS
 
 # 资源回收属于验收的一部分：删干净并断言，不以单测绿代替。

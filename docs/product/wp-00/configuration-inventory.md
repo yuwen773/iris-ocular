@@ -259,3 +259,53 @@
 2. **多 Agent 分支 `6ba65478`** 未纳入本清单（与基线分叉 533 文件 / +68,725 行）。其新增配置（`agent.tool-audit.*`、`eye-diagnosis.collaboration.cursor-key`、`security.same-origin.additional-hosts`、`SameOriginFilter`）需在合并后补审。
 3. **生产部署配置**（nginx、systemd、环境变量清单）不在仓库内，无法从代码证明线上实际取值。
 4. `frontend/`（Vue，已弃用）的 `.env.production` 仍指向旧 IP，仅作历史记录，不构成现行配置源。
+
+---
+
+## 9. 2026-11-23 增量（基线 `5dc2eac5`）
+
+> 以上第 1–8 节按历史基线 `f42065e4` 读取，不删除。完整上下文见
+> [`wp-00-5-baseline-audit.md`](wp-00-5-baseline-audit.md) §4。
+
+### 9.1 新增配置键
+
+| configKey | 分类 | 说明 |
+|---|---|---|
+| `agent.expose-reasoning` | STATIC_POLICY | 默认 false |
+| `agent.tool-audit.enabled` / `.digest-key` | STATIC_POLICY / SECRET_REF | 默认 false；密钥默认值是 dev 字面量，另有 fallback 常量 |
+| `eye-diagnosis.collaboration.enabled/admission-enabled/graph-enabled/patient-progress-enabled/clinician-detail-enabled` | STATIC_POLICY | 全部 false |
+| `eye-diagnosis.collaboration.cursor-key` | SECRET_REF | 无默认；仅 `enabled=true` 时要求 |
+| `eye-diagnosis.draft.enabled` / `eye-diagnosis.draft.test-entry.enabled` | STATIC_POLICY | 代码内条件装配，未在 yml 出现 |
+| `eye-diagnosis.database.require-mysql8` | STATIC_POLICY | 启动期 MySQL 8 校验 |
+| `eye-diagnosis.rag.source-type.enabled` | STATIC_POLICY | 默认 false，开启只收窄 |
+| `security.same-origin.additional-hosts` | STATIC_POLICY | `host[:port]` 精确白名单 |
+| `agent.queue.await-timeout-ms` | DEPLOY_ONLY | 无 yml |
+
+### 9.2 变更值
+
+| 键 | 旧 | 新 |
+|---|---|---|
+| `eye-diagnosis.rag.chunk-size` | 512（文档口径） | **800**（`application.yml:132`） |
+| `eye-diagnosis.rag.chunk-overlap` | 未记录具体值 | **100** |
+| Session Cookie | 仅 `max-age` | 显式 `same-site: lax`、`http-only: true`；**无 `secure`** |
+
+### 9.3 已删除的死键（原 M2/M3/M4/M5 部分关闭）
+
+`eye-diagnosis.inference.hash-algorithm`、`eye-diagnosis.rag.evaluation.enabled`、
+`agent.max-iterations`、`agent.model-call-limit`、Chroma `tenant-name` / `database-name`
+均已从 `application.yml` 删除。注意：删除 ≠ 接通；`agent.max-iterations` /
+`model-call-limit` 现在由代码默认值 + `AgentConstants` 真正驱动预算护栏。
+
+### 9.4 仍然开放的缺口
+
+- M1：Chroma collection 名代码默认 `eye-diagnosis-knowledge` vs server 示例 `diagnosis-knowledge`；
+- M6：`agent.queue.*` / `document.executor.*` 仍无 yml；
+- M10：混合检索 yml `true` vs 代码默认 `false`（`DocumentSearchTool.java:46`）；
+- M12：`application.yml:129` 视觉 api-key 仍是 `your-api-key-here`；
+- `eye-diagnosis.rag.rerank.model` 仍是无消费者的死键；
+- `application.yml` 仍无 `spring.ai.*`，真实模型 ID 只存在于 server 示例。
+
+### 9.5 前端构建期变量
+
+由 1 个增至 4 个：`VITE_API_BASE_URL`、`VITE_COLLABORATION_ENABLED`、
+`VITE_DESIGN_PREVIEW`、`VITE_E2E_REFRESH_HOOK`。全部为构建期常量，不进入动态配置范围。

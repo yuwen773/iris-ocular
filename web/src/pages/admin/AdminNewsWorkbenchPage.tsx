@@ -733,7 +733,7 @@ export function AdminNewsWorkbenchPage(): ReactElement {
   return (
     <div className="admin-workbench">
       <AdminPageHead
-        code="07"
+        code="08"
         title="资讯引擎工作台"
         eyebrow="ADMIN · NEWS ENGINE"
         description="基于 WP-02 至 WP-04 已持久化数据进行任务追踪、信源/预算治理、候选证据审查、未知回执对账与 NewsBench 只读审阅。"

@@ -317,10 +317,12 @@ Iris 的外壳是光：钴蓝、银蓝与冰青的光学玻璃，让公开层看
 | `/diagnosis` | DiagnosisPage | Clinical | `.is-field .is-brand-page` + `.is-sheet` |
 | `/records`、`/records/:id` | RecordsPage / RecordDetailPage | Clinical | `.is-field .is-brand-page` |
 | `/profile` | ProfilePage | Clinical | `.is-field .is-brand-page` |
+| `/feedback` | FeedbackPage | Clinical | `.is-field .is-brand-page`；提交 + 「我的反馈」同页 |
+| `/notifications` | NotificationsPage | Clinical | `.is-field .is-brand-page`；未读 / 全部 + 类型筛选；顶栏铃铛为唯一入口 |
 | `/agent` | AgentPage | Intelligence | `.is-field .is-brand-page` 工作区 |
 | `/agent/collaboration` | CollaborationPage | Intelligence | `.is-field .is-brand-page`；构建期开关控制入口 |
 | `/doctor-reviews` | DoctorReviewsPage | Intelligence | `.is-field .is-brand-page`；医生复核工作区 |
-| `/admin/*` | 七页管理端 | Management | `.is-admin` + 独立侧栏 |
+| `/admin/*` | 九页管理端 | Management | `.is-admin` + 独立侧栏 |
 | `*` | NotFoundPage | — | 站内 404，不重定向 |
 
 **断点（2026-11-21 实现快照）**：900px 是主断点（24 处），640px（13 处）与 768px（7 处）次之；2200px 只用于超宽版心。历史遗留的 480 / 520 / 560 / 600 / 760 / 780 / 860 / 980 / 1024 / 1080 / 1100 / 1280 / 1600 仍散落在各页，新增样式优先落在 390 / 768 / 900 三档。

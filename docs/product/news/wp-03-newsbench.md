@@ -1,6 +1,6 @@
 # WP-03 · 资讯精选、证据规则、付费调用回执与离线 NewsBench
 
-WP-03 在 WP-02 可见原始资料池（`t_news_material_revision`）之上交付资讯精选（curation）、证据与许可校验、付费模型调用台账（reserve-before-IO）、未知结果恢复策略以及离线 NewsBench 评测基线（`V40__news_curation_and_receipts.sql`）。
+WP-03 在 WP-02 可见原始资料池（`t_news_material_revision`）之上交付资讯精选（curation）、证据与许可校验、付费模型调用台账（reserve-before-IO）、未知结果恢复策略以及离线 NewsBench 评测基线（`V41__news_curation_and_receipts.sql`）。
 
 > 本阶段刻意**不触碰** `t_news` / `t_news_audit`、`NewsController` / `NewsLifecycleService`（属于 WP-04），也不改动既有诊断 / Agent 模型构造路径；默认配置 `eye-diagnosis.news-curation.enabled: false`，且默认模型客户端为 fail-closed 的 `DisabledNewsCurationModelClient`。
 

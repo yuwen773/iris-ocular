@@ -1,0 +1,21 @@
+# 依赖与构建产物
+node_modules
+dist
+
+# Taro 本地缓存
+.swc
+.temp
+.rn_temp
+
+# 日志
+logs
+*.log
+
+# 编辑器
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+
+# 开发者工具个人配置（含本机路径与 AppID 覆盖，不入库）
+project.private.config.json

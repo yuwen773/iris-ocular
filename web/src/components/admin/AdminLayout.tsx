@@ -5,10 +5,14 @@ import "@/styles/admin-visual.css"
 import { useState, type ReactElement } from "react"
 import { Link, Outlet, useLocation } from "react-router-dom"
 import { ArrowLeft, ChevronRight, Menu, Moon, Sun, X } from "lucide-react"
+import { useQuery } from "@tanstack/react-query"
 
 import { Dialog } from "@/components/ui/dialog"
 import { useTheme } from "@/components/theme-provider"
 import { AccountMenu } from "@/components/AccountMenu"
+import { NotificationBell } from "@/components/NotificationBell"
+import { userFeedbackPendingCount } from "@/lib/adminApi"
+import { queryKeys } from "@/lib/queryKeys"
 import { useSession } from "@/lib/session"
 import { ADMIN_NAV, AdminBrand, AdminNav } from "./AdminNav"
 
@@ -82,6 +86,17 @@ export function AdminLayout(): ReactElement {
 
   const accountRole = user?.userRole === "admin" ? "系统管理员" : "管理账号"
 
+  /**
+   * 待处理反馈数：侧栏「意见反馈」的徽标。外壳取一次、两个 AdminNav（桌面 + 抽屉）
+   * 共用——导航组件本身不发请求，仍是可单独渲染的纯组件。
+   */
+  const pendingFeedback = useQuery({
+    queryKey: queryKeys.admin.feedbackPendingCount,
+    queryFn: userFeedbackPendingCount,
+    enabled: Boolean(user),
+    refetchInterval: 60_000,
+  })
+
   // 面包屑按完整路径段匹配（避免 /admin/news 误命中 /admin/news-workbench）。
   const current = ADMIN_NAV.find(
     (item) => location.pathname === item.to || location.pathname.startsWith(`${item.to}/`),
@@ -92,7 +107,7 @@ export function AdminLayout(): ReactElement {
     <div className="is-admin admin-shell">
       <aside className="admin-side">
         <AdminBrand />
-        <AdminNav />
+        <AdminNav pendingFeedback={pendingFeedback.data ?? 0} />
         <div className="admin-side__foot">
           <Link to="/" className="admin-side__back">
             <ArrowLeft size={14} strokeWidth={2} aria-hidden="true" />
@@ -122,6 +137,7 @@ export function AdminLayout(): ReactElement {
             </nav>
 
             <div className="admin-topbar__right">
+              <NotificationBell variant="admin" />
               <ThemeSwitch />
               {/* 账户身份只在这里出现一次：顶栏承载头像 / 姓名 / 角色，
                   侧栏不再叠一张账户卡。 */}
@@ -152,7 +168,7 @@ export function AdminLayout(): ReactElement {
             <X size={16} strokeWidth={2} aria-hidden="true" />
           </button>
         </div>
-        <AdminNav onNavigate={() => setNavOpen(false)} />
+        <AdminNav onNavigate={() => setNavOpen(false)} pendingFeedback={pendingFeedback.data ?? 0} />
         <div className="admin-side__foot">
           <Link to="/" className="admin-side__back" onClick={() => setNavOpen(false)}>
             <ArrowLeft size={14} strokeWidth={2} aria-hidden="true" />

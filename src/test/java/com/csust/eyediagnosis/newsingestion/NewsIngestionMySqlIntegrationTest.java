@@ -1,5 +1,6 @@
 package com.csust.eyediagnosis.newsingestion;
 
+import com.csust.eyediagnosis.config.ControlCenterProperties;
 import com.csust.eyediagnosis.config.JsonConfig;
 import com.csust.eyediagnosis.config.SameOriginFilter;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -151,7 +152,7 @@ class NewsIngestionMySqlIntegrationTest {
             Integer count = jdbc.queryForObject(
                     "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = ? AND table_name = ?",
                     Integer.class, schema, table);
-            assertEquals(1, count, "Missing V39 table: " + table);
+            assertEquals(1, count, "Missing V40 table: " + table);
         }
         List<String> sources = jdbc.queryForList(
                 "SELECT source FROM t_news_source WHERE enabled = 1 ORDER BY source ASC", String.class);
@@ -650,7 +651,7 @@ class NewsIngestionMySqlIntegrationTest {
         cfgB.setAllowedSources(List.of("clinicaltrials-gov"));
         properties.setWorkers(Map.of("worker-a", cfgA, "worker-b", cfgB));
 
-        SameOriginFilter sameOriginFilter = new SameOriginFilter();
+        SameOriginFilter sameOriginFilter = new SameOriginFilter(new ControlCenterProperties(), (request, action, reason) -> { });
         ReflectionTestUtils.setField(sameOriginFilter, "additionalHosts", List.of());
 
         MockMvc mockMvc = MockMvcBuilders.standaloneSetup(new NewsWorkerLeaseController(service, codec))

@@ -284,6 +284,8 @@ export type ChatHistoryVO = {
   messages: HistoryMessageVO[]
   hasMore: boolean
   nextCursor: string | null
+  hasNewer: boolean
+  newerCursor: string | null
   /**
    * 本会话存在未提交的消息终态（写入失败或待恢复）。
    * 历史仍会返回，但**不完整**——界面必须显式说明，不能装作完整。
@@ -351,8 +353,8 @@ export function generateTitle(sessionId: string, firstMessage: string) {
 }
 
 export function getChatHistory(threadId: string, beforeId?: string, limit = 40) {
-  let path = `/agent/history/${threadId}?limit=${limit}`
-  if (beforeId) path += `&beforeId=${beforeId}`
+  let path = `/agent/history/${encodeURIComponent(threadId)}?limit=${limit}`
+  if (beforeId) path += `&beforeId=${encodeURIComponent(beforeId)}`
   return request<ChatHistoryVO>(path).then((history) => ({
     ...history,
     messages: history.messages.map((message) => ({
@@ -516,6 +518,175 @@ export function requestReexamine(id: string) {
   return request<boolean>(`/user/diagnosis/reexamine?id=${id}`, { method: "POST" })
 }
 
+/* ── 用户反馈 ──────────────────────────────────────────── */
+
+/**
+ * 用户反馈（产品意见通道），**不是**「Critic 反馈」。
+ *
+ * <p>仓库里「反馈」一词另有三个已冻结的用法：协作圆桌的 `agent.feedback.requested`
+ * 事件、医生复核意见 `t_doctor_review.note`、资讯审核意见 `t_news.reviewNote`。
+ * 本域的代码标识一律带 `User`，见 `GLOSSARY.md`。
+ */
+export type UserFeedbackCategory = "SUGGESTION" | "ISSUE" | "RESULT_DOUBT" | "OTHER"
+export type UserFeedbackStatus = "PENDING" | "PROCESSING" | "RESOLVED" | "IGNORED"
+export type UserFeedbackTargetType = "DIAGNOSIS_TASK" | "AGENT_SESSION"
+
+/**
+ * 反馈读模型（后端 `UserFeedbackVO`）。
+ *
+ * <p>不携带 `attachmentObjectKey`：截图是 COS 私有对象，界面要的是限时链接
+ * （`getMyUserFeedbackAttachmentUrl`），不是存储里的内部定位符。
+ */
+export type UserFeedback = {
+  /** 雪花 id，线上是字符串。 */
+  id: string
+  userId?: string
+  /** 提交人昵称；查不到用户时为 null，界面显示「未知用户」。 */
+  userName?: string | null
+  category?: string
+  content?: string
+  targetType?: string | null
+  targetId?: string | null
+  status?: string
+  /** 管理员回复；未回复为 null（不是空串）。 */
+  reply?: string | null
+  repliedById?: string | null
+  repliedAt?: string | null
+  handledById?: string | null
+  handledAt?: string | null
+  hasAttachment?: boolean
+  attachmentFormat?: string | null
+  /** 带偏移的 ISO-8601。 */
+  createTime?: string
+  updateTime?: string
+}
+
+/** 用户侧查询条件。服务端恒按当前用户过滤，这里不提供 userId。 */
+export type UserFeedbackQuery = {
+  current?: number
+  pageSize?: number
+  category?: string
+  status?: string
+  /** 只搜正文。 */
+  keyword?: string
+  /** yyyy-MM-dd，含当天。 */
+  startDate?: string
+  endDate?: string
+  /** 服务端白名单：id / status / createTime / updateTime。 */
+  sortField?: string
+  sortOrder?: "ascend" | "descend"
+}
+
+/** 上传反馈截图（≤2 MB，jpeg/png），返回对象 key；提交时带上它。 */
+export function uploadUserFeedbackAttachment(file: File) {
+  const form = new FormData()
+  form.append("file", file)
+  return request<string>("/feedback/attachment", { method: "POST", body: form })
+}
+
+/** 提交反馈。关联对象与截图都可选。 */
+export function submitUserFeedback(body: {
+  category: string
+  content: string
+  targetType?: string
+  targetId?: string
+  attachmentObjectKey?: string
+}) {
+  return request<UserFeedback>("/feedback", {
+    method: "POST",
+    body: JSON.stringify(body),
+  })
+}
+
+/** 我的反馈分页。 */
+export function listMyUserFeedback(q: UserFeedbackQuery = {}, signal?: AbortSignal) {
+  return request<RawPage<UserFeedback>>("/feedback/mine", {
+    method: "POST",
+    body: JSON.stringify({ current: 1, pageSize: 10, ...q }),
+    signal,
+  }).then(toPage)
+}
+
+/** 截图的限时签名链接（5 分钟有效）；没有截图时后端回 404。 */
+export function getMyUserFeedbackAttachmentUrl(id: string) {
+  return request<string>(`/feedback/${encodeURIComponent(id)}/attachment`, {
+    method: "GET",
+  })
+}
+
+/* ── 站内通知 ──────────────────────────────────────────── */
+
+export type UserNotificationType =
+  | "DIAGNOSIS_READY"
+  | "DIAGNOSIS_RESTRICTED"
+  | "REVIEW_DONE"
+  | "FEEDBACK_REPLIED"
+
+/**
+ * 通知读模型（后端 `NotificationVO`）。
+ *
+ * <p>`title` / `body` 是**发送时定稿的文案**，服务端原样返回：历史消息保持当时的
+ * 措辞，不随前端改名变化。正文只有指针（哪个任务、去哪个列表看），
+ * 结论与免责声明在登录后的记录页。
+ */
+export type UserNotification = {
+  /** 雪花 id，线上是字符串。 */
+  id: string
+  type?: string
+  title?: string
+  body?: string
+  /** DIAGNOSIS_TASK / USER_FEEDBACK：决定点进去落在哪个列表页。 */
+  refType?: string
+  refId?: string
+  /** 已读时间；null / 缺省 = 未读。 */
+  readAt?: string | null
+  createTime?: string
+}
+
+/** 我的通知查询条件。接收人恒为会话用户，这里不提供 userId。 */
+export type NotificationQuery = {
+  current?: number
+  pageSize?: number
+  type?: string
+  /** 只看未读；「未读」页签翻页也靠它，而不是前端过滤当前页。 */
+  unreadOnly?: boolean
+}
+
+/** 我的通知分页（时间倒序）。 */
+export function listMyNotifications(q: NotificationQuery = {}, signal?: AbortSignal) {
+  const params = new URLSearchParams()
+  params.set("current", String(q.current ?? 1))
+  params.set("pageSize", String(q.pageSize ?? 20))
+  if (q.type) params.set("type", q.type)
+  if (q.unreadOnly) params.set("unreadOnly", "true")
+  return request<RawPage<UserNotification>>(`/notifications?${params.toString()}`, {
+    method: "GET",
+    signal,
+  }).then(toPage)
+}
+
+/** 未读数（顶栏铃铛的唯一读数）。 */
+export function getUnreadNotificationCount() {
+  return request<number | string>("/notifications/unread-count", { method: "GET" }).then((value) =>
+    Number(value ?? 0),
+  )
+}
+
+/** 标记一条已读（幂等：重复点击不改写首次已读时间）。 */
+export function markNotificationRead(id: string) {
+  return request<UserNotification>(`/notifications/${encodeURIComponent(id)}/read`, {
+    method: "POST",
+  })
+}
+
+/** 全部已读：只清当前类型筛选下的未读，返回真正被标记的条数。 */
+export function markAllNotificationsRead(type?: string) {
+  return request<number | string>("/notifications/read-all", {
+    method: "POST",
+    body: JSON.stringify(type ? { type } : {}),
+  }).then((value) => Number(value ?? 0))
+}
+
 /* ── Agent SSE 流 ──────────────────────────────────────── */
 
 /** 后端 MessageDTO 的流事件载荷。messageType 序列化自枚举，大小写不保证。 */
@@ -577,15 +748,37 @@ export type StreamChatHandlers = {
 }
 
 /**
- * SSE 流式对话。不能走 request<T>——它解 JSON 信封，会破坏事件流。
- * 未收到 done 事件就断流（网络闪断、服务重启）时抛「连接中断」，
- * 调用方据此回滚本回合上传的图片。
+ * 读流式错误帧的载荷。
+ *
+ * <p>后端给的是 {code, msg}；旧服务只给一句人话。两种都收下：
+ * code 决定前端把它当成「服务侧故障」还是「网络中断」——这两者的处置完全不同，
+ * 前者重试没用，要找管理员。
  */
+export function readStreamError(data: string): { code: number; message: string } {
+  const text = (data ?? "").trim()
+  if (text.startsWith("{")) {
+    try {
+      const payload = JSON.parse(text) as { code?: number; msg?: string }
+      if (typeof payload.code === "number") {
+        return { code: payload.code, message: payload.msg || text }
+      }
+    } catch {
+      // 不是 JSON 就按纯文本处理
+    }
+  }
+  return { code: 50000, message: text || "对话服务出错" }
+}
+
 /** 两种 SSE 请求体：新提问，或「按已存原文重新生成某一轮」。 */
 export type StreamChatBody =
   | { message: string; threadId: string; imageUrls?: string[] }
   | { threadId: string; userMessageId: string }
 
+/**
+ * SSE 流式对话。不能走 request<T>——它解 JSON 信封，会破坏事件流。
+ * 未收到 done 事件就断流（网络闪断、服务重启）时抛「连接中断」，
+ * 调用方据此回滚本回合上传的图片。
+ */
 export async function streamChat(
   body: StreamChatBody,
   handlers: StreamChatHandlers,
@@ -626,7 +819,8 @@ export async function streamChat(
         return
       }
       if (event.event === "error") {
-        throw new ApiError(-1, event.data || "对话服务出错")
+        const { code, message } = readStreamError(event.data)
+        throw new ApiError(code, message)
       }
       if (!event.data) return
       let dto: AgentStreamDTO

@@ -130,27 +130,41 @@ public class ChatHistoryService {
         });
     }
 
-    public ChatHistoryVO loadHistory(String sessionId, Long beforeId, int limit) {
+    public ChatHistoryVO loadHistory(String sessionId, Long beforeId, Long afterId, int limit) {
+        if (beforeId != null && afterId != null) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "beforeId 与 afterId 只能传一个");
+        }
+        Long cursor = beforeId != null ? beforeId : afterId;
+        if (cursor != null && messageMapper.selectHistoryCursor(sessionId, cursor) == null) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "历史消息游标无效");
+        }
         // 恢复失败不抛错：历史里已有的消息仍然要能读出来。读不到的部分用
         // 「本会话存在未提交的终态」这个显式标记说明，而不是把整次读取打成 500，
         // 也不是把陈旧历史当成完整历史返回。
         messageQueue.recoverPending(sessionId);
-        List<AgentMessage> entities;
-        if (beforeId == null) {
-            entities = messageMapper.selectBySessionIdOrderByTimeASC(sessionId, limit);
-        } else {
-            entities = messageMapper.selectByCursor(sessionId, beforeId, limit);
+        List<AgentMessage> rows = messageMapper.selectHistoryPage(sessionId, beforeId, afterId, limit + 1);
+        if (rows.isEmpty()) {
+            return new ChatHistoryVO(List.of(), false, null, false, null, messageQueue.hasUncommitted(sessionId));
         }
+        boolean hasExtra = rows.size() > limit;
+        List<AgentMessage> page = rows.subList(0, Math.min(rows.size(), limit));
+        if (afterId == null) {
+            page = page.reversed();
+        }
+        Long oldest = page.getFirst().getId();
+        Long newest = page.getLast().getId();
+        boolean hasMore = afterId == null ? hasExtra
+                : !messageMapper.selectHistoryPage(sessionId, oldest, null, 1).isEmpty();
+        boolean hasNewer = afterId != null ? hasExtra
+                : beforeId != null && !messageMapper.selectHistoryPage(sessionId, null, newest, 1).isEmpty();
 
-        boolean hasMore = entities.size() == limit;
-        Long nextCursor = hasMore ? entities.get(entities.size() - 1).getId() : null;
-
-        List<MessageVO> vos = new java.util.ArrayList<>(entities.stream()
+        List<MessageVO> vos = new java.util.ArrayList<>(page.stream()
                 .map(this::toMessageVO)
                 .toList());
         annotateVariants(sessionId, vos);
 
-        return new ChatHistoryVO(vos, hasMore, nextCursor, messageQueue.hasUncommitted(sessionId));
+        return new ChatHistoryVO(vos, hasMore, hasMore ? oldest : null, hasNewer, newest,
+                messageQueue.hasUncommitted(sessionId));
     }
 
     /**

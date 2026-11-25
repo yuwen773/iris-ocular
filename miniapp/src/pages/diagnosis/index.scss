@@ -1,0 +1,297 @@
+/**
+ * 判读页（送检单）。
+ *
+ * 版式取自定稿 01 / 02：单据头 + 一格取景框 + 送检单行 + 底部固定条。
+ * 尺寸按 375 设计稿写成 rpx（1px = 2rpx）；颜色只引 `--brand-*` 与语义色令牌。
+ * 影像是照片：压在它上面的角标与标签用白色系固定值——那是照片自己的黑场，
+ * 不随主题翻转，否则深色下角标会变成深色压在深色照片上。
+ */
+
+.mp-page.has-fbar {
+  padding-bottom: 260rpx;
+}
+
+/* ── 单据头 ─────────────────────────────────────────── */
+.dochead {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 24rpx;
+  padding-bottom: 20rpx;
+  border-bottom: 1rpx solid var(--brand-line);
+  font-family: var(--font-mono);
+  font-size: 26rpx;
+  letter-spacing: 0.12em;
+  color: var(--brand-muted);
+}
+
+.h-page {
+  margin-top: 32rpx;
+  font-family: var(--font-serif);
+  font-size: 60rpx;
+  font-weight: 600;
+  line-height: 1.32;
+  letter-spacing: 0.01em;
+  color: var(--brand-text);
+}
+
+.lede {
+  margin-top: 20rpx;
+  font-size: 32rpx;
+  line-height: 1.65;
+  color: var(--brand-text);
+}
+
+/* ── 取景框（未选影像时压一张示例图） ──────────────────── */
+.slot {
+  position: relative;
+  margin-top: 28rpx;
+  height: 400rpx;
+  overflow: hidden;
+  border: 1rpx solid var(--brand-line-strong);
+  background: #0b1425;
+}
+
+.slot__img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  opacity: 0.42;
+}
+
+.slot__veil {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  background: linear-gradient(180deg, rgba(243, 244, 241, 0.18), rgba(243, 244, 241, 0.05));
+}
+
+.slot__tag {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  padding: 18rpx 28rpx;
+  background: var(--brand-surface);
+  color: var(--brand-text);
+  font-family: var(--font-mono);
+  font-size: 26rpx;
+  letter-spacing: 0.1em;
+  white-space: nowrap;
+}
+
+.cn {
+  position: absolute;
+  width: 32rpx;
+  height: 32rpx;
+  border: 0 solid rgba(255, 255, 255, 0.85);
+}
+
+.cn.tl {
+  left: 20rpx;
+  top: 20rpx;
+  border-left-width: 2rpx;
+  border-top-width: 2rpx;
+}
+
+.cn.tr {
+  right: 20rpx;
+  top: 20rpx;
+  border-right-width: 2rpx;
+  border-top-width: 2rpx;
+}
+
+.cn.bl {
+  left: 20rpx;
+  bottom: 20rpx;
+  border-left-width: 2rpx;
+  border-bottom-width: 2rpx;
+}
+
+.cn.br {
+  right: 20rpx;
+  bottom: 20rpx;
+  border-right-width: 2rpx;
+  border-bottom-width: 2rpx;
+}
+
+.caption {
+  margin-top: 16rpx;
+  font-family: var(--font-mono);
+  font-size: 26rpx;
+  letter-spacing: 0.08em;
+  color: var(--brand-muted);
+}
+
+/* ── 送检单行 ───────────────────────────────────────── */
+.ledger {
+  margin-top: 32rpx;
+  padding: 0 28rpx;
+  background: var(--brand-surface);
+  border: 1rpx solid var(--brand-line);
+}
+
+.ledger__r {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 28rpx;
+  min-height: 88rpx;
+  border-bottom: 1rpx solid var(--brand-line);
+}
+
+.ledger__r:last-child {
+  border-bottom: 0;
+}
+
+.ledger__k {
+  font-family: var(--font-mono);
+  font-size: 26rpx;
+  letter-spacing: 0.1em;
+  color: var(--brand-muted);
+}
+
+.ledger__v {
+  font-size: 32rpx;
+  color: var(--brand-text);
+  text-align: right;
+}
+
+/* ── 运行中 ─────────────────────────────────────────── */
+.run-head {
+  display: flex;
+  align-items: center;
+  gap: 24rpx;
+  margin-top: 36rpx;
+}
+
+/* 静止的信号块：等待秒数已经说明「在跑」，不再叠一个呼吸动画。 */
+.run-head__dot {
+  width: 20rpx;
+  height: 20rpx;
+  flex: none;
+  background: var(--signal);
+}
+
+.run-head__title {
+  font-family: var(--font-serif);
+  font-size: 60rpx;
+  font-weight: 600;
+  color: var(--brand-text);
+}
+
+.wait {
+  margin-top: 28rpx;
+}
+
+.wait__k {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 26rpx;
+  letter-spacing: 0.14em;
+  color: var(--brand-muted);
+}
+
+.wait__w {
+  display: block;
+  margin-top: 8rpx;
+  font-family: var(--font-mono);
+  font-size: 52rpx;
+  line-height: 1.25;
+  letter-spacing: 0.02em;
+  color: var(--brand-text);
+}
+
+.ticks {
+  display: flex;
+  align-items: flex-end;
+  gap: 12rpx;
+  height: 48rpx;
+  margin-top: 24rpx;
+}
+
+.ticks__i {
+  width: 6rpx;
+  height: 20rpx;
+  flex: none;
+  background: var(--brand-line-strong);
+}
+
+.ticks__i.is-on {
+  height: 44rpx;
+  background: var(--signal);
+}
+
+.tickcap {
+  display: block;
+  margin-top: 18rpx;
+  font-family: var(--font-mono);
+  font-size: 26rpx;
+  letter-spacing: 0.04em;
+  color: var(--brand-muted);
+}
+
+.scan {
+  margin-top: 28rpx;
+  height: 240rpx;
+  overflow: hidden;
+  border: 1rpx solid var(--brand-line-strong);
+  /* 照片的黑场：与主题无关，深色下也只是照片底色。 */
+  background: #0b1425;
+}
+
+.scan__img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  opacity: 0.86;
+}
+
+/* ── 底部固定条 ─────────────────────────────────────── */
+.fbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+  padding: 24rpx 40rpx 28rpx;
+  background: var(--brand-canvas);
+  border-top: 1rpx solid var(--brand-line);
+}
+
+.fbtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 96rpx;
+  border-radius: var(--radius-none);
+  font-size: 32rpx;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+
+  &::after {
+    border: none;
+  }
+
+  &[disabled] {
+    opacity: 0.45;
+  }
+}
+
+.fbtn--primary {
+  background: var(--brand-primary);
+  color: var(--brand-primary-fg);
+}
+
+.fbtn--ghost {
+  background: transparent;
+  color: var(--brand-text);
+  border: 1rpx solid var(--brand-line-strong);
+}

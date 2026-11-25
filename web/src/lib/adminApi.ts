@@ -6,7 +6,12 @@
  * 还挂在表里（Vue 版踩过这个坑）。雪花 id 用 string，避免超出 JS 安全整数被截断。
  */
 
-import type { DiagnosisResult, ProbabilityEvidence } from "./api"
+import type {
+  DiagnosisResult,
+  ProbabilityEvidence,
+  UserFeedback,
+  UserFeedbackQuery,
+} from "./api"
 import { ApiError } from "./api-error"
 import {
   BASE_URL,
@@ -350,6 +355,63 @@ export function fetchKnowledgeText(id: string, signal?: AbortSignal): Promise<st
 /** 读取 DOCX 字节，交给浏览器内的 mammoth 解析。 */
 export function fetchKnowledgeDocx(id: string, signal?: AbortSignal): Promise<ArrayBuffer> {
   return fetchKnowledgeContent(id, "bytes", signal) as Promise<ArrayBuffer>
+}
+
+/* ── 用户反馈 ─────────────────────────────────────────────── */
+
+/**
+ * 管理端反馈台账。行模型与用户侧同一个 `UserFeedbackVO`——
+ * 管理员多看到的是 `userName`，不是另一套字段。
+ */
+export type AdminFeedback = UserFeedback
+
+/** 管理端查询：分页必填，其余与用户侧同形。 */
+export type AdminFeedbackQuery = UserFeedbackQuery & { current: number; pageSize: number }
+
+export function listAdminUserFeedback(q: AdminFeedbackQuery): Promise<Page<AdminFeedback>> {
+  return request<RawPage<AdminFeedback>>("/admin/feedback/page", {
+    method: "POST",
+    body: JSON.stringify(q),
+  }).then(toPage)
+}
+
+/**
+ * 状态流转（可顺带写一条回复）。
+ *
+ * <p>后端用条件更新：读到的状态已被别人改过就回 40900。界面应据此提示
+ * 「状态已变化，请刷新」，而不是把旧状态再写回去。
+ */
+export function changeUserFeedbackStatus(
+  id: string,
+  status: string,
+  reply?: string,
+): Promise<AdminFeedback> {
+  return request<AdminFeedback>(`/admin/feedback/${encodeURIComponent(id)}/status`, {
+    method: "POST",
+    body: JSON.stringify({ status, reply: reply ?? undefined }),
+  })
+}
+
+/** 回复用户。已结案（已解决 / 已忽略）的反馈后端会拒绝，需先重新打开。 */
+export function replyUserFeedback(id: string, reply: string): Promise<AdminFeedback> {
+  return request<AdminFeedback>(`/admin/feedback/${encodeURIComponent(id)}/reply`, {
+    method: "POST",
+    body: JSON.stringify({ reply }),
+  })
+}
+
+/** 待处理反馈数。后端 Long→String，这里归一成 number。 */
+export function userFeedbackPendingCount(): Promise<number> {
+  return request<number | string>("/admin/feedback/pending-count", { method: "GET" }).then(
+    (value) => Number(value ?? 0),
+  )
+}
+
+/** 反馈截图的限时链接（管理员视角）。 */
+export function adminUserFeedbackAttachmentUrl(id: string): Promise<string> {
+  return request<string>(`/admin/feedback/${encodeURIComponent(id)}/attachment`, {
+    method: "GET",
+  })
 }
 
 /* ── 统计 ─────────────────────────────────────────────────── */

@@ -1,6 +1,6 @@
 # WP-04 · 审核与发布、证据快照绑定与提交后缓存失效
 
-WP-04 在 WP-02 原始资料池（`t_news_material_revision`）与 WP-03 精选候选（`t_news_curation_candidate`）之上，完成编辑建稿、内容修订留痕、服务层统一发布门禁与事务提交后 Redis 缓存失效（`V41__news_editorial_publish_and_revisions.sql`）。
+WP-04 在 WP-02 原始资料池（`t_news_material_revision`）与 WP-03 精选候选（`t_news_curation_candidate`）之上，完成编辑建稿、内容修订留痕、服务层统一发布门禁与事务提交后 Redis 缓存失效（`V42__news_editorial_publish_and_revisions.sql`）。
 
 ## 1. 证据绑定与不可变内容修订
 
@@ -26,5 +26,5 @@ WP-04 在 WP-02 原始资料池（`t_news_material_revision`）与 WP-03 精选�
 ## 4. 验证范围
 
 - **L1**：[NewsListCacheServiceTest](../../../src/test/java/com/csust/eyediagnosis/service/NewsListCacheServiceTest.java)、[NewsLifecycleServiceTest](../../../src/test/java/com/csust/eyediagnosis/service/NewsLifecycleServiceTest.java) 与全套现有 `News*` 控制器/服务单测。
-- **L2（真实 MySQL 8 + Redis 7）**：[NewsEditorialPublishMySqlIntegrationTest](../../../src/test/java/com/csust/eyediagnosis/service/NewsEditorialPublishMySqlIntegrationTest.java) 8 个端到端集成用例，覆盖 V41 迁移、候选建稿、多入口发布门禁、手工编辑/批量流转/软删、触发器回滚零缓存失效、Redis 失效注入与全宕机下撤回立即不可见、批量部分失败与不可变修订历史。
+- **L2（真实 MySQL 8 + Redis 7）**：[NewsEditorialPublishMySqlIntegrationTest](../../../src/test/java/com/csust/eyediagnosis/service/NewsEditorialPublishMySqlIntegrationTest.java) 8 个端到端集成用例，覆盖 V42 迁移、候选建稿、多入口发布门禁、手工编辑/批量流转/软删、触发器回滚零缓存失效、Redis 失效注入与全宕机下撤回立即不可见、批量部分失败与不可变修订历史。
 - **未运行项（`NOT_RUN`）**：真实付费 LLM 在线评测、真实外部信源联网采集与全量 L3 (`scripts/verify.sh`)。

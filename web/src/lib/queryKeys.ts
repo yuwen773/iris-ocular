@@ -9,10 +9,28 @@
  * 账号变化时再整域清一次（见 queryClient.resetPrivateQueries），两层保险。
  * 管理域是服务端全局数据，不按账号分键，但同样在身份变化时清空。
  */
-import type { DiagnosisQuery, NewsQuery, UserQuery, KnowledgeQuery } from "./adminApi"
+import type {
+  AdminFeedbackQuery,
+  DiagnosisQuery,
+  NewsQuery,
+  UserQuery,
+  KnowledgeQuery,
+} from "./adminApi"
+import type { NotificationQuery } from "./api"
 
-/** 跟登录身份走、不能跨账号复用的缓存域。身份一变就整域作废。 */
-export const PRIVATE_QUERY_ROOTS = ["records", "profile", "admin"] as const
+/**
+ * 跟登录身份走、不能跨账号复用的缓存域。身份一变就整域作废。
+ *
+ * <p>`feedback`（用户侧「我的反馈」）与 `notifications`（站内通知）是个人域，必须在这里；
+ * 管理端的反馈台账已经在 `admin` 域下，不需要重复登记。
+ */
+export const PRIVATE_QUERY_ROOTS = [
+  "records",
+  "profile",
+  "admin",
+  "feedback",
+  "notifications",
+] as const
 
 export const queryKeys = {
   admin: {
@@ -56,6 +74,9 @@ export const queryKeys = {
     knowledge: (q: KnowledgeQuery) => ["admin", "knowledge", q] as const,
     knowledgeAll: ["admin", "knowledge"] as const,
     knowledgeDetail: (id: string) => ["admin", "knowledge", "detail", id] as const,
+    feedback: (q: AdminFeedbackQuery) => ["admin", "feedback", q] as const,
+    feedbackAll: ["admin", "feedback"] as const,
+    feedbackPendingCount: ["admin", "feedback", "pending-count"] as const,
   },
   records: {
     mine: (
@@ -72,6 +93,29 @@ export const queryKeys = {
   },
   profile: {
     user: (scope: string) => ["profile", "user", scope] as const,
+  },
+  /**
+   * 我的反馈。键里带 scope：换账号后 B 读的是 B 的键，
+   * 上一账号提交的反馈不会在列表里闪一下。
+   */
+  feedback: {
+    mine: (scope: string, q: { current?: number; pageSize?: number }) =>
+      ["feedback", "mine", scope, q] as const,
+    /**
+     * 关联对象下拉的取样：与判读记录页的键分开，不互相顶掉缓存。
+     * 判读任务取的是 `/diagnosis-tasks`（taskId 是提交时真正要送的那个 id）。
+     */
+    targetTasks: (scope: string) => ["feedback", "target-tasks", scope] as const,
+    targetSessions: (scope: string) => ["feedback", "target-sessions", scope] as const,
+  },
+  /**
+   * 站内通知。列表与未读数分开分键：
+   * 打开通知页会把未读清成已读，但列表本身的分页不应因此重新取数。
+   */
+  notifications: {
+    list: (scope: string, q: NotificationQuery) => ["notifications", "list", scope, q] as const,
+    listAll: (scope: string) => ["notifications", "list", scope] as const,
+    unread: (scope: string) => ["notifications", "unread", scope] as const,
   },
   news: {
     list: () => ["news", "list"] as const,

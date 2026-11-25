@@ -295,14 +295,14 @@ class NewsEditorialPublishMySqlIntegrationTest {
                     SELECT COUNT(*) FROM information_schema.columns
                     WHERE table_schema = ? AND table_name = 't_news' AND column_name = ?
                     """, Integer.class, schema, col);
-            assertEquals(1, count, "Missing V41 column on t_news: " + col);
+            assertEquals(1, count, "Missing V42 column on t_news: " + col);
         }
         for (String table : List.of("t_news_revision", "t_news_cache_epoch")) {
             Integer count = jdbc.queryForObject("""
                     SELECT COUNT(*) FROM information_schema.tables
                     WHERE table_schema = ? AND table_name = ?
                     """, Integer.class, schema, table);
-            assertEquals(1, count, "Missing V41 table: " + table);
+            assertEquals(1, count, "Missing V42 table: " + table);
         }
         assertEquals(0L, cacheService.readAuthoritativeDbEpoch());
     }

@@ -19,6 +19,11 @@ vi.mock("@/lib/session", () => ({
   }),
 }))
 
+// 顶栏铃铛有独立用例；本文件不提供 QueryClientProvider。
+vi.mock("@/components/NotificationBell", () => ({
+  NotificationBell: () => null,
+}))
+
 /** navLinks 在模块加载期读取开关；每个用例先卸载模块再动态导入，覆盖两种配置。 */
 async function headerFor(flag: "true" | "false") {
   vi.resetModules()

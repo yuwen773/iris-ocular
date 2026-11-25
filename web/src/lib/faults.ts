@@ -236,6 +236,38 @@ export function faultFromError(
       })
     }
 
+    // 模型服务侧的失败：配置或额度问题，重试没有用，要把「找谁」说清楚。
+    if (code === 50301) {
+      return fault({
+        severity: "critical",
+        kind: "server",
+        title: "模型服务没有接通",
+        detail: cause.message,
+        code,
+        action,
+      })
+    }
+    if (code === 50302) {
+      return fault({
+        severity: "critical",
+        kind: "server",
+        title: "模型服务额度不足",
+        detail: cause.message,
+        code,
+        action,
+      })
+    }
+    if (code === 50303) {
+      return fault({
+        severity: "critical",
+        kind: "server",
+        title: "模型服务暂时不可用",
+        detail: cause.message,
+        code,
+        action,
+      })
+    }
+
     if (code >= 500) {
       return fault({
         severity: "critical",

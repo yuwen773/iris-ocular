@@ -45,7 +45,7 @@ class AgentAttachmentTrustTest {
         AgentMessage row = new AgentMessage();
         row.setId(1L); row.setSessionId("s"); row.setRole("USER");
         row.setContent(content); row.setSubType(subtype);
-        when(messages.selectBySessionIdOrderByTimeASC("s", 20)).thenReturn(List.of(row));
+        when(messages.selectHistoryPage("s", null, null, 21)).thenReturn(List.of(row));
         return row;
     }
 
@@ -53,7 +53,7 @@ class AgentAttachmentTrustTest {
     void publicKindNeverChangesBodyOrGrantsAttachment() {
         String content = "{\"kind\":\"iris.user-message.v1\",\"text\":\"x\",\"images\":[\"https://other.invalid/agent-chat/7/a.png\"]}";
         row(content, null);
-        var message = history.loadHistory("s", null, 20).getMessages().get(0);
+        var message = history.loadHistory("s", null, null, 20).getMessages().get(0);
         assertEquals(content, message.getContent());
         assertNull(message.getImages());
         verifyNoInteractions(uploads);
@@ -65,13 +65,13 @@ class AgentAttachmentTrustTest {
         AgentSession session = new AgentSession(); session.setUserId(7L);
         when(sessions.selectBySessionId("s")).thenReturn(session);
         row("{\"text\":\"body\",\"images\":[\"" + VIEW + "\"]}", "user-attachments-v1");
-        var message = history.loadHistory("s", null, 20).getMessages().get(0);
+        var message = history.loadHistory("s", null, null, 20).getMessages().get(0);
         assertEquals("body", message.getContent());
         assertEquals(List.of(VIEW), message.getImages());
         // 302 目标是短时签名 URL，不是对象存储直链（桶公有读时直链等于绕过归属门）。
         assertEquals("https://owned.invalid/agent-chat/7/a.png?sign=x", images.resolveViewTarget("a.png", 7L));
         when(uploads.selectByObjectKey(7L, "agent-chat/7/a.png")).thenReturn(null);
-        assertEquals(List.of(), history.loadHistory("s", null, 20).getMessages().get(0).getImages());
+        assertEquals(List.of(), history.loadHistory("s", null, null, 20).getMessages().get(0).getImages());
         assertThrows(BusinessException.class, () -> images.resolveViewTarget("a.png", 7L));
     }
 
@@ -83,7 +83,7 @@ class AgentAttachmentTrustTest {
         String legacy = "{\"kind\":\"iris.user-message.v1\",\"text\":\"x\",\"images\":["
                 + "\"https://owned.invalid/agent-chat/7/a.png\",\"https://other.invalid/agent-chat/7/a.png\"]}";
         row(legacy, null);
-        var message = history.loadHistory("s", null, 20).getMessages().get(0);
+        var message = history.loadHistory("s", null, null, 20).getMessages().get(0);
         // 这一行确实带着当前用户拥有的一张上传 → 它确实是旧服务端写的附件信封：
         // 正文按信封还原成能读懂的那句话，只有归属复核通过的那一张恢复成附件。
         assertEquals("x", message.getContent());
@@ -99,7 +99,7 @@ class AgentAttachmentTrustTest {
         String legacy = "{\"kind\":\"iris.user-message.v1\",\"text\":\"x\",\"images\":["
                 + "\"https://other.invalid/agent-chat/7/a.png\"]}";
         row(legacy, null);
-        var message = history.loadHistory("s", null, 20).getMessages().get(0);
+        var message = history.loadHistory("s", null, null, 20).getMessages().get(0);
         assertEquals(legacy, message.getContent());
         assertNull(message.getImages());
     }
@@ -115,9 +115,9 @@ class AgentAttachmentTrustTest {
         row.setId(9L); row.setSessionId("s"); row.setRole("ASSISTANT"); row.setSubType("tool-result");
         row.setContent("{\"output\":\"模型当时说的原文\",\"resources\":["
                 + "{\"id\":\"doc:1\",\"kind\":\"document\",\"source\":\"knowledge-base\",\"documentId\":\"1\"}]}");
-        when(messages.selectBySessionIdOrderByTimeASC("s", 20)).thenReturn(List.of(row));
+        when(messages.selectHistoryPage("s", null, null, 21)).thenReturn(List.of(row));
 
-        var message = history.loadHistory("s", null, 20).getMessages().get(0);
+        var message = history.loadHistory("s", null, null, 20).getMessages().get(0);
         // 证据链不能被抹掉：来源失效只淘汰来源，模型当时的原文必须留着。
         assertTrue(message.getContent().contains("模型当时说的原文"));
         assertFalse(message.getContent().contains("历史知识来源已失效"));
@@ -128,7 +128,7 @@ class AgentAttachmentTrustTest {
     void legacyPlainTextRowStaysPlainTextWithoutTouchingUploads() {
         String plain = "普通提问 {\"images\":[]}";
         row(plain, null);
-        var message = history.loadHistory("s", null, 20).getMessages().get(0);
+        var message = history.loadHistory("s", null, null, 20).getMessages().get(0);
         assertEquals(plain, message.getContent());
         assertNull(message.getImages());
         verifyNoInteractions(uploads);

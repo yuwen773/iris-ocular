@@ -68,8 +68,13 @@ scripts/verify-fast.sh --level L3
 | 启动基线与 gRPC 链路 | `config/StartupSafetyGuardTest`、`grpc/GrpcHostsTest` | 改 TLS/明文策略、回环判定或 `server`/`prod` 默认值 → 加 `application-server.example.yml` 对照 |
 | MCP 准入与影像引用 | `agent/service/ImageReferenceSignerTest`、`AgentImageReferenceResolverTest`、`AgentAttachmentTrustTest` | 改密钥、有效期或 URL 白名单 → 同步算法侧 `mcp_server` 用例 |
 | 判读证据 / 概率口径 | `service/DiagnosisEvidenceTest`、`service/InferenceCacheTest` | 改 proto 字段、落库列或校准门控 → L2 + 前端 `web/src/lib/domain.test.ts` |
+| 小程序客户端 `miniapp/src/lib/**` | `cd miniapp && npm run typecheck && npm test`（纯函数改动要补 `tests/*.test.ts`） | 改请求/错误口径、SSE 解析或历史回放 → 同时跑后端对应 Java 用例；改令牌文件 → `npm run gen:tokens` 后核对生成物 |
+| 小程序令牌通道 `src/main/java/**/miniapp/**`、`MiniAppConstant` | `miniapp/MiniAppAuthServiceTest`、`MiniAppTokenFilterTest`、`MiniAppTokenServiceTest`、`WeChatCode2SessionClientTest`、`config/SameOriginFilterTest` | 改过滤器顺序、同源豁免或 `getLoginUser` 分支 → **一律 L2**（`--db`），并重跑 `FlywayMySqlIntegrationTest` |
+| 小程序页面 `miniapp/src/pages/**`、`components/**`、`styles/**` | 无对应单测时至少 `npm run typecheck && npm run build:weapp` | 视觉改动按 `DESIGN.md` 跑**双主题人工验收**；改 `base.scss` 令牌引用 → 确认 `tokens.scss` 仍是生成物 |
 | 公开影像孤儿审计 | `upload/audit/PublicImageOrphanAuditorTest` | 改前缀或归一规则 → 用例必须用**真实写入形态**的 key（`/public/…`，带前导斜杠） |
 | 新闻 / 管理端可见性 | `controller/News*Test`、`service/News*Test`、`AdminScopeVisibilityTest` | 发布生命周期涉及真实状态列 → L2 |
+| 用户反馈（`t_user_feedback`、`/feedback`、`/admin/feedback`） | `constant/UserFeedbackStatusTest`、`service/UserFeedbackLifecycleServiceTest`、`controller/UserFeedbackOwnershipTest`、`lib/userFeedbackDomain.test.ts`、`pages/FeedbackPage.test.tsx`、`pages/admin/AdminFeedbackPage.test.tsx` | 新增迁移 + 写库 + 状态机 + 归属/越权 + 截图上传归属 → **L2**（`FlywayMySqlIntegrationTest --db`） |
+| 站内通知（`t_user_notification`、`/notifications`、顶栏铃铛） | `service/NotificationServiceTest`、`controller/NotificationOwnershipTest`、`service/UserFeedbackLifecycleServiceTest`（通知触发）、`lib/notificationDomain.test.ts`、`components/NotificationBell.test.tsx`、`pages/NotificationsPage.test.tsx` | 新增迁移 + 写库 + 事务提交后写入 + 接收人归属 → **L2**（`FlywayMySqlIntegrationTest --db`、`EyeDiagnosisApplicationTests --db`） |
 | 上传状态机 | `upload/state/UploadStateMachineTest`、`UploadStatusTest`、`UploadCompensationServiceTest` | 真实表 + 补偿任务 → L2 |
 | 应用装配 / 配置 | `EyeDiagnosisApplicationTests`（`contextLoads`）——**它需要 DB + Redis + Chroma** | 直接 L2 |
 | Python 算法服务 | `algorithm/` 下 `python -m pytest ... -m "not slow"`（CI 的 `python` job 同口径） | 含子进程/watchdog → 那几条在 Linux 上跑（CI `watchdog` job） |

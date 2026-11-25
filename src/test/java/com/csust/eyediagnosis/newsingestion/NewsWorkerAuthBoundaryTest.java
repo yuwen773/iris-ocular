@@ -1,5 +1,6 @@
 package com.csust.eyediagnosis.newsingestion;
 
+import com.csust.eyediagnosis.config.ControlCenterProperties;
 import com.csust.eyediagnosis.config.JsonConfig;
 import com.csust.eyediagnosis.config.SameOriginFilter;
 import org.junit.jupiter.api.BeforeEach;
@@ -60,7 +61,7 @@ class NewsWorkerAuthBoundaryTest {
         codec = new NewsWireCodec(JsonConfig.createNewsProtocolObjectMapper());
 
         NewsWorkerAuthFilter authFilter = new NewsWorkerAuthFilter(properties);
-        SameOriginFilter sameOriginFilter = new SameOriginFilter();
+        SameOriginFilter sameOriginFilter = new SameOriginFilter(new ControlCenterProperties(), (request, action, reason) -> { });
         ReflectionTestUtils.setField(sameOriginFilter, "additionalHosts", List.of());
 
         mockMvc = MockMvcBuilders.standaloneSetup(

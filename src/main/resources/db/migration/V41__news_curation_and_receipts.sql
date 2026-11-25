@@ -1,5 +1,5 @@
 -- WP-03: Iris News Engine curation candidates, evidence snapshots, paid model call receipts, budgets, and NewsBench.
--- Additive only (V1-V39 untouched; V35-V38 reserved for open sibling PRs).
+-- Additive to the V40 material pool.
 -- Naming convention: camelCase columns, UTC DATETIME(6) timestamps, ascii_bin on case-exact wire IDs/hashes/codes.
 
 CREATE TABLE IF NOT EXISTS t_news_curation_budget (

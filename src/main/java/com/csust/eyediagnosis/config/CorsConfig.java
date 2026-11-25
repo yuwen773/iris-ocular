@@ -30,7 +30,11 @@ public class CorsConfig implements WebMvcConfigurer {
                 // 预检被 allowedMethods 挡掉的话，文档阅读器的 PDF 探针（HEAD）
                 // 在跨域部署下会直接失败——同源部署碰不到这条，一换域名就踩。
                 .allowedMethods("GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS")
-                .allowedHeaders("Content-Type", "X-Requested-With", "Authorization")
+                // X-CSRF-Token 必须放行：它是非简单头，跨域写请求会先走预检；
+                // 预检不放行的话，控制中心在跨域部署（allowed-origins 白名单）
+                // 下永远拿不到写能力。放行不改变安全边界——origin 仍是精确白名单，
+                // token 本身仍需通过已认证的 GET 取得。
+                .allowedHeaders("Content-Type", "X-Requested-With", "Authorization", "X-CSRF-Token")
                 .exposedHeaders()
                 .maxAge(3600);
     }

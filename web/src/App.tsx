@@ -40,6 +40,12 @@ const RecordsPage = lazy(() =>
 const RecordDetailPage = lazy(() =>
   import("@/pages/RecordDetailPage").then((m) => ({ default: m.RecordDetailPage })),
 )
+const FeedbackPage = lazy(() =>
+  import("@/pages/FeedbackPage").then((m) => ({ default: m.FeedbackPage })),
+)
+const NotificationsPage = lazy(() =>
+  import("@/pages/NotificationsPage").then((m) => ({ default: m.NotificationsPage })),
+)
 const LoginPage = lazy(() =>
   import("@/pages/LoginPage").then((m) => ({ default: m.LoginPage })),
 )
@@ -77,6 +83,9 @@ const AdminDataAnalysisPage = lazy(() =>
 )
 const AdminNewsEditPage = lazy(() =>
   import("@/pages/admin/AdminNewsEditPage").then((m) => ({ default: m.AdminNewsEditPage })),
+)
+const AdminFeedbackPage = lazy(() =>
+  import("@/pages/admin/AdminFeedbackPage").then((m) => ({ default: m.AdminFeedbackPage })),
 )
 
 /**
@@ -176,6 +185,8 @@ export function App() {
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/records" element={<RecordsPage />} />
           <Route path="/records/:id" element={<RecordDetailPage />} />
+          <Route path="/feedback" element={<FeedbackPage />} />
+          <Route path="/notifications" element={<NotificationsPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
 
@@ -211,6 +222,10 @@ export function App() {
             <Route
               path="data-analysis"
               element={<AdminDataAnalysisPage />}
+            />
+            <Route
+              path="feedback"
+              element={<AdminFeedbackPage />}
             />
             <Route
               path="news/:id/edit"
