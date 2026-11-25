@@ -309,7 +309,8 @@ export function AdminNewsWorkbenchPage(): ReactElement {
     }
   }
 
-  async function handleToggleSource() {    if (!toggleTarget || toggleBusy) return
+  async function handleToggleSource() {
+    if (!toggleTarget || toggleBusy) return
     setToggleBusy(true)
     setActionError(null)
     setActionNote(null)
@@ -566,7 +567,11 @@ export function AdminNewsWorkbenchPage(): ReactElement {
       width: "24%",
       render: (row) =>
         row.blockingReason ? (
-          <span className="admin-workbench__note">{row.blockingReason}</span>
+          // 原因文本可能很长（含信源与窗口），列宽按百分比分到 24% 会被压窄：
+          // 给最小宽度并允许断词，title 让被截断的内容仍可读。
+          <span className="admin-workbench__cellnote" title={row.blockingReason}>
+            {row.blockingReason}
+          </span>
         ) : (
           <span className="admin-workbench__note">—</span>
         ),

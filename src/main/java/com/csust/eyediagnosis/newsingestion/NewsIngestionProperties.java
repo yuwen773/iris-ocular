@@ -46,8 +46,10 @@ public class NewsIngestionProperties {
      * 显式声明可信反向代理的地址（精确 IP 或 CIDR）。
      *
      * <p>启用 {@code server.forward-headers-strategy=native} 时必须声明：它与 Tomcat 的
-     * {@code server.tomcat.remoteip.internal-proxies} 必须一致，启动基线会核对两者的吻合度，
-     * 并拒绝「Tomcat 实际信任的范围比声明宽」的配置（例如信任整个 10/8）。
+     * {@code server.tomcat.remoteip.internal-proxies} 会被启动基线交叉核对——声明的每个地址
+     * 都必须落在正则内，正则也不得命中声明范围之外的探针地址（例如信任整个 10/8 会被拒绝）。
+     * 核对基于哨兵地址与网段边界探针，能拦住常见过宽写法，但<b>不是</b>对任意正则覆盖范围的
+     * 穷尽证明；运维仍需保证声明与实际部署一致。
      */
     private List<String> trustedProxyAddresses = new ArrayList<>();
     private boolean requireHttps = false;

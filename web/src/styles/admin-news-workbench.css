@@ -308,6 +308,18 @@ html.dark .admin-workbench__issue input[type="date"] {
   color: var(--admin-text-muted);
 }
 
+/* 表格单元格里的长原因（含信源、窗口与失败码）：百分比列宽会把它压成一条竖排字，
+   给最小宽度并允许在任意位置断行；配合单元格上的 title 让截断内容仍可读。 */
+.admin-workbench__cellnote {
+  display: inline-block;
+  min-width: 10rem;
+  max-width: 32rem;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--admin-text-muted);
+  overflow-wrap: anywhere;
+}
+
 .admin-workbench__footer {
   margin: 0;
   padding-top: 12px;

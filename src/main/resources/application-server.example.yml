@@ -87,7 +87,9 @@ eye-diagnosis:
     # 带转发头的请求一律 403——转发头出现即说明对端不是 Worker 本身，
     # 且原始对端在应用侧不可判定。
     allowed-remote-addresses: []
-    # 显式声明可信反向代理（精确 IP 或 CIDR）；与上面的 internal-proxies 会被核对。
+    # 显式声明可信反向代理（精确 IP 或 CIDR）；启动基线会与上面的 internal-proxies 交叉核对：
+    # 声明的每个地址都必须落在正则内，正则也不得命中声明范围之外的探针地址。
+    # 拦截的是常见过宽写法，不是对任意正则覆盖范围的穷尽证明。
     trusted-proxy-addresses: []
     require-https: false
     plaintext-allowed: false

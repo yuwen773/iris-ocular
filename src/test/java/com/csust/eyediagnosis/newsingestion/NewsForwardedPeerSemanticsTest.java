@@ -55,8 +55,8 @@ class NewsForwardedPeerSemanticsTest {
     /** 只信任本机这一台反代。 */
     private static final String TRUST_LOCAL_PROXY = "127\\.0\\.0\\.1";
 
-    /** 信任「内网网段」——Tomcat 默认 internal-proxies 的典型危险写法。 */
-    private static final String TRUST_PRIVATE_RANGE = "10\\.0\\.0\\.0/8|127\\.0\\.0\\.1";
+    /** 信任整个回环段（范围写法，不是单台主机）。 */
+    private static final String TRUST_LOOPBACK_SEGMENT = "127\\.0\\.0\\.\\d+";
 
     @Test
     void directConnectionKeepsSocketPeerAndIgnoresForgedForwardedHeaders() throws Exception {
@@ -123,14 +123,40 @@ class NewsForwardedPeerSemanticsTest {
     }
 
     @Test
-    void broadInternalProxyRangeLetsSameSegmentPeerForgeHttps() throws Exception {
-        // 反代所在网段被整体信任（抄默认值时的典型写法）：同网段任意主机都能自称 https。
-        Observation observation = observe(TRUST_PRIVATE_RANGE, TRUST_PRIVATE_RANGE,
+    void trustingTheWholeLoopbackSegmentLetsAnyLoopbackPeerForgeHttps() throws Exception {
+        // 「单台主机」与「整段」的区别：范围写法下，同段任意主机都能自称 https。
+        Observation observation = observe(TRUST_LOOPBACK_SEGMENT, TRUST_LOOPBACK_SEGMENT,
                 "203.0.113.9", "https");
+
+        assertEquals("203.0.113.9", observation.remoteAddr(), "对端被改写为 XFF 声称的客户端");
+        assertTrue(observation.secure(), "整段被信任时，段内任意对端都能伪造 isSecure()");
+        assertEquals("203.0.113.9", observation.tomcatRemoteAddr(),
+                "改写后的地址同样出现在 Tomcat 属性里");
+        assertEquals("203.0.113.9", observation.accessLogRemoteAddr(),
+                "访问日志看到的也是改写后的地址");
+    }
+
+    @Test
+    void copiedTomcatDefaultInternalProxiesTrustsLoopbackAndLetsItForgeHttps() throws Exception {
+        // 「抄默认值」的真实版本：不设置 internal-proxies，用 Tomcat 自带默认值。
+        // 默认值包含 127/8，本机对端因此被当成可信反代——这正是启动基线要拦的组合。
+        Observation observation = observeWithDefaultValve("203.0.113.9", "https");
 
         assertEquals("203.0.113.9", observation.remoteAddr());
         assertTrue(observation.secure(),
-                "被 internal-proxies 覆盖的对端可以伪造 isSecure()，这正是启动基线要拦的组合");
+                "Tomcat 默认 internal-proxies 覆盖回环段，对端可以伪造 isSecure()");
+    }
+
+    @Test
+    void threeHopForwardedChainStillResolvesToTheRightmostUntrustedPeer() throws Exception {
+        // client → proxy1 → proxy2 → 本服务。只有最右一跳（127.0.0.1）被信任时，
+        // 改写结果是上一跳转述的值：它仍然不是原始 socket 对端。
+        Observation observation = observe(TRUST_LOCAL_PROXY, TRUST_LOCAL_PROXY,
+                "203.0.113.9, 198.51.100.7, 127.0.0.1", "https");
+
+        assertEquals("198.51.100.7", observation.remoteAddr(),
+                "跳过受信的最右一跳后，剩下的仍是代理转述值");
+        assertTrue(observation.secure());
     }
 
     @Test
@@ -152,17 +178,30 @@ class NewsForwardedPeerSemanticsTest {
      */
     private Observation observe(String internalProxies, String trustedProxies,
                                 String forwardedFor, String forwardedProto) throws Exception {
+        RemoteIpValve valve = null;
+        if (internalProxies != null) {
+            valve = new RemoteIpValve();
+            valve.setInternalProxies(internalProxies);
+            if (trustedProxies != null) {
+                valve.setTrustedProxies(trustedProxies);
+            }
+        }
+        return serve(valve, forwardedFor, forwardedProto);
+    }
+
+    /** 挂一个「什么都不改」的阀门：用 Tomcat 自带的 internal-proxies 默认值。 */
+    private Observation observeWithDefaultValve(String forwardedFor, String forwardedProto) throws Exception {
+        return serve(new RemoteIpValve(), forwardedFor, forwardedProto);
+    }
+
+    private Observation serve(RemoteIpValve valve, String forwardedFor, String forwardedProto)
+            throws Exception {
         Path base = Files.createTempDirectory("tomcat-peer");
         Tomcat tomcat = new Tomcat();
         tomcat.setBaseDir(base.toString());
         tomcat.setPort(0);
         Connector connector = tomcat.getConnector();
-        if (internalProxies != null) {
-            RemoteIpValve valve = new RemoteIpValve();
-            valve.setInternalProxies(internalProxies);
-            if (trustedProxies != null) {
-                valve.setTrustedProxies(trustedProxies);
-            }
+        if (valve != null) {
             valve.setRequestAttributesEnabled(true);
             // Spring Boot 把 RemoteIpValve 挂在 Engine pipeline 上，这里保持一致。
             tomcat.getEngine().getPipeline().addValve(valve);

@@ -48,6 +48,12 @@ public class NewsWorkbenchService {
     private static final String DEFAULT_BUDGET_SCOPE = "GLOBAL";
     private static final int DEFAULT_MAX_ATTEMPTS = 3;
     private static final int MAX_ALLOWED_ATTEMPTS = 10;
+    /**
+     * {@code t_news_collection_task_event.note} 是 {@code VARCHAR(512)}（V43）。
+     * 服务端必须先校验：重试会先把窗口重开并提交，审计 INSERT 再失败的话，
+     * 就变成「窗口已重开、接口报错、审计缺失」。
+     */
+    private static final int MAX_TASK_EVENT_NOTE_LENGTH = 512;
     private static final long MAX_PAGE_SIZE = 100L;
     /** 页码算术上限：保证 (current - 1) * pageSize 不溢出 long。 */
     private static final long MAX_PAGE_NUMBER = 1_000_000L;
@@ -327,10 +333,6 @@ public class NewsWorkbenchService {
         return new NewsWorkbenchModels.PageVO<>(records, total, safeCurrent, safeSize, computePages(total, safeSize));
     }
 
-    public NewsWorkbenchModels.CollectionTaskVO enqueueTask(NewsWorkbenchModels.EnqueueTaskRequest req) {
-        return enqueueTask(req, null);
-    }
-
     public NewsWorkbenchModels.CollectionTaskVO enqueueTask(NewsWorkbenchModels.EnqueueTaskRequest req,
                                                             User operator) {
         if (req == null) {
@@ -410,6 +412,12 @@ public class NewsWorkbenchService {
         if (extraAttempts < 1 || extraAttempts > MAX_ALLOWED_ATTEMPTS) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "maxAttempts 必须在 1 到 10 之间");
         }
+        String note = req == null || req.note() == null ? null : req.note().trim();
+        if (note != null && note.length() > MAX_TASK_EVENT_NOTE_LENGTH) {
+            // 必须在重开窗口之前拒绝：审计写入发生在 enqueueWindow 提交之后。
+            throw new BusinessException(ErrorCode.PARAMS_ERROR,
+                    "note 不得超过 " + MAX_TASK_EVENT_NOTE_LENGTH + " 个字符");
+        }
         NewsIngestionService.TaskSnapshot snapshot = ingestionService.getTask(normalizedTaskId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.PARAMS_ERROR, "任务不存在: " + normalizedTaskId));
         if (!TASK_STATUS_FAILED.equals(snapshot.status())) {
@@ -438,7 +446,6 @@ public class NewsWorkbenchService {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, ex.getMessage());
         }
 
-        String note = req == null || req.note() == null ? null : req.note().trim();
         recordTaskEvent(normalizedTaskId, TASK_EVENT_ACTION_RETRY, TASK_STATUS_FAILED, "PENDING",
                 operator, note);
         return loadTaskView(normalizedTaskId);
@@ -503,8 +510,11 @@ public class NewsWorkbenchService {
                     + "：请使用失败窗口重试入口重新打开，不要重复入队";
         }
         if (TASK_STATUS_COMPLETED.equals(existing.status())) {
+            // 别说「会被游标规则拒绝」：enqueueWindow 不比对游标，complete() 在
+            // shouldAdvanceCursor=false 时也不抛错。换成新 taskId 会真的重新领取并重采同一窗口。
             return "任务 ID " + taskId + " 已存在且当前状态为 COMPLETED" + suffix
-                    + "：该窗口已完成，重复入队会被游标推进规则拒绝；请改用新的 taskId";
+                    + "：该窗口已采集完成。同窗口重复采集不会推进游标，只会在资料池里产生重复记录；"
+                    + "确需重采请确认是有意为之，并改用新的 taskId";
         }
         return "任务 ID " + taskId + " 已存在且当前状态为 " + existing.status() + suffix
                 + "：请改用新的 taskId";

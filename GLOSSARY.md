@@ -21,6 +21,9 @@
 | 资讯刊物预览（News Issue Preview） | 管理员按资讯发布日期生成的只读报告，依据已发布修订的 PMID 或 DOI 聚合，保留各条发布修订的溯源 | `newsworkbench/NewsIssueService.java` |
 | 资讯列表缓存纪元（News List Cache Epoch） | 持久化单调递增的缓存失效纪元；写事务提交前推进并于 `afterCommit()` 同步 Redis 世代，若 Redis 失效失败则读侧凭数据库纪元降级穿透并自愈 | `V42` / `NewsListCacheService` |
 | 模型调用回执（Model Call Receipt） | 付费模型调用前写入的预扣预算与外部请求台账，用于区分预检中止与 `OUTCOME_UNKNOWN` 并支持人工对账，禁止未知付费状态下自动重发 | `V41` / `newscuration/NewsCurationService.java` |
+| 采集任务操作审计（Collection Task Event） | 管理员对采集任务的人工操作留痕（入队 `ENQUEUE` / 失败窗口重试 `RETRY`），含操作人、前后状态与备注；只记操作，不替代任务自身的状态列 | `V43` `t_news_collection_task_event` / `newsworkbench/NewsWorkbenchService.java` |
+| 失败窗口重试（Failed Window Retry） | 把 `FAILED` 采集任务重新打开为 `PENDING` 的**人工**动作：复用 `enqueueWindow` 已有的重开能力，不另建状态机；不自动跳过失败窗口，也不静默推进游标 | `newsworkbench/NewsWorkbenchService#retryFailedTask` → `newsingestion/NewsIngestionService#enqueueWindow` |
+| 可信代理声明（trusted-proxy-addresses） | 运维声明的「有权代表客户端说话」的反向代理地址（精确 IP 或 CIDR）；启动时与 Tomcat 的 `server.tomcat.remoteip.internal-proxies` 正则交叉核对，声明的每个地址都必须被信任，实际信任范围也不得明显更宽 | 声明 `eye-diagnosis.news-ingestion.trusted-proxy-addresses`；核对 `newsingestion/NewsProxyTrustRules.java`、`config/StartupSafetyGuard.java` |
 | NewsBench（资讯精选离线评测） | 基于冻结夹具集验证眼科相关性筛选、逐字引文地面校验、摘要许可遵守与提示词注入拦截的离线评测基线 | `contracts/news/newsbench/` / `newscuration/NewsBenchRunner.java` |
 | Agent 会话 | 一次智能对话的线程；消息写入由 `ChatMessageWriter` 承担事务 | `agent/service/` |
 | 流式故障（AgentStreamError） | Agent 流里失败时对外的机器可读码与人话；模型服务故障与「服务端自己坏了」分开 | `agent/AgentStreamError.java` |

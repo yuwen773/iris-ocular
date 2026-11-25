@@ -241,7 +241,8 @@ class NewsWorkbenchMySqlIntegrationTest {
                         "2026-10-01",
                         "2026-10-02",
                         3
-                )
+                ),
+                null
         );
         assertEquals("PENDING", created.status());
         assertEquals("wb-manual-task-1", created.taskId());
@@ -249,7 +250,7 @@ class NewsWorkbenchMySqlIntegrationTest {
         BusinessException dupEx = assertThrows(BusinessException.class, () -> workbenchService.enqueueTask(
                 new NewsWorkbenchModels.EnqueueTaskRequest(
                         "wb-manual-task-1", "pubmed", 2L, "glaucoma[Title/Abstract]",
-                        "2026-10-01", "2026-10-02", 3)));
+                        "2026-10-01", "2026-10-02", 3), null));
         assertEquals(ErrorCode.PARAMS_ERROR.getCode(), dupEx.getCode());
 
         NewsWorkerIdentity pubmedWorker = new NewsWorkerIdentity("w-pubmed", java.util.Set.of("pubmed"));
@@ -292,7 +293,7 @@ class NewsWorkbenchMySqlIntegrationTest {
                 new NewsWorkbenchModels.RegisterSourceConfigRequest(7L, "ophthalmology", "2026-10-01"));
         NewsWorkbenchModels.CollectionTaskVO created = workbenchService.enqueueTask(
                 new NewsWorkbenchModels.EnqueueTaskRequest(
-                        "wb-retry-1", "pubmed", 7L, "ophthalmology", "2026-10-01", "2026-10-02", 2));
+                        "wb-retry-1", "pubmed", 7L, "ophthalmology", "2026-10-01", "2026-10-02", 2), null);
         assertEquals("PENDING", created.status());
 
         // 人为把任务置为 FAILED（模拟 Worker 报告不可重试失败）
@@ -301,6 +302,17 @@ class NewsWorkbenchMySqlIntegrationTest {
                 SET status = 'FAILED', attemptCount = 2, lastFailureCode = 'SOURCE_TIMEOUT'
                 WHERE taskId = 'wb-retry-1'
                 """);
+
+        // note 超过列宽必须在重开之前被拒绝：审计写入发生在 enqueueWindow 提交之后，
+        // 先提交再失败会变成「窗口已重开、接口报错、审计缺失」。
+        BusinessException noteTooLong = assertThrows(BusinessException.class,
+                () -> workbenchService.retryFailedTask("wb-retry-1",
+                        new NewsWorkbenchModels.RetryTaskRequest(2, "x".repeat(513)), adminActor));
+        assertEquals(ErrorCode.PARAMS_ERROR.getCode(), noteTooLong.getCode());
+        assertEquals("FAILED", ingestionService.getTask("wb-retry-1").orElseThrow().status(),
+                "被拒绝的重试不得改动任务状态");
+        assertEquals(1, workbenchService.listTaskEvents("wb-retry-1").size(),
+                "被拒绝的重试不得写审计");
 
         NewsWorkbenchModels.CollectionTaskVO reopened = workbenchService.retryFailedTask(
                 "wb-retry-1", new NewsWorkbenchModels.RetryTaskRequest(2, "重跑失败窗口"), adminActor);
@@ -367,22 +379,24 @@ class NewsWorkbenchMySqlIntegrationTest {
                 "europe-pmc",
                 new NewsWorkbenchModels.RegisterSourceConfigRequest(3L, "ophthalmology", "2026-10-01"));
         workbenchService.enqueueTask(new NewsWorkbenchModels.EnqueueTaskRequest(
-                "wb-dup-completed", "europe-pmc", 3L, "ophthalmology", "2026-10-01", "2026-10-02", 1));
+                "wb-dup-completed", "europe-pmc", 3L, "ophthalmology", "2026-10-01", "2026-10-02", 1), null);
         jdbc.update("UPDATE t_news_collection_task SET status = 'COMPLETED' WHERE taskId = 'wb-dup-completed'");
         BusinessException completedDup = assertThrows(BusinessException.class,
                 () -> workbenchService.enqueueTask(new NewsWorkbenchModels.EnqueueTaskRequest(
-                        "wb-dup-completed", "europe-pmc", 3L, "ophthalmology", "2026-10-01", "2026-10-02", 1)));
+                        "wb-dup-completed", "europe-pmc", 3L, "ophthalmology", "2026-10-01", "2026-10-02", 1), null));
         assertEquals(ErrorCode.PARAMS_ERROR.getCode(), completedDup.getCode());
         assertTrue(completedDup.getMessage().contains("COMPLETED"), completedDup.getMessage());
-        assertTrue(completedDup.getMessage().contains("游标"), completedDup.getMessage());
+        // 语义必须真实：同窗口重复采集只会让 complete() 跳过推进游标，不会被任何规则拒绝。
+        assertTrue(completedDup.getMessage().contains("不会推进游标"), completedDup.getMessage());
+        assertTrue(!completedDup.getMessage().contains("会被游标推进规则拒绝"), completedDup.getMessage());
 
         // 失败窗口的重复入队必须指向「失败窗口重试入口」，而不是含糊的「任务 ID 已存在」
         workbenchService.enqueueTask(new NewsWorkbenchModels.EnqueueTaskRequest(
-                "wb-dup-failed", "pubmed", 7L, "ophthalmology", "2026-10-05", "2026-10-06", 1));
+                "wb-dup-failed", "pubmed", 7L, "ophthalmology", "2026-10-05", "2026-10-06", 1), null);
         jdbc.update("UPDATE t_news_collection_task SET status = 'FAILED' WHERE taskId = 'wb-dup-failed'");
         BusinessException failedDup = assertThrows(BusinessException.class,
                 () -> workbenchService.enqueueTask(new NewsWorkbenchModels.EnqueueTaskRequest(
-                        "wb-dup-failed", "pubmed", 7L, "ophthalmology", "2026-10-05", "2026-10-06", 1)));
+                        "wb-dup-failed", "pubmed", 7L, "ophthalmology", "2026-10-05", "2026-10-06", 1), null));
         assertEquals(ErrorCode.PARAMS_ERROR.getCode(), failedDup.getCode());
         assertTrue(failedDup.getMessage().contains("失败窗口"), failedDup.getMessage());
         assertTrue(failedDup.getMessage().contains("重试入口"), failedDup.getMessage());
@@ -397,9 +411,9 @@ class NewsWorkbenchMySqlIntegrationTest {
                 "pubmed",
                 new NewsWorkbenchModels.RegisterSourceConfigRequest(9L, "ophthalmology", "2026-10-01"));
         workbenchService.enqueueTask(new NewsWorkbenchModels.EnqueueTaskRequest(
-                "wb-block-early", "pubmed", 9L, "ophthalmology", "2026-10-01", "2026-10-02", 1));
+                "wb-block-early", "pubmed", 9L, "ophthalmology", "2026-10-01", "2026-10-02", 1), null);
         workbenchService.enqueueTask(new NewsWorkbenchModels.EnqueueTaskRequest(
-                "wb-block-late", "pubmed", 9L, "ophthalmology", "2026-10-02", "2026-10-03", 1));
+                "wb-block-late", "pubmed", 9L, "ophthalmology", "2026-10-02", "2026-10-03", 1), null);
         jdbc.update("""
                 UPDATE t_news_collection_task
                 SET status = 'FAILED', attemptCount = 1, lastFailureCode = 'SOURCE_TIMEOUT'
@@ -427,7 +441,8 @@ class NewsWorkbenchMySqlIntegrationTest {
     }
 
     @Test
-    void candidateQueueDetailAndLinkedNewsStatus() throws Exception {        long revAccepted = ingestSingleMaterial(
+    void candidateQueueDetailAndLinkedNewsStatus() throws Exception {
+        long revAccepted = ingestSingleMaterial(
                 "wb-cand-1", "pubmed", "PMID-C1",
                 "Diabetic Retinopathy Screening Diagnostic Accuracy", "CC0",
                 "Deep learning screening reached high sensitivity for referable diabetic retinopathy in multi-center evaluation."

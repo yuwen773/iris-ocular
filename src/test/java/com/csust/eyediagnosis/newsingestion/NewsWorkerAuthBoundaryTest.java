@@ -223,7 +223,8 @@ class NewsWorkerAuthBoundaryTest {
     }
 
     @Test
-    void oversizedBodyReturnsRaw400ControlErrorWithoutBaseResponseWrapper() throws Exception {        byte[] oversized = new byte[NewsWireModels.MAX_REQUEST_BYTES + 1];
+    void oversizedBodyReturnsRaw400ControlErrorWithoutBaseResponseWrapper() throws Exception {
+        byte[] oversized = new byte[NewsWireModels.MAX_REQUEST_BYTES + 1];
         mockMvc.perform(post("/api/internal/news/v1/leases/task-001/batches")
                         .contextPath("/api")
                         .header(NewsWorkerAuthFilter.WORKER_KEY_HEADER, VALID_WORKER_KEY)

@@ -232,8 +232,9 @@ eye-diagnosis:
     # 因为 native 转发处理会用 X-Forwarded-For 改写 getRemoteAddr()，直连对端不可判定。
     allowed-remote-addresses: []
     # 显式声明可信反向代理（精确 IP 或 CIDR）。启用 server.forward-headers-strategy=native
-    # 时必须声明，且要与 server.tomcat.remoteip.internal-proxies 一致：启动基线会核对两者，
-    # 并拒绝「Tomcat 实际信任的范围比声明宽」的配置（例如信任整个 10/8）。
+    # 时必须声明：启动基线会与 server.tomcat.remoteip.internal-proxies 交叉核对——声明的每个
+    # 地址都必须落在正则内，正则也不得命中声明范围之外的探针地址（例如信任整个 10/8 会被拒绝）。
+    # 这是对常见过宽写法的拦截，不是对任意正则覆盖范围的穷尽证明。
     trusted-proxy-addresses: []
     require-https: false
     plaintext-allowed: false

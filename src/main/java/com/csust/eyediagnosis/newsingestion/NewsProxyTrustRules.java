@@ -17,7 +17,8 @@ import java.util.regex.PatternSyntaxException;
  *
  * <p>应用侧无法枚举一个正则到底覆盖了哪些地址，但可以核对两件事：
  * 声明的每个代理都必须在正则里（否则声明与运行时不一致），以及正则不能命中声明范围之外的
- * 邻近地址（否则实际信任范围比声明宽）。这里用「声明范围的边界外探针 + 若干哨兵地址」来判定。
+ * 邻近地址（否则实际信任范围比声明宽）。这里用「声明范围的边界外探针 + 若干哨兵地址」来判定：
+ * 它拦住的是常见过宽写法（整段私网、抄默认值），<b>不是</b>对任意正则覆盖范围的穷尽证明。
  */
 public final class NewsProxyTrustRules {
 
@@ -103,8 +104,8 @@ public final class NewsProxyTrustRules {
 
         Set<String> probes = new LinkedHashSet<>(SENTINEL_ADDRESSES);
         for (long[] range : ranges) {
-            probes.add(format(range[0] - 1));
-            probes.add(format(range[1] + 1));
+            addProbe(probes, range[0] - 1);
+            addProbe(probes, range[1] + 1);
         }
         for (String probe : probes) {
             long address = parseIpv4(probe);
@@ -178,6 +179,16 @@ public final class NewsProxyTrustRules {
             result = (result << 8) | octet;
         }
         return result;
+    }
+
+    /**
+     * 声明范围边界外的探针。越界（例如声明 0.0.0.0/0 或 255.255.255.255）时跳过：
+     * 不能把越界值折成 {@code 0.0.0.0} 这种合法地址，那会让探针伪装成真实地址去匹配正则。
+     */
+    private static void addProbe(Set<String> probes, long address) {
+        if (address >= 0 && address <= 0xFFFFFFFFL) {
+            probes.add(format(address));
+        }
     }
 
     private static String format(long address) {

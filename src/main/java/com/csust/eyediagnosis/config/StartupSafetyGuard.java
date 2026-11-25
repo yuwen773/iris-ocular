@@ -165,7 +165,9 @@ public class StartupSafetyGuard {
                             Bindable.listOf(String.class))
                     .orElse(List.of());
             for (NewsProxyTrustRules.Finding finding : NewsProxyTrustRules.check(internalProxies, declaredProxies)) {
-                violations.add("可信代理边界不一致：" + finding.detail());
+                // kind 是稳定的机器可读分类（PATTERN_MISSING / TRUST_BROADER_THAN_DECLARED …），
+                // 部署时可以直接 grep；detail 给人看。
+                violations.add("可信代理边界不一致[" + finding.kind() + "]：" + finding.detail());
             }
         }
     }
