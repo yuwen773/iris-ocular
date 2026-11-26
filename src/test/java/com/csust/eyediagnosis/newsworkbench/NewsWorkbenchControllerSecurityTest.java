@@ -10,6 +10,7 @@ import com.csust.eyediagnosis.exception.BusinessException;
 import com.csust.eyediagnosis.exception.ErrorCode;
 import com.csust.eyediagnosis.exception.GlobalExceptionHandler;
 import com.csust.eyediagnosis.model.entity.User;
+import com.csust.eyediagnosis.newsingestion.NewsCollectionScheduleStatusService;
 import com.csust.eyediagnosis.service.UserService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -46,6 +47,7 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -57,6 +59,7 @@ class NewsWorkbenchControllerSecurityTest {
     private NewsWorkbenchService workbenchService;
     private UserService userService;
     private NewsIssueService issueService;
+    private NewsCollectionScheduleStatusService scheduleStatus;
     private MockMvc mockMvc;
 
     @BeforeEach
@@ -64,6 +67,7 @@ class NewsWorkbenchControllerSecurityTest {
         workbenchService = mock(NewsWorkbenchService.class);
         userService = mock(UserService.class);
         issueService = mock(NewsIssueService.class);
+        scheduleStatus = mock(NewsCollectionScheduleStatusService.class);
 
         User admin = new User();
         admin.setId(1001L);
@@ -81,11 +85,31 @@ class NewsWorkbenchControllerSecurityTest {
         AspectJProxyFactory proxy = new AspectJProxyFactory(
                 new NewsWorkbenchController(workbenchService, userService, issueService));
         proxy.addAspect(auth);
-        mockMvc = MockMvcBuilders.standaloneSetup((NewsWorkbenchController) proxy.getProxy())
+        AspectJProxyFactory scheduleProxy = new AspectJProxyFactory(new NewsCollectionScheduleController(scheduleStatus));
+        scheduleProxy.addAspect(auth);
+        mockMvc = MockMvcBuilders.standaloneSetup(proxy.getProxy(), scheduleProxy.getProxy())
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .setMessageConverters(jsonConverter)
                 .addFilters(sameOriginFilter)
                 .build();
+    }
+
+    @Test
+    void onlyAdministratorsReadScheduleTelemetryAndTheResponseIsNotCached() throws Exception {
+        User viewer = new User();
+        viewer.setUserRole(AuthConstant.DEFAULT_ROLE);
+        when(userService.getLoginUser(any())).thenReturn(viewer);
+        mockMvc.perform(get("/api/admin/news-workbench/scheduling").contextPath("/api"))
+                .andExpect(jsonPath("$.code").value(ErrorCode.NO_AUTH_ERROR.getCode()));
+        verifyNoInteractions(scheduleStatus);
+
+        viewer.setUserRole(AuthConstant.ADMIN_ROLE);
+        when(scheduleStatus.status()).thenReturn(new NewsCollectionScheduleStatusService.ScheduleStatus(
+                false, false, List.of(), List.of()));
+        mockMvc.perform(get("/api/admin/news-workbench/scheduling").contextPath("/api"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.data.scheduleEnabled").value(false));
     }
 
     @Test
@@ -217,7 +241,7 @@ class NewsWorkbenchControllerSecurityTest {
         // 之前的桩是「抛异常」，重新打桩要用 doReturn：when(...) 会先真的调用一次 mock。
         org.mockito.Mockito.doReturn(admin).when(userService).getLoginUser(any());
         when(workbenchService.retryFailedTask(eq("task-1"), any(), any())).thenReturn(new NewsWorkbenchModels.CollectionTaskVO(
-                "task-1", "pubmed", 1L, "ophthalmology", "2026-10-01", "2026-10-02",
+                "task-1", "MANUAL", "pubmed", 1L, "ophthalmology", "2026-10-01", "2026-10-02",
                 "PENDING", 1L, 2, 5, null, null, false, null, null, null, null, null,
                 null, null, null, null, null, false));
 

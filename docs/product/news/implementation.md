@@ -21,9 +21,9 @@
 | WP-07 · 灰度 | 真实信源逐一验收，核验数据使用许可。以部署环境的资源限制和定时互斥执行，测量 Worker 自身开销，以及同时运行时 Java 和眼底推理的 P95 延迟。见 [WP-07 验收记录](wp-07-canary.md)。 |
 | WP-07G · 定向整改 | 代理信任边界收口（真实 Tomcat 实测 + 启动基线核对）、失败窗口重试入口与阻塞原因展示、操作审计、交付口径修订。见 [WP-07 验收记录](wp-07-canary.md) 与 [WP-08 待办](wp-08-backlog.md)。 |
 
-**当前未实现**（不要按已实现读）：自动窗口调度与生产定时部署、真实模型 Provider 适配、
-NewsBench 数据集扩充——三项归入 [WP-08 待办](wp-08-backlog.md)。Worker 当前是 run-once 单次执行，
-模型客户端是 `DisabledNewsCurationModelClient`（不产生任何付费调用）。
+WP-07 已通过 PR #168 集成并关闭。管理员默认可访问资讯工作台及管理 API。普通用户无权访问。工作台读取仅访问内部数据，采集和 AI 精选默认关闭。详见 [合并和治理记录](wp-07-canary.md#wp-07h-合并收口)。
+
+WP-08A 由 Java 规划增量窗口并提供 systemd Worker 定时执行示例。见 [调度设计与运维](wp-08a-scheduling.md)。真实模型 Provider 与 NewsBench 扩充留在 [WP-08 待办](wp-08-backlog.md)。
 
 离线验收和资源读数见 [首轮验收记录](../../archive/2026-12/news-worker-acceptance.md)。三个信源分别核验、分别启用。
 

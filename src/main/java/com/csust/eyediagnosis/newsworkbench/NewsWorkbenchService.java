@@ -113,7 +113,7 @@ public class NewsWorkbenchService {
                    CAST(CASE WHEN t.status = 'LEASED' AND t.leaseExpiresAt <= UTC_TIMESTAMP(6) THEN 1 ELSE 0 END AS SIGNED)
                        AS leaseExpired,
                    DATE_FORMAT(t.nextAttemptAt, '%Y-%m-%dT%H:%i:%s.%fZ') AS nextAttemptAtUtc,
-                   t.lastFailureCode, t.committedBatchCount, t.committedRecordCount,
+                   t.taskType, t.lastFailureCode, t.committedBatchCount, t.committedRecordCount,
                    DATE_FORMAT(t.committedCursor, '%Y-%m-%d') AS committedCursor,
                    DATE_FORMAT(t.completedAt, '%Y-%m-%dT%H:%i:%s.%fZ') AS completedAtUtc,
                    DATE_FORMAT(t.createdAt, '%Y-%m-%dT%H:%i:%s.%fZ') AS createdAtUtc,
@@ -1104,6 +1104,7 @@ public class NewsWorkbenchService {
         String blockedByStatus = rs.getString("blockedByStatus");
         return new NewsWorkbenchModels.CollectionTaskVO(
                 rs.getString("taskId"),
+                rs.getString("taskType"),
                 rs.getString("source"),
                 rs.getLong("sourceConfigVersion"),
                 rs.getString("queryText"),

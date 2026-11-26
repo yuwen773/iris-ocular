@@ -1,0 +1,20 @@
+[Unit]
+Description=Iris News Worker collection run
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=iris-news
+Group=iris-news
+EnvironmentFile=/etc/iris-news-worker/worker.env
+ExecStart=/opt/iris-news-worker/.venv/bin/iris-news-worker run-once --concurrency 3 --seconds 55
+TimeoutStartSec=65s
+TimeoutStopSec=8s
+CPUQuota=50%
+MemoryMax=256M
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+UMask=0077

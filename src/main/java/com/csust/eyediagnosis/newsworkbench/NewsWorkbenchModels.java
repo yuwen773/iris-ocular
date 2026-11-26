@@ -97,6 +97,7 @@ public final class NewsWorkbenchModels {
 
     public record CollectionTaskVO(
             String taskId,
+            String taskType,
             String source,
             long sourceConfigVersion,
             String queryText,

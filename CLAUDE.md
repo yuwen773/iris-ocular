@@ -88,6 +88,7 @@ Java 21 与本机 MySQL 实例的环境事实见主检出目录的 `CLAUDE.local
 | NewsController | `/api/news/*` | News CRUD |
 | NewsWorkerLeaseController | `/api/internal/news/v1/leases/*` | 内部资讯采集 Worker 租约领取、批次上报、完成与失败回执（机器凭证鉴权） |
 | NewsWorkbenchController | `/api/admin/news-workbench/*` | 管理员资讯引擎工作台：任务追踪、信源与预算管理、候选证据审查、调用对账与评测历史 |
+| NewsCollectionScheduleController | `/api/admin/news-workbench/scheduling` | 管理员读取自动采集状态、进度和 Worker 领取观测 |
 | ControlledReferenceController | `/api/controlled-references/*` | 受控参考资料上传、治理与检索 |
 | DoctorReviewController | `/api/doctor-reviews/*` | 医生复核冻结草稿 |
 | PatientDraftTestController / PatientDraftSeedController | `/api/patient-draft-test/*` | 仅管理员、需显式开启的草稿校验 |
@@ -97,7 +98,7 @@ Java 21 与本机 MySQL 实例的环境事实见主检出目录的 `CLAUDE.local
 
 ## Database (MySQL `diagnosis`)
 
-Schema: `src/main/resources/db/migration/V*.sql` (Flyway migrations — authoritative; `db/callback/` bootstraps fresh installs). Never edit an applied migration; add a new one. Current head is V43 after adding News Engine V40–V43 to master V39; upgrade paths per target database are in `docs/architecture/migration-matrix.md`. Key tables: `t_user`, `t_user_wechat`, `t_config_draft`, `t_config_release`, `t_config_active_pointer`, `t_config_request`, `t_config_audit_event`, `t_config_publish_request`, `t_user_feedback`, `t_user_notification`, `t_diagnosis`, `t_diagnosis_task`, `t_agent_session`, `t_agent_message`, `t_agent_tool_audit`, `t_mcp_server`, `t_knowledge_document`, `t_news`, `t_news_audit`, `t_news_revision`, `t_news_cache_epoch`, `t_news_source`, `t_news_source_cursor`, `t_news_collection_task`, `t_news_collection_task_event`, `t_news_material`, `t_news_material_revision`, `t_news_curation_budget`, `t_news_model_call_receipt`, `t_news_curation_candidate`, `t_news_bench_run`, `t_controlled_reference`, `t_patient_draft_run`, `t_doctor_review`, `t_patient_authorization`, `t_diagnosis_run`.
+Schema: `src/main/resources/db/migration/V*.sql` (Flyway migrations — authoritative; `db/callback/` bootstraps fresh installs). Never edit an applied migration; add a new one. Current head is V44 with automatic collection scheduling; upgrade paths per target database are in `docs/architecture/migration-matrix.md`. Key tables: `t_user`, `t_user_wechat`, `t_config_draft`, `t_config_release`, `t_config_active_pointer`, `t_config_request`, `t_config_audit_event`, `t_config_publish_request`, `t_user_feedback`, `t_user_notification`, `t_diagnosis`, `t_diagnosis_task`, `t_agent_session`, `t_agent_message`, `t_agent_tool_audit`, `t_mcp_server`, `t_knowledge_document`, `t_news`, `t_news_audit`, `t_news_revision`, `t_news_cache_epoch`, `t_news_source`, `t_news_source_cursor`, `t_news_collection_task`, `t_news_collection_task_event`, `t_news_collection_schedule`, `t_news_worker_poll`, `t_news_material`, `t_news_material_revision`, `t_news_curation_budget`, `t_news_model_call_receipt`, `t_news_curation_candidate`, `t_news_bench_run`, `t_controlled_reference`, `t_patient_draft_run`, `t_doctor_review`, `t_patient_authorization`, `t_diagnosis_run`.
 
 **命名规范**: 数据库列名统一使用**小驼峰**命名（如 `userId`, `fileName`, `isDelete`），与 Java 实体类字段保持一致。MyBatis Plus 配置 `map-underscore-to-camel-case: false`，不会自动转换下划线。
 

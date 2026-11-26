@@ -2,6 +2,7 @@ package com.csust.eyediagnosis.newsingestion;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.stereotype.Service;
@@ -41,6 +42,7 @@ import java.util.TreeSet;
 @Slf4j
 @Service
 public class NewsIngestionService {
+    static final String AUTOMATIC_TASK_PREFIX = "auto-";
 
     private static final int PROMOTE_CHUNK_SIZE = 200;
     private static final SecureRandom RANDOM = new SecureRandom();
@@ -50,7 +52,7 @@ public class NewsIngestionService {
 
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transactions;
-    private final TransactionTemplate taskRetryTransactions;
+    private final TransactionTemplate auditedTaskTransactions;
     private final NewsIngestionProperties properties;
     private final NewsWireCodec codec;
 
@@ -61,8 +63,8 @@ public class NewsIngestionService {
                                 NewsWireCodec codec) {
         this.jdbc = jdbc;
         this.transactions = new TransactionTemplate(transactionManager);
-        this.taskRetryTransactions = new TransactionTemplate(transactionManager);
-        this.taskRetryTransactions.setPropagationBehavior(TransactionDefinition.PROPAGATION_MANDATORY);
+        this.auditedTaskTransactions = new TransactionTemplate(transactionManager);
+        this.auditedTaskTransactions.setPropagationBehavior(TransactionDefinition.PROPAGATION_MANDATORY);
         this.properties = properties;
         this.codec = codec;
     }
@@ -131,13 +133,25 @@ public class NewsIngestionService {
         validateSourceAndConfig(source, sourceConfigVersion, query);
         transactions.executeWithoutResult(status -> {
             jdbc.update("INSERT IGNORE INTO t_news_source (source, enabled) VALUES (?, 1)", source);
-            lockOrCreateCursorRow(source, sourceConfigVersion, query.trim(), initialCursor);
+            CursorRow cursor = lockOrCreateCursorRow(source, sourceConfigVersion, query.trim(), initialCursor);
+            if (initialCursor != null && cursor.committedCursor == null) {
+                if (Boolean.TRUE.equals(jdbc.queryForObject("""
+                        SELECT EXISTS (SELECT 1 FROM t_news_collection_task
+                                       WHERE source = ? AND sourceConfigVersion = ?)
+                        """, Boolean.class, source, sourceConfigVersion))) {
+                    throw new IllegalArgumentException("已有采集任务，请先完成该窗口以初始化游标");
+                }
+                jdbc.update("""
+                        UPDATE t_news_source_cursor SET committedCursor = ?
+                        WHERE source = ? AND sourceConfigVersion = ?
+                        """, initialCursor, source, sourceConfigVersion);
+            }
         });
     }
 
     public void enqueueWindow(String taskId, String source, long sourceConfigVersion, String query,
                               LocalDate startOn, LocalDate endBefore, int maxAttempts) {
-        if (!NewsWireCodec.isValidIdentifier(taskId)
+        if (!NewsWireCodec.isValidIdentifier(taskId) || taskId.startsWith(AUTOMATIC_TASK_PREFIX)
                 || startOn == null || endBefore == null || !startOn.isBefore(endBefore)
                 || maxAttempts < 1) {
             throw new IllegalArgumentException("Invalid collection window parameters");
@@ -146,16 +160,44 @@ public class NewsIngestionService {
         String trimmedQuery = query.trim();
         // REQUIRED joins the workbench transaction when creation needs an operation audit.
         transactions.executeWithoutResult(status -> {
-            jdbc.update("INSERT IGNORE INTO t_news_source (source, enabled) VALUES (?, 1)", source);
+            // Share the scheduler/claim source mutex so ownership cannot change during enqueue.
             jdbc.update("""
-                    INSERT INTO t_news_collection_task
-                        (taskId, source, sourceConfigVersion, queryText, windowStartOn, windowEndBefore, maxAttempts, nextAttemptAt)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP(6))
-                    """,
-                    taskId, source, sourceConfigVersion, trimmedQuery,
-                    startOn.toString(), endBefore.toString(), maxAttempts);
-            lockOrCreateCursorRow(source, sourceConfigVersion, trimmedQuery, null);
+                    INSERT INTO t_news_source (source, enabled) VALUES (?, 1)
+                    ON DUPLICATE KEY UPDATE source = VALUES(source)
+                    """, source);
+            insertWindow(taskId, source, sourceConfigVersion, trimmedQuery, startOn, endBefore, maxAttempts, "MANUAL");
+            CursorRow cursor = lockOrCreateCursorRow(source, sourceConfigVersion, trimmedQuery, null);
+            boolean scheduledVersion = Boolean.TRUE.equals(jdbc.queryForObject("""
+                    SELECT EXISTS (SELECT 1 FROM t_news_collection_schedule
+                                   WHERE source = ? AND sourceConfigVersion = ? FOR UPDATE)
+                    """, Boolean.class, source, sourceConfigVersion));
+            if (scheduledVersion && (cursor.committedCursor == null || endBefore.isAfter(cursor.committedCursor))) {
+                throw new IllegalArgumentException("调度管理的配置版本仅允许手工补采已提交窗口");
+            }
         });
+    }
+
+    void enqueueAutomaticWindow(String taskId, String source, long version, String query,
+                                LocalDate startOn, LocalDate endBefore) {
+        auditedTaskTransactions.executeWithoutResult(status -> {
+            insertWindow(taskId, source, version, query, startOn, endBefore,
+                    properties.getDefaultMaxAttempts(), "AUTO");
+            jdbc.update("""
+                    INSERT INTO t_news_collection_task_event (taskId, action, toStatus, actorRole, createdAt)
+                    VALUES (?, 'AUTO_ENQUEUE', 'PENDING', 'scheduler', UTC_TIMESTAMP(6))
+                    """, taskId);
+        });
+    }
+
+    private void insertWindow(String taskId, String source, long version, String query,
+                              LocalDate startOn, LocalDate endBefore, int maxAttempts, String taskType) {
+        jdbc.update("""
+                INSERT INTO t_news_collection_task
+                    (taskId, source, sourceConfigVersion, queryText, windowStartOn, windowEndBefore,
+                     maxAttempts, taskType, nextAttemptAt)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP(6))
+                """,
+                taskId, source, version, query, startOn, endBefore, maxAttempts, taskType);
     }
 
     /** Reopens the observed failed generation inside the caller's task-audit transaction. */
@@ -163,7 +205,7 @@ public class NewsIngestionService {
         if (extraAttempts < 1) {
             throw new IllegalArgumentException("Invalid retry attempt count");
         }
-        return Boolean.TRUE.equals(taskRetryTransactions.execute(status -> {
+        return Boolean.TRUE.equals(auditedTaskTransactions.execute(status -> {
             jdbc.update("INSERT IGNORE INTO t_news_source (source, enabled) VALUES (?, 1)", task.source());
             int reopened = jdbc.update("""
                     UPDATE t_news_collection_task
@@ -203,10 +245,29 @@ public class NewsIngestionService {
             Optional<NewsWireModels.Lease> lease = Optional.ofNullable(
                     transactions.execute(status -> claimForSource(worker, source)));
             if (lease.isPresent()) {
+                recordWorkerPoll(worker.workerId(), lease.get().taskId());
                 return lease;
             }
         }
+        recordWorkerPoll(worker.workerId(), null);
         return Optional.empty();
+    }
+
+    private void recordWorkerPoll(String workerId, String taskId) {
+        // The lease has already committed. Observation failure must not hide it from its owner.
+        try {
+            jdbc.update("""
+                    INSERT INTO t_news_worker_poll (workerId, lastPollAt, lastClaimAt, lastTaskId)
+                    VALUES (?, UTC_TIMESTAMP(6), IF(? IS NULL, NULL, UTC_TIMESTAMP(6)), ?)
+                    ON DUPLICATE KEY UPDATE lastPollAt = GREATEST(lastPollAt, VALUES(lastPollAt)),
+                        lastTaskId = IF(lastClaimAt IS NULL OR VALUES(lastClaimAt) >= lastClaimAt,
+                                        COALESCE(VALUES(lastTaskId), lastTaskId), lastTaskId),
+                        lastClaimAt = GREATEST(COALESCE(lastClaimAt, VALUES(lastClaimAt)),
+                                              COALESCE(VALUES(lastClaimAt), lastClaimAt))
+                    """, workerId, taskId, taskId);
+        } catch (DataAccessException ex) {
+            log.warn("News worker poll observation failed: {}", ex.getClass().getSimpleName());
+        }
     }
 
     public String submitBatch(NewsWorkerIdentity worker, String taskId, String idempotencyKey, byte[] rawBody) {
@@ -339,6 +400,7 @@ public class NewsIngestionService {
                 if (cursorRow.committedCursor != null && task.windowStartOn.isAfter(cursorRow.committedCursor)) {
                     throw NewsControlException.staleLease();
                 }
+                // An already covered replay enqueued during an automatic lease does not create a coverage gap.
                 Integer earlierUnfinished = jdbc.queryForObject("""
                         SELECT COUNT(*)
                         FROM t_news_collection_task
@@ -346,9 +408,10 @@ public class NewsIngestionService {
                           AND sourceConfigVersion = ?
                           AND taskId <> ?
                           AND status <> 'COMPLETED'
+                          AND NOT (? = 'AUTO' AND taskType = 'MANUAL' AND windowEndBefore <= ?)
                           AND (windowStartOn < ? OR (windowStartOn = ? AND windowEndBefore < ?))
                         """, Integer.class,
-                        task.source, task.sourceConfigVersion, taskId,
+                        task.source, task.sourceConfigVersion, taskId, task.taskType, cursorRow.committedCursor,
                         task.windowStartOn.toString(), task.windowStartOn.toString(), task.windowEndBefore.toString());
                 if (earlierUnfinished != null && earlierUnfinished > 0) {
                     throw NewsControlException.staleLease();
@@ -585,7 +648,7 @@ public class NewsIngestionService {
                 SELECT t.taskId, t.source, t.sourceConfigVersion, t.queryText,
                        DATE_FORMAT(t.windowStartOn, '%Y-%m-%d') AS windowStartOn,
                        DATE_FORMAT(t.windowEndBefore, '%Y-%m-%d') AS windowEndBefore,
-                       t.status, t.generation, t.leaseTokenHash, t.leaseWorkerId,
+                       t.status, t.taskType, t.generation, t.leaseTokenHash, t.leaseWorkerId,
                        t.attemptCount, t.maxAttempts,
                        0 AS leaseActive
                 FROM t_news_collection_task t
@@ -668,7 +731,7 @@ public class NewsIngestionService {
                 SELECT taskId, source, sourceConfigVersion, queryText,
                        DATE_FORMAT(windowStartOn, '%Y-%m-%d') AS windowStartOn,
                        DATE_FORMAT(windowEndBefore, '%Y-%m-%d') AS windowEndBefore,
-                       status, generation, leaseTokenHash, leaseWorkerId,
+                       status, taskType, generation, leaseTokenHash, leaseWorkerId,
                        attemptCount, maxAttempts,
                        (leaseExpiresAt IS NOT NULL AND leaseExpiresAt > UTC_TIMESTAMP(6)) AS leaseActive
                 FROM t_news_collection_task
@@ -967,6 +1030,7 @@ public class NewsIngestionService {
                 LocalDate.parse(rs.getString("windowStartOn")),
                 LocalDate.parse(rs.getString("windowEndBefore")),
                 rs.getString("status"),
+                rs.getString("taskType"),
                 rs.getLong("generation"),
                 rs.getString("leaseTokenHash"),
                 rs.getString("leaseWorkerId"),
@@ -992,6 +1056,7 @@ public class NewsIngestionService {
             LocalDate windowStartOn,
             LocalDate windowEndBefore,
             String status,
+            String taskType,
             long generation,
             String leaseTokenHash,
             String leaseWorkerId,

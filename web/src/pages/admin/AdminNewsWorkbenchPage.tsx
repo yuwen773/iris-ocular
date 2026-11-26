@@ -52,6 +52,7 @@ import {
 } from "@/lib/newsWorkbenchApi"
 import { queryKeys } from "@/lib/queryKeys"
 import { AdminNewsIssuePreview } from "./AdminNewsIssuePreview"
+import { AdminNewsCollectionSchedule } from "./AdminNewsCollectionSchedule"
 
 type WorkbenchTab = "candidates" | "tasks" | "sources" | "budgets" | "bench" | "issue"
 
@@ -532,7 +533,7 @@ export function AdminNewsWorkbenchPage(): ReactElement {
         <div>
           <span className="admin-workbench__mono">{row.taskId}</span>
           <div className="admin-workbench__mono">
-            {row.source} · cfg v{row.sourceConfigVersion}
+            {row.source} · cfg v{row.sourceConfigVersion} · {row.taskType === "AUTO" ? "自动" : "人工"}
           </div>
         </div>
       ),
@@ -1074,6 +1075,8 @@ export function AdminNewsWorkbenchPage(): ReactElement {
           />
         </>
       ) : null}
+
+      {activeTab === "sources" && <AdminNewsCollectionSchedule />}
 
       {activeTab === "sources" ? (
         <section className="admin-workbench__sources" aria-label="信源开关与游标配置">

@@ -8,6 +8,7 @@ import { AdminNewsWorkbenchPage } from "./AdminNewsWorkbenchPage"
 import { createNewsFromCandidate } from "@/lib/adminApi"
 import {
   enqueueWorkbenchTask,
+  getCollectionSchedule,
   getWorkbenchCandidateDetail,
   getWorkbenchOverview,
   getNewsIssuePreview,
@@ -37,6 +38,7 @@ vi.mock("@/lib/newsWorkbenchApi", async (importOriginal) => {
   return {
     ...actual,
     getWorkbenchOverview: vi.fn(),
+    getCollectionSchedule: vi.fn(),
     getNewsIssuePreview: vi.fn(),
     listWorkbenchCandidates: vi.fn(),
     getWorkbenchCandidateDetail: vi.fn(),
@@ -68,6 +70,12 @@ function renderWorkbench(initialEntry = "/admin/news-workbench") {
 }
 
 beforeEach(() => {
+  vi.mocked(getCollectionSchedule).mockResolvedValue({
+    ingestionEnabled: false,
+    scheduleEnabled: false,
+    sources: [],
+    workers: [],
+  })
   vi.mocked(getWorkbenchOverview).mockResolvedValue({
     sources: { totalSources: 3, enabledSources: 3 },
     tasks: {
@@ -347,6 +355,12 @@ beforeEach(() => {
       createdAt: "2026-10-22T11:00:00Z",
     },
   ])
+})
+
+it("shows disabled automatic collection and empty worker telemetry in the sources tab", async () => {
+  renderWorkbench("/admin/news-workbench?tab=sources")
+  expect(await screen.findByText("调度未运行")).toBeTruthy()
+  expect(screen.getByText("尚无已认证的领取记录")).toBeTruthy()
 })
 
 afterEach(() => {

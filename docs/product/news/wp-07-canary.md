@@ -1,5 +1,15 @@
 # WP-07 · 资讯采集灰度验收
 
+## WP-07H 合并收口
+
+WP-07 状态为 **CLOSED**。PR #168 从 `e131338e` Squash Merge 到 `534fd20d`，文件树与通过 PR 技术门禁的版本一致。远端主干保留 V40–V43。[PR #168](https://github.com/yuwen773/iris-ocular/pull/168) · [主干 verify](https://github.com/yuwen773/iris-ocular/actions/runs/45740129455) · [主干 news-worker](https://github.com/yuwen773/iris-ocular/actions/runs/45740129513)
+
+「经仓库所有者授权的管理员例外合并，绕过 required approving review 与 CODEOWNER 审批；技术门禁全部通过，但未取得独立人工批准。」
+
+管理员默认可访问工作台和管理 API，普通用户无权访问。采集和 AI 精选默认关闭。工作台页面及读取接口只读取内部数据。生产启用仍为 **BLOCKED**。
+
+## WP-07 灰度证据
+
 验收日期为 2026-11-25，最终核验基线为 `dca52493`（在 `e0dabebf` 之上叠加 WP-07C 整改、Europe PMC 单页修复、转发头可信边界与浏览器业务联调）。本次使用 Windows 工作站、隔离的 Spring Boot `ci` 实例及临时 MySQL 8、Redis 7、Chroma 容器。模型精选保持关闭，实测只涉及眼科资讯采集。以下结论按验证手段分组，**不互相顶替**：官方 API 探针、离线夹具重放、正式 Worker 实采、真实端到端联调各有独立口径。
 
 ## 信源结果
