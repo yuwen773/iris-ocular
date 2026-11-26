@@ -34,9 +34,12 @@ import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mybatis.spring.SqlSessionTemplate;
+import org.springframework.dao.DataAccessException;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.transaction.IllegalTransactionStateException;
 
 import java.nio.file.Path;
 import java.time.Duration;
@@ -162,7 +165,7 @@ class NewsWorkbenchMySqlIntegrationTest {
         lifecycleService = new NewsLifecycleService(newsMapper, auditMapper, jdbc, null, mapper);
 
         workbenchService = new NewsWorkbenchService(
-                jdbc, ingestionService, curationService, curationProperties, mapper);
+                jdbc, txManager, ingestionService, curationService, curationProperties, mapper);
 
         adminActor = new User();
         adminActor.setId(1001L);
@@ -242,10 +245,15 @@ class NewsWorkbenchMySqlIntegrationTest {
                         "2026-10-02",
                         3
                 ),
-                null
+                adminActor
         );
         assertEquals("PENDING", created.status());
         assertEquals("wb-manual-task-1", created.taskId());
+        var audit = workbenchService.listTaskEvents(created.taskId());
+        assertEquals(1, audit.size());
+        assertEquals("ENQUEUE", audit.getFirst().action());
+        assertEquals("PENDING", audit.getFirst().toStatus());
+        assertEquals(1001L, audit.getFirst().actorId());
 
         BusinessException dupEx = assertThrows(BusinessException.class, () -> workbenchService.enqueueTask(
                 new NewsWorkbenchModels.EnqueueTaskRequest(
@@ -280,10 +288,70 @@ class NewsWorkbenchMySqlIntegrationTest {
         assertEquals(1L, leases.getFirst().generation());
     }
 
+    @Test
+    void auditInsertFailureRollsBackNewTaskAndCursorRegistration() {
+        assertTaskAuditInsertFails(() -> workbenchService.enqueueTask(
+                new NewsWorkbenchModels.EnqueueTaskRequest(
+                        "wb-enqueue-rollback", "pubmed", 51L, "ophthalmology", "2026-10-01", "2026-10-02", 2),
+                adminActor));
+
+        assertTrue(ingestionService.getTask("wb-enqueue-rollback").isEmpty());
+        assertTrue(workbenchService.listTaskEvents("wb-enqueue-rollback").isEmpty());
+        assertEquals(0, jdbc.queryForObject("""
+                SELECT COUNT(*) FROM t_news_source_cursor WHERE source = 'pubmed' AND sourceConfigVersion = 51
+                """, Integer.class));
+        assertTrue(ingestionService.claim(WORKER).isEmpty());
+    }
+
+    @Test
+    void auditInsertFailureRollsBackReopenAndPreservesLeaseAndCursor() throws Exception {
+        String taskId = "wb-retry-rollback";
+        LocalDate start = LocalDate.of(2026, 10, 1);
+        workbenchService.registerSourceConfig("pubmed",
+                new NewsWorkbenchModels.RegisterSourceConfigRequest(52L, "ophthalmology", start.toString()));
+        workbenchService.enqueueTask(new NewsWorkbenchModels.EnqueueTaskRequest(
+                taskId, "pubmed", 52L, "ophthalmology", start.toString(), start.plusDays(1).toString(), 1), adminActor);
+        NewsWireModels.Lease lease = ingestionService.claim(WORKER).orElseThrow();
+        byte[] failure = mapper.writeValueAsBytes(Map.of(
+                "generation", lease.generation(), "leaseToken", lease.leaseToken(),
+                "code", "SOURCE_UNAVAILABLE", "retryable", false));
+        ingestionService.fail(WORKER, taskId, lease.generation() + ":fail", failure);
+
+        var previousTask = ingestionService.getTask(taskId).orElseThrow();
+        assertEquals("FAILED", previousTask.status());
+        var previousLeases = workbenchService.listTaskLeases(taskId);
+        var previousEvents = workbenchService.listTaskEvents(taskId);
+        assertThrows(DuplicateKeyException.class, () -> ingestionService.enqueueWindow(
+                taskId, "pubmed", 52L, "ophthalmology", start, start.plusDays(1), 3));
+        assertThrows(IllegalTransactionStateException.class,
+                () -> ingestionService.reopenFailedWindow(previousTask, 3));
+        assertTaskAuditInsertFails(() -> workbenchService.retryFailedTask(
+                taskId, new NewsWorkbenchModels.RetryTaskRequest(3, "审核重试"), adminActor));
+
+        assertEquals(previousTask, ingestionService.getTask(taskId).orElseThrow());
+        assertEquals(previousEvents, workbenchService.listTaskEvents(taskId));
+        assertEquals(previousLeases, workbenchService.listTaskLeases(taskId));
+        assertEquals(Optional.of(start), ingestionService.getCommittedCursor("pubmed", 52L));
+        assertTrue(ingestionService.claim(WORKER).isEmpty());
+    }
+
+    private static void assertTaskAuditInsertFails(Runnable operation) {
+        jdbc.execute("""
+                CREATE TRIGGER fail_task_audit_insert BEFORE INSERT ON t_news_collection_task_event
+                FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'injected task audit failure'
+                """);
+        try {
+            DataAccessException failure = assertThrows(DataAccessException.class, operation::run);
+            assertTrue(failure.getMostSpecificCause().getMessage().contains("injected task audit failure"));
+        } finally {
+            jdbc.execute("DROP TRIGGER fail_task_audit_insert");
+        }
+    }
+
     /**
      * WP-07G：失败窗口恢复。
      *
-     * <p>覆盖：失败窗口可被重新打开（复用既有 enqueueWindow 重开能力）、重试不推进游标、
+     * <p>覆盖：失败窗口可被重新打开、重试不推进游标、
      * 非 FAILED 状态拒绝重试、并发重试只有一路生效、重复入队的错误语义按状态区分。
      */
     @Test
@@ -303,8 +371,7 @@ class NewsWorkbenchMySqlIntegrationTest {
                 WHERE taskId = 'wb-retry-1'
                 """);
 
-        // note 超过列宽必须在重开之前被拒绝：审计写入发生在 enqueueWindow 提交之后，
-        // 先提交再失败会变成「窗口已重开、接口报错、审计缺失」。
+        // note 超过列宽时返回参数错误，状态和审计都保持原样。
         BusinessException noteTooLong = assertThrows(BusinessException.class,
                 () -> workbenchService.retryFailedTask("wb-retry-1",
                         new NewsWorkbenchModels.RetryTaskRequest(2, "x".repeat(513)), adminActor));
@@ -373,6 +440,8 @@ class NewsWorkbenchMySqlIntegrationTest {
         assertEquals(1, successes.size(), "并发重试必须只有一路生效");
         assertEquals(1, failures.size(), "并发重试的落败方必须收到明确错误");
         assertTrue(failures.getFirst() instanceof BusinessException, String.valueOf(failures.getFirst()));
+        assertEquals(List.of("ENQUEUE", "RETRY", "RETRY"), workbenchService.listTaskEvents("wb-retry-1")
+                .stream().map(NewsWorkbenchModels.TaskEventVO::action).toList());
 
         // 重复入队：已完成的窗口与失败窗口要给出不同的、指向正确入口的错误
         workbenchService.registerSourceConfig(

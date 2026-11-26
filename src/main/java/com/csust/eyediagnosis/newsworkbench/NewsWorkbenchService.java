@@ -17,6 +17,8 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -48,11 +50,7 @@ public class NewsWorkbenchService {
     private static final String DEFAULT_BUDGET_SCOPE = "GLOBAL";
     private static final int DEFAULT_MAX_ATTEMPTS = 3;
     private static final int MAX_ALLOWED_ATTEMPTS = 10;
-    /**
-     * {@code t_news_collection_task_event.note} 是 {@code VARCHAR(512)}（V43）。
-     * 服务端必须先校验：重试会先把窗口重开并提交，审计 INSERT 再失败的话，
-     * 就变成「窗口已重开、接口报错、审计缺失」。
-     */
+    /** {@code t_news_collection_task_event.note} 是 {@code VARCHAR(512)}（V43）。 */
     private static final int MAX_TASK_EVENT_NOTE_LENGTH = 512;
     private static final long MAX_PAGE_SIZE = 100L;
     /** 页码算术上限：保证 (current - 1) * pageSize 不溢出 long。 */
@@ -130,6 +128,7 @@ public class NewsWorkbenchService {
     private static final String TASK_EVENT_ACTION_RETRY = "RETRY";
 
     private final JdbcTemplate jdbc;
+    private final TransactionTemplate taskTransactions;
     private final NewsIngestionService ingestionService;
     private final NewsCurationService curationService;
     private final NewsCurationProperties curationProperties;
@@ -137,11 +136,13 @@ public class NewsWorkbenchService {
 
     @Autowired
     public NewsWorkbenchService(JdbcTemplate jdbc,
+                                PlatformTransactionManager transactionManager,
                                 NewsIngestionService ingestionService,
                                 NewsCurationService curationService,
                                 NewsCurationProperties curationProperties,
                                 @Qualifier("newsProtocolObjectMapper") ObjectMapper mapper) {
         this.jdbc = jdbc;
+        this.taskTransactions = new TransactionTemplate(transactionManager);
         this.ingestionService = ingestionService;
         this.curationService = curationService;
         this.curationProperties = curationProperties;
@@ -368,30 +369,28 @@ public class NewsWorkbenchService {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, describeExistingTask(taskId, existing.get()));
         }
 
-        try {
-            ingestionService.enqueueWindow(
-                    taskId, normalizedSource, req.sourceConfigVersion(), req.query(), start, end, maxAttempts);
-        } catch (DuplicateKeyException ex) {
-            // 并发入队同一 taskId：另一路已经建好任务，按同样的口径报错。
-            String status = ingestionService.getTask(taskId)
-                    .map(NewsIngestionService.TaskSnapshot::status)
-                    .orElse("UNKNOWN");
-            throw new BusinessException(ErrorCode.PARAMS_ERROR,
-                    "任务 ID " + taskId + " 已存在且当前状态为 " + status + "，本次入队未生效");
-        } catch (IllegalArgumentException ex) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, ex.getMessage());
-        }
-
-        recordTaskEvent(taskId, TASK_EVENT_ACTION_ENQUEUE, null, "PENDING", operator, null);
-        return loadTaskView(taskId);
+        return taskTransactions.execute(transaction -> {
+            try {
+                ingestionService.enqueueWindow(
+                        taskId, normalizedSource, req.sourceConfigVersion(), req.query(), start, end, maxAttempts);
+            } catch (DuplicateKeyException ex) {
+                String status = ingestionService.getTask(taskId)
+                        .map(NewsIngestionService.TaskSnapshot::status)
+                        .orElse("UNKNOWN");
+                throw new BusinessException(ErrorCode.PARAMS_ERROR,
+                        "任务 ID " + taskId + " 已存在且当前状态为 " + status + "，本次入队未生效");
+            } catch (IllegalArgumentException ex) {
+                throw new BusinessException(ErrorCode.PARAMS_ERROR, ex.getMessage());
+            }
+            recordTaskEvent(taskId, TASK_EVENT_ACTION_ENQUEUE, null, "PENDING", operator, null);
+            return loadTaskView(taskId);
+        });
     }
 
     /**
      * 失败窗口重试：把已经 {@code FAILED} 的窗口重新打开，等价于「再给几次尝试机会」。
      *
-     * <p>刻意复用 {@code NewsIngestionService.enqueueWindow} 已有的 FAILED 重开能力，
-     * 不另建第二套状态机：状态回退、尝试次数、租约字段都由那一条既有路径负责。
-     * 这里额外保证三件事：
+     * <p>重开与操作审计在同一事务中提交。状态回退和尝试次数由采集服务负责。
      * <ul>
      *   <li>只有 {@code FAILED} 能重试，其他状态明确拒绝（不静默覆盖进行中的窗口）；</li>
      *   <li>并发重试只有一路生效，另一路收到「已被并发重试」的明确错误；</li>
@@ -408,7 +407,6 @@ public class NewsWorkbenchService {
         int extraAttempts = requireAllowedAttempts(req == null ? null : req.maxAttempts());
         String note = req == null || req.note() == null ? null : req.note().trim();
         if (note != null && note.length() > MAX_TASK_EVENT_NOTE_LENGTH) {
-            // 必须在重开窗口之前拒绝：审计写入发生在 enqueueWindow 提交之后。
             throw new BusinessException(ErrorCode.PARAMS_ERROR,
                     "note 不得超过 " + MAX_TASK_EVENT_NOTE_LENGTH + " 个字符");
         }
@@ -420,29 +418,21 @@ public class NewsWorkbenchService {
                             + "，只有 FAILED 的失败窗口可以重试");
         }
 
-        try {
-            // 复用既有重开路径：同一 taskId + 同一窗口 + FAILED ⇒ enqueueWindow 会把它重新打开。
-            ingestionService.enqueueWindow(
-                    normalizedTaskId,
-                    snapshot.source(),
-                    snapshot.sourceConfigVersion(),
-                    snapshot.query(),
-                    snapshot.windowStartOn(),
-                    snapshot.windowEndBefore(),
-                    extraAttempts);
-        } catch (DuplicateKeyException ex) {
-            String current = ingestionService.getTask(normalizedTaskId)
-                    .map(NewsIngestionService.TaskSnapshot::status)
-                    .orElse("UNKNOWN");
-            throw new BusinessException(ErrorCode.OPERATION_ERROR,
-                    "任务 " + normalizedTaskId + " 已被并发重试（当前状态 " + current + "），本次重试未生效");
-        } catch (IllegalArgumentException ex) {
-            throw new BusinessException(ErrorCode.OPERATION_ERROR, ex.getMessage());
-        }
-
-        recordTaskEvent(normalizedTaskId, TASK_EVENT_ACTION_RETRY, TASK_STATUS_FAILED, "PENDING",
-                operator, note);
-        return loadTaskView(normalizedTaskId);
+        return taskTransactions.execute(transaction -> {
+            boolean reopened;
+            try {
+                reopened = ingestionService.reopenFailedWindow(snapshot, extraAttempts);
+            } catch (IllegalArgumentException ex) {
+                throw new BusinessException(ErrorCode.OPERATION_ERROR, ex.getMessage());
+            }
+            if (!reopened) {
+                throw new BusinessException(ErrorCode.OPERATION_ERROR,
+                        "任务 " + normalizedTaskId + " 已被其他操作改变，本次重试未生效");
+            }
+            recordTaskEvent(normalizedTaskId, TASK_EVENT_ACTION_RETRY, TASK_STATUS_FAILED, "PENDING",
+                    operator, note);
+            return loadTaskView(normalizedTaskId);
+        });
     }
 
     /** 采集任务的操作审计记录。 */

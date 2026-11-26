@@ -6,6 +6,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.nio.charset.StandardCharsets;
@@ -49,6 +50,7 @@ public class NewsIngestionService {
 
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transactions;
+    private final TransactionTemplate taskRetryTransactions;
     private final NewsIngestionProperties properties;
     private final NewsWireCodec codec;
 
@@ -59,6 +61,8 @@ public class NewsIngestionService {
                                 NewsWireCodec codec) {
         this.jdbc = jdbc;
         this.transactions = new TransactionTemplate(transactionManager);
+        this.taskRetryTransactions = new TransactionTemplate(transactionManager);
+        this.taskRetryTransactions.setPropagationBehavior(TransactionDefinition.PROPAGATION_MANDATORY);
         this.properties = properties;
         this.codec = codec;
     }
@@ -140,20 +144,9 @@ public class NewsIngestionService {
         }
         validateSourceAndConfig(source, sourceConfigVersion, query);
         String trimmedQuery = query.trim();
+        // REQUIRED joins the workbench transaction when creation needs an operation audit.
         transactions.executeWithoutResult(status -> {
             jdbc.update("INSERT IGNORE INTO t_news_source (source, enabled) VALUES (?, 1)", source);
-            int reopened = jdbc.update("""
-                    UPDATE t_news_collection_task
-                    SET status = 'PENDING', maxAttempts = attemptCount + ?, nextAttemptAt = UTC_TIMESTAMP(6)
-                    WHERE taskId = ? AND source = ? AND sourceConfigVersion = ?
-                      AND BINARY queryText = BINARY ? AND windowStartOn = ? AND windowEndBefore = ?
-                      AND status = 'FAILED'
-                    """, maxAttempts, taskId, source, sourceConfigVersion, trimmedQuery,
-                    startOn.toString(), endBefore.toString());
-            lockOrCreateCursorRow(source, sourceConfigVersion, trimmedQuery, null);
-            if (reopened == 1) {
-                return;
-            }
             jdbc.update("""
                     INSERT INTO t_news_collection_task
                         (taskId, source, sourceConfigVersion, queryText, windowStartOn, windowEndBefore, maxAttempts, nextAttemptAt)
@@ -161,7 +154,30 @@ public class NewsIngestionService {
                     """,
                     taskId, source, sourceConfigVersion, trimmedQuery,
                     startOn.toString(), endBefore.toString(), maxAttempts);
+            lockOrCreateCursorRow(source, sourceConfigVersion, trimmedQuery, null);
         });
+    }
+
+    /** Reopens the observed failed generation inside the caller's task-audit transaction. */
+    public boolean reopenFailedWindow(TaskSnapshot task, int extraAttempts) {
+        if (extraAttempts < 1) {
+            throw new IllegalArgumentException("Invalid retry attempt count");
+        }
+        return Boolean.TRUE.equals(taskRetryTransactions.execute(status -> {
+            jdbc.update("INSERT IGNORE INTO t_news_source (source, enabled) VALUES (?, 1)", task.source());
+            int reopened = jdbc.update("""
+                    UPDATE t_news_collection_task
+                    SET status = 'PENDING', maxAttempts = attemptCount + ?, nextAttemptAt = UTC_TIMESTAMP(6)
+                    WHERE taskId = ? AND source = ? AND sourceConfigVersion = ?
+                      AND BINARY queryText = BINARY ? AND windowStartOn = ? AND windowEndBefore = ?
+                      AND status = 'FAILED' AND generation = ?
+                    """, extraAttempts, task.taskId(), task.source(), task.sourceConfigVersion(), task.query(),
+                    task.windowStartOn().toString(), task.windowEndBefore().toString(), task.generation());
+            if (reopened == 1) {
+                lockOrCreateCursorRow(task.source(), task.sourceConfigVersion(), task.query(), null);
+            }
+            return reopened == 1;
+        }));
     }
 
     /** Enables or disables a registered news source for worker claim scheduling. */

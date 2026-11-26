@@ -15,7 +15,9 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -79,6 +81,7 @@ class NewsIngestionMySqlIntegrationTest {
     private NewsWireCodec codec;
     private NewsIngestionProperties properties;
     private NewsIngestionService service;
+    private TransactionTemplate transactions;
 
     @BeforeEach
     void setUp() {
@@ -108,7 +111,9 @@ class NewsIngestionMySqlIntegrationTest {
         properties.setLeaseDuration(Duration.ofMinutes(5));
         properties.setRetryBaseDelay(Duration.ofSeconds(30));
         properties.setRetryMaxDelay(Duration.ofMinutes(15));
-        service = new NewsIngestionService(jdbc, properties, codec);
+        DataSourceTransactionManager txManager = new DataSourceTransactionManager(dataSource);
+        service = new NewsIngestionService(jdbc, txManager, properties, codec);
+        transactions = new TransactionTemplate(txManager);
     }
 
     private static synchronized void ensureDatabase() {
@@ -628,7 +633,8 @@ class NewsIngestionMySqlIntegrationTest {
         assertTrue(service.getTask("changed-query").isEmpty());
         assertTrue(service.getCommittedCursor("pubmed", 1L).isEmpty());
 
-        service.enqueueWindow("task-fail-a", "pubmed", 1L, "cornea", start, end, 2);
+        var failedTask = service.getTask("task-fail-a").orElseThrow();
+        assertEquals(Boolean.TRUE, transactions.execute(status -> service.reopenFailedWindow(failedTask, 2)));
         NewsWireModels.Lease recovered = service.claim(WORKER_B).orElseThrow();
         assertEquals("task-fail-a", recovered.taskId());
         assertEquals(3L, recovered.generation());
