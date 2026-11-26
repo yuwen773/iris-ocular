@@ -184,7 +184,7 @@ P05 输出里出现与研究无关的类型、改写登记事实、或包含临�
 | L1 | `NewsEditorialDraftTest`（11 例：三种体裁完整保留、中文标题与摘要、试验状态/阶段/变化中文映射、标记转义、小数点不当作句末、`TRIAL_REGISTRY_ONLY` 不外泄且不重复、超长正文按块截断在 TEXT 预算内、证据要点上限、标题契约） | 通过 |
 | L2 | 真实 MySQL 8：`NewsCurationMySqlIntegrationTest` 18 例（含候选替代与总上限）、`NewsWorkbenchMySqlIntegrationTest` 13 例（含确定性建稿全链与发布 × 撤回并发）、`NewsEditorialPublishMySqlIntegrationTest` 8 例（`verify-fast.sh --db`，`RESULT: PASS — L2`） | 通过 |
 | 迁移 | V47 在一次性 schema 上完整迁移（`FlywayMySqlIntegrationTest` 7 例，`RESULT: PASS — L2`） | 通过 |
-| HTTP 回环 | 真实 Spring Boot 进程（一次性 MySQL 8 + Redis + 真实 Tomcat，`:18111`）上用 curl 走完四个端点：管理员会话登录、读接口 `Cache-Control: no-store`、登记五类核验、重复登记与越权 URL 被拒、撤回后 `active=false` 且历史保留、二次撤回报错、未知回执转换返回「模型调用回执不存在」、匿名请求 `40100 未登录`、跨源 POST `40300 CROSS_ORIGIN_BLOCKED` | 通过 |
+| HTTP 回环 | 真实 Spring Boot 进程（一次性 MySQL 8 + Redis + 真实 Tomcat，`:18111`，jar 由当前 HEAD 构建）上用 curl 走完：管理员会话登录、读接口 `Cache-Control: no-store`、登记五类核验、重复登记与越权 URL 被拒、撤回后 `active=false` 且历史保留、二次撤回报错；本轮补验替代入口——未知回执返回「模型调用回执不存在」、`supersedesCandidateId` 不带理由返回「替代旧候选必须写明理由」、带理由但回执不存在仍先报「模型调用回执不存在」；匿名请求 `40100 未登录`、跨源 POST（`Origin: http://evil.example`）`40300 CROSS_ORIGIN_BLOCKED` | 通过 |
 | 浏览器 E2E | 本切片无任何前端文件改动，四个端点暂无 UI 消费者（`web/` 中无引用），因此不新增浏览器用例；端点行为以上述 HTTP 回环与控制器安全测试覆盖 | 不适用 |
 
 ## 9. 未启用与后续条件
