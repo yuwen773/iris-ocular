@@ -54,7 +54,7 @@ CI 的 MySQL 作业使用 `mysql:8.0` / `mysql:8.0.36`，`scripts/verify.sh` 与
 | V44 | 无 | 无 | `V44__news_collection_schedule.sql`（WP-08A 追加任务类型和索引，建自动调度状态与 Worker 领取观测两表） |
 | V45 | 无 | 无 | `V45__news_model_call_identity.sql`（阶段调用身份、冻结输出与全局日预算仲裁） |
 | V46 | 无 | 无 | `V46__news_evidence_verification.sql`（WP-08B.2：新增人工证据核验账本 `t_news_evidence_verification`——只追加、生成列 `activeKey` 唯一索引保证单属性单生效；给 `t_news_curation_candidate` 追加可空的 `evidenceVerificationJson`、`evidenceVerificationSha256`、`materializedAt`、`materializedBy`、`contentType` 与 `idx_news_curation_call` 索引，既有行全部为 NULL，读侧按「未绑定核验」处理） |
-| V47 | 无 | 无 | `V47__news_candidate_supersede_and_lifetime_budget.sql`（WP-08B.2 收口：候选表追加 `supersededByCandidateId`、`supersededAt`、`supersedeReason`、`draftTemplateVersion`、`structuredContentJson`、`researchValueScore`，把 `uk_news_curation_rev_policy` 换成「仅活跃行唯一」的生成列 `activeKey` 唯一索引（已替代的行保留全部历史）；新增只追加的候选生命周期事件表 `t_news_curation_candidate_event` 与整次实验总预算单例表 `t_news_curation_lifetime_budget`；不改写任何既有行，旧候选 `draftTemplateVersion` 为 NULL，建稿仍走旧版拼接） |
+| V47 | 无 | 无 | `V47__news_candidate_supersede_and_lifetime_budget.sql`（WP-08B.2 收口：候选表追加 `supersededByCandidateId`、`supersededAt`、`supersedeReason`、`draftTemplateVersion`、`structuredContentJson`、`researchValueScore`，把 `uk_news_curation_rev_policy` 换成「仅活跃行唯一」的生成列 `activeKey` 唯一索引，并在同一 ALTER 里补 `idx_news_curation_revision (materialRevisionId, policyVersion)`——旧唯一键是唯一以 `materialRevisionId` 打头的索引，删掉而不补会让候选表的 `FOR UPDATE` 退化成全表加锁；已替代的行保留全部历史。新增只追加的候选生命周期事件表 `t_news_curation_candidate_event` 与整次实验总预算单例表 `t_news_curation_lifetime_budget`；不改写任何既有行，旧候选 `draftTemplateVersion` 为 NULL，建稿仍走旧版拼接） |
 
 整合链为 **V1–V9 + V15–V47**。master 头顶为 V46，WP-08B.2 收口追加 V47。
 V28 只新增 `t_agent_tool_audit`，不修改此前任何已应用脚本；该表独立于 `t_agent_message`，

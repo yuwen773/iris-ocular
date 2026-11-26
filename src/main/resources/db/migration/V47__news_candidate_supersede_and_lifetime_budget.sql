@@ -29,8 +29,13 @@ ALTER TABLE t_news_curation_candidate
     ALGORITHM = INPLACE, LOCK = NONE;
 
 -- 同名旧唯一键退场：唯一性改为「每个资料修订 + 策略版本最多一条活跃候选」。
+-- 同一个 ALTER 里补一条普通索引：旧唯一键是唯一以 materialRevisionId 打头的索引，
+-- 直接删掉会让 materialize / 建稿路径的 `WHERE materialRevisionId = ? ... FOR UPDATE`
+-- 退化成全表加锁扫描（把无关资料修订的行一起锁住）。候选表现在允许多代历史行，
+-- 这条索引的作用只会更重要。
 ALTER TABLE t_news_curation_candidate
     DROP INDEX uk_news_curation_rev_policy,
+    ADD INDEX idx_news_curation_revision (materialRevisionId, policyVersion),
     ADD UNIQUE KEY uk_news_curation_active (activeKey),
     ALGORITHM = INPLACE, LOCK = NONE;
 

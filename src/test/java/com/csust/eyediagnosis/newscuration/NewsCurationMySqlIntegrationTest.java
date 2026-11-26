@@ -1077,6 +1077,8 @@ class NewsCurationMySqlIntegrationTest {
         assertEquals(560L, seeded.usedTokens());
 
         // 只收紧不放宽：更大的配置值不会生效，0 也不会把已有上限抹掉。
+        // 收紧发生在 executeCall 的行种子逻辑里，所以这里必须真的再走一次预留——
+        // 只读 lifetimeBudget() 不触发种子，断言就成了恒真。
         curationProperties.setLifetimeMaxCalls(1);
         curationProperties.setLifetimeMaxTokens(50_000L);
         modelClient.enqueue(request -> success(JOINT_INSIGHT_JSON, 400, 160, 900, "fixture-prod"));
@@ -1088,6 +1090,11 @@ class NewsCurationMySqlIntegrationTest {
 
         curationProperties.setLifetimeMaxCalls(9);
         curationProperties.setLifetimeMaxTokens(0L);
+        assertEquals("LIFETIME_BUDGET_EXHAUSTED", assertThrows(IllegalStateException.class,
+                () -> curationService.runModel(revisionB, POLICY_V1, "SCOPE-B2",
+                        new NewsModelProtocol.Selection("production", NewsModelProtocol.Prompt.P05, "prod", null)))
+                .getMessage());
+        assertEquals(1, modelClient.invocations.get(), "放宽后的配置同样不得发出请求");
         NewsCurationModels.LifetimeBudget tightened = curationService.lifetimeBudget();
         assertEquals(1, tightened.maxCalls(), "更大的配置值不得放宽已记录的上限");
         assertEquals(50_000L, tightened.maxTokens(), "0 表示未设置，不得抹掉已有上限");

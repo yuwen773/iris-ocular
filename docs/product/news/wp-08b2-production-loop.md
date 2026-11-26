@@ -88,7 +88,11 @@ P05 输出里出现与研究无关的类型、改写登记事实、或包含临�
 - 所有模型文本逐段转义后进入 `<p>` / `<li>`，模型永远不能产出可执行标记；
 - 标题有独立校验：非空、≤120 字符、无标记、无控制字符、必须含中文；不合格时回退到
   「中文框 + 冻结资料标题」，再不合格回退到中文框，草稿永远可建、可被人工改标题；
-- 摘要取对应体裁的关键句并保留句号，≤512 字符；
+- 摘要取对应体裁的关键句并保留句号，≤512 字符；句末判定不会把小数点当句号（`AUC 0.93，…` 不会被截成 `AUC 0`）；
+- `limitations` 里的契约标记（如 `TRIAL_REGISTRY_ONLY`）渲染成中文说明，且同一条限制不会在「局限与边界」与
+  「补充局限」里各出现一次；
+- 正文按块组装，超过 `t_news.content`（TEXT，64 KB）的预算时在块边界截断并追加固定说明，不会写出写不进列的稿件；
+  证据要点最多展开 8 条（单条陈述 ≤200 字、引文 ≤150 字），其余以「另有 N 条」指向冻结回执；
 - 溯源与元数据列出内容类型、相关性评分、研究价值评分、`callId`（生产命名空间 · 联合精选 P05）、
   证据核验摘要、来源与原文 URL——界面上每个数字都能追回冻结回执；
 - 同一份冻结回执任何时候渲染出的标题、正文、摘要都相同；**建稿不产生任何模型调用**。
@@ -107,7 +111,9 @@ P05 输出里出现与研究无关的类型、改写登记事实、或包含临�
 - 旧候选处于 `NEEDS_RECONCILIATION` 时拒绝：先完成对账；
 - 同一资料修订上出现不同 `policyVersion` 的候选一律 `CANDIDATE_POLICY_CONFLICT`——**改策略版本绕不过候选冲突**；
 - 唯一性从 `(materialRevisionId, policyVersion)` 改成「仅活跃行唯一」的生成列 `activeKey`，
-  已替代的行保留全部历史，每个修订 + 策略版本最多一条活跃候选。
+  已替代的行保留全部历史，每个修订 + 策略版本最多一条活跃候选；同一 ALTER 里补
+  `idx_news_curation_revision (materialRevisionId, policyVersion)`，否则按修订加锁的 `FOR UPDATE`
+  会退化成全表加锁。
 
 并发一致性：发布路径在建稿/发布事务内用 `SELECT … FOR UPDATE` 锁住生效核验行，撤回路径的
 `UPDATE` 在同一批行上串行化。撤回先提交则发布读到撤回后的账本并拒绝；发布先持锁则撤回等它提交。
@@ -175,7 +181,7 @@ P05 输出里出现与研究无关的类型、改写登记事实、或包含临�
 | 层 | 内容 | 结果 |
 | --- | --- | --- |
 | L1 | `NewsEvidenceLedgerTest`（4 例）、`NewsWorkbenchControllerSecurityTest`（7 例）、`NewsRealMaterialsOfflineE2ETest`（2 例） | 通过 |
-| L1 | `NewsEditorialDraftTest`（7 例：三种体裁完整保留、转义、标题契约、长度截断） | 通过 |
+| L1 | `NewsEditorialDraftTest`（11 例：三种体裁完整保留、中文标题与摘要、试验状态/阶段/变化中文映射、标记转义、小数点不当作句末、`TRIAL_REGISTRY_ONLY` 不外泄且不重复、超长正文按块截断在 TEXT 预算内、证据要点上限、标题契约） | 通过 |
 | L2 | 真实 MySQL 8：`NewsCurationMySqlIntegrationTest` 18 例（含候选替代与总上限）、`NewsWorkbenchMySqlIntegrationTest` 13 例（含确定性建稿全链与发布 × 撤回并发）、`NewsEditorialPublishMySqlIntegrationTest` 8 例（`verify-fast.sh --db`，`RESULT: PASS — L2`） | 通过 |
 | 迁移 | V47 在一次性 schema 上完整迁移（`FlywayMySqlIntegrationTest` 7 例，`RESULT: PASS — L2`） | 通过 |
 | HTTP 回环 | 真实 Spring Boot 进程（一次性 MySQL 8 + Redis + 真实 Tomcat，`:18111`）上用 curl 走完四个端点：管理员会话登录、读接口 `Cache-Control: no-store`、登记五类核验、重复登记与越权 URL 被拒、撤回后 `active=false` 且历史保留、二次撤回报错、未知回执转换返回「模型调用回执不存在」、匿名请求 `40100 未登录`、跨源 POST `40300 CROSS_ORIGIN_BLOCKED` | 通过 |

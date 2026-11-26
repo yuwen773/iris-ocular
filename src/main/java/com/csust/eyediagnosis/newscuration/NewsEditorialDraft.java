@@ -3,6 +3,7 @@ package com.csust.eyediagnosis.newscuration;
 import cn.hutool.http.HtmlUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -30,6 +31,17 @@ public final class NewsEditorialDraft {
      * 仍走旧版拼接建稿，行为不变。
      */
     public static final String TEMPLATE_VERSION = "deterministic-v1";
+
+    /** 单篇正文的字节预算：{@code t_news.content} 是 TEXT（64 KB），留出余量后按固定顺序截断。 */
+    static final int CONTENT_BUDGET_BYTES = 60_000;
+    private static final String TRUNCATED_NOTE =
+            "<p>（正文超出单篇长度上限，已按固定顺序截断；完整内容见该候选冻结的模型回执。）</p>\n";
+    /** 证据要点与补充局限的上限：契约允许更多，但草稿要能进 TEXT 列并保持可读。 */
+    private static final int MAX_CLAIMS = 8;
+    private static final int CLAIM_STATEMENT_MAX = 200;
+    private static final int CLAIM_QUOTE_MAX = 150;
+    private static final int MAX_LIMITATIONS = 8;
+    private static final int LIMITATION_MAX = 200;
 
     private static final Pattern HAN = Pattern.compile("\\p{IsHan}");
     private static final Pattern MARKUP = Pattern.compile("[<>]");
@@ -77,6 +89,13 @@ public final class NewsEditorialDraft {
             "RESEARCH_RADAR", "研究雷达",
             "TRIAL_WATCH", "试验观察");
 
+    /**
+     * 试验类章节里的固定标记不是给人读的话术：契约要求 Trial Watch 的 {@code limitations} 恰好是
+     * {@code TRIAL_REGISTRY_ONLY}，正文必须把它换成中文说明，不能把内部标记印到稿件里。
+     */
+    private static final Map<String, String> LIMITATION_TOKEN = Map.of(
+            "TRIAL_REGISTRY_ONLY", "以下内容仅来自试验登记信息，未包含研究者公开的结果数据。");
+
     private NewsEditorialDraft() {
     }
 
@@ -106,52 +125,29 @@ public final class NewsEditorialDraft {
         require(sections != null && sections.isObject(), "DRAFT_SECTIONS_MISSING");
 
         String title = title(input);
-        StringBuilder html = new StringBuilder();
+        List<String> blocks = new ArrayList<>();
         switch (input.contentType()) {
             case "RESEARCH_INSIGHT" -> {
-                html.append("<p>").append(paragraph(sections, "question")).append("</p>\n");
-                section(html, "研究设计", sections, "studyDesign");
-                section(html, "主要发现", sections, "findings");
-                section(html, "临床意义", sections, "meaning");
+                blocks.add("<p>" + paragraph(sections, "question") + "</p>\n");
+                blocks.add(sectionBlock("研究设计", text(sections, "studyDesign")));
+                blocks.add(sectionBlock("主要发现", text(sections, "findings")));
+                blocks.add(sectionBlock("临床意义", text(sections, "meaning")));
             }
             case "RESEARCH_RADAR" -> {
-                html.append("<p>").append(paragraph(sections, "introduction")).append("</p>\n");
-                section(html, "值得关注的地方", sections, "reasonToWatch");
+                blocks.add("<p>" + paragraph(sections, "introduction") + "</p>\n");
+                blocks.add(sectionBlock("值得关注的地方", text(sections, "reasonToWatch")));
             }
-            case "TRIAL_WATCH" -> {
-                html.append("<h2>登记状态</h2>\n<ul>\n");
-                bullet(html, "状态", trialLabel(TRIAL_STATUS, sections.path("status").asText("")));
-                bullet(html, "试验阶段", phasesLabel(sections.path("phases")));
-                bullet(html, "研究设计", studyDesignLabel(sections.path("studyDesign").asText("")));
-                bullet(html, "本次变化", changesLabel(sections.path("changes")));
-                html.append("</ul>\n");
-            }
+            case "TRIAL_WATCH" -> blocks.add(trialBlock(sections));
             default -> throw new IllegalArgumentException("DRAFT_CONTENT_TYPE_UNKNOWN");
         }
 
-        section(html, "局限与边界", sections, "limitations");
-        if (input.limitations() != null && !input.limitations().isEmpty()) {
-            html.append("<h2>补充局限</h2>\n<ul>\n");
-            for (String limitation : input.limitations()) {
-                if (limitation != null && !limitation.isBlank()) {
-                    html.append("<li>").append(escape(limitation)).append("</li>\n");
-                }
-            }
-            html.append("</ul>\n");
-        }
-        if (input.claims() != null && !input.claims().isEmpty()) {
-            html.append("<h2>证据要点</h2>\n<ul>\n");
-            for (NewsCurationModels.CurationClaim claim : input.claims()) {
-                html.append("<li><strong>[").append(escape(claim.field())).append("]</strong> ")
-                        .append(escape(claim.statement()))
-                        .append("（原文引文：&ldquo;").append(escape(claim.quote()))
-                        .append("&rdquo;）</li>\n");
-            }
-            html.append("</ul>\n");
-        }
-        metadata(html, input);
+        String primaryLimitation = limitationText(text(sections, "limitations"));
+        blocks.add(sectionBlock("局限与边界", primaryLimitation));
+        blocks.add(limitationsBlock(input.limitations(), primaryLimitation));
+        blocks.add(claimsBlock(input.claims()));
+        blocks.add(metadataBlock(input));
 
-        return new Draft(input.contentType(), title, summary(input, sections), html.toString().trim());
+        return new Draft(input.contentType(), title, summary(input, sections), assemble(blocks));
     }
 
     /** Chinese title: fixed frame + the most specific verified field, never raw model prose alone. */
@@ -234,34 +230,95 @@ public final class NewsEditorialDraft {
         return summary.length() > SUMMARY_MAX ? summary.substring(0, SUMMARY_MAX) : summary;
     }
 
-    private static void metadata(StringBuilder html, Input input) {
-        html.append("<h2>溯源与元数据</h2>\n<ul>\n");
-        bullet(html, "内容类型", TYPE_LABEL.get(input.contentType()) + "（" + input.contentType() + "）");
-        if (input.relevanceScore() != null) {
-            bullet(html, "相关性评分", input.relevanceScore() + "/100");
-        }
-        if (input.researchValueScore() != null) {
-            bullet(html, "研究价值评分", input.researchValueScore() + "/100");
-        }
-        if (input.callId() != null && !input.callId().isBlank()) {
-            bullet(html, "模型调用", input.callId() + "（生产命名空间 · 联合精选 P05）");
-        }
-        if (input.evidenceVerificationSha256() != null && !input.evidenceVerificationSha256().isBlank()) {
-            bullet(html, "证据核验摘要", input.evidenceVerificationSha256());
-        }
-        String origin = escape(input.source()) + " / " + escape(input.sourceRecordId());
-        if (input.sourceUrl() != null && !input.sourceUrl().isBlank()) {
-            origin += "（" + escape(input.sourceUrl()) + "）";
-        }
-        bullet(html, "原始资料", origin);
-        html.append("</ul>\n");
+    private static String trialBlock(JsonNode sections) {
+        StringBuilder block = new StringBuilder("<h2>登记状态</h2>\n<ul>\n");
+        bullet(block, "状态", trialLabel(TRIAL_STATUS, sections.path("status").asText("")));
+        bullet(block, "试验阶段", phasesLabel(sections.path("phases")));
+        bullet(block, "研究设计", studyDesignLabel(sections.path("studyDesign").asText("")));
+        bullet(block, "本次变化", changesLabel(sections.path("changes")));
+        block.append("</ul>\n");
+        return block.toString();
     }
 
-    private static void section(StringBuilder html, String heading, JsonNode sections, String key) {
-        String value = text(sections, key);
-        if (!value.isBlank()) {
-            html.append("<h2>").append(heading).append("</h2>\n<p>").append(escape(value)).append("</p>\n");
+    private static String limitationsBlock(List<String> limitations, String primary) {
+        if (limitations == null || limitations.isEmpty()) {
+            return null;
         }
+        List<String> items = new ArrayList<>();
+        for (String raw : limitations) {
+            String limitation = limitationText(raw);
+            if (limitation.isBlank() || limitation.equals(primary) || items.contains(limitation)) {
+                continue;
+            }
+            items.add(bound(limitation, LIMITATION_MAX));
+            if (items.size() >= MAX_LIMITATIONS) {
+                break;
+            }
+        }
+        return items.isEmpty() ? null : listBlock("补充局限", items);
+    }
+
+    private static String claimsBlock(List<NewsCurationModels.CurationClaim> claims) {
+        if (claims == null || claims.isEmpty()) {
+            return null;
+        }
+        StringBuilder block = new StringBuilder("<h2>证据要点</h2>\n<ul>\n");
+        int rendered = 0;
+        for (NewsCurationModels.CurationClaim claim : claims) {
+            if (rendered >= MAX_CLAIMS) {
+                break;
+            }
+            block.append("<li><strong>[").append(escape(claim.field())).append("]</strong> ")
+                    .append(escape(bound(claim.statement(), CLAIM_STATEMENT_MAX)))
+                    .append("（原文引文：&ldquo;").append(escape(bound(claim.quote(), CLAIM_QUOTE_MAX)))
+                    .append("&rdquo;）</li>\n");
+            rendered++;
+        }
+        if (claims.size() > rendered) {
+            block.append("<li>另有 ").append(claims.size() - rendered).append(" 条证据要点未展开，见冻结回执。</li>\n");
+        }
+        block.append("</ul>\n");
+        return block.toString();
+    }
+
+    private static String metadataBlock(Input input) {
+        StringBuilder block = new StringBuilder("<h2>溯源与元数据</h2>\n<ul>\n");
+        bullet(block, "内容类型", TYPE_LABEL.get(input.contentType()) + "（" + input.contentType() + "）");
+        if (input.relevanceScore() != null) {
+            bullet(block, "相关性评分", input.relevanceScore() + "/100");
+        }
+        if (input.researchValueScore() != null) {
+            bullet(block, "研究价值评分", input.researchValueScore() + "/100");
+        }
+        if (input.callId() != null && !input.callId().isBlank()) {
+            bullet(block, "模型调用", input.callId() + "（生产命名空间 · 联合精选 P05）");
+        }
+        if (input.evidenceVerificationSha256() != null && !input.evidenceVerificationSha256().isBlank()) {
+            bullet(block, "证据核验摘要", input.evidenceVerificationSha256());
+        }
+        StringBuilder origin = new StringBuilder();
+        origin.append(input.source() == null ? "" : input.source())
+                .append(" / ").append(input.sourceRecordId() == null ? "" : input.sourceRecordId());
+        if (input.sourceUrl() != null && !input.sourceUrl().isBlank()) {
+            origin.append("（").append(input.sourceUrl()).append("）");
+        }
+        bullet(block, "原始资料", origin.toString());
+        block.append("</ul>\n");
+        return block.toString();
+    }
+
+    private static String sectionBlock(String heading, String value) {
+        String trimmed = value == null ? "" : value.trim();
+        return trimmed.isEmpty() ? null : "<h2>" + heading + "</h2>\n<p>" + escape(trimmed) + "</p>\n";
+    }
+
+    private static String listBlock(String heading, List<String> items) {
+        StringBuilder block = new StringBuilder("<h2>").append(heading).append("</h2>\n<ul>\n");
+        for (String item : items) {
+            block.append("<li>").append(escape(item)).append("</li>\n");
+        }
+        block.append("</ul>\n");
+        return block.toString();
     }
 
     private static String paragraph(JsonNode sections, String key) {
@@ -269,9 +326,32 @@ public final class NewsEditorialDraft {
         return value.isBlank() ? "（冻结内容未提供该章节）" : escape(value);
     }
 
-    private static void bullet(StringBuilder html, String label, String value) {
-        html.append("<li><strong>").append(escape(label)).append("：</strong>")
+    /** Appends one label/value bullet; the whole value is escaped exactly once, here. */
+    private static void bullet(StringBuilder block, String label, String value) {
+        block.append("<li><strong>").append(escape(label)).append("：</strong>")
                 .append(escape(value)).append("</li>\n");
+    }
+
+    /**
+     * Joins the blocks in fixed order while staying inside the column byte budget. Truncation is
+     * deterministic: blocks are added until the next one would overflow, then one fixed note is appended.
+     */
+    private static String assemble(List<String> blocks) {
+        StringBuilder html = new StringBuilder();
+        int bytes = 0;
+        for (String block : blocks) {
+            if (block == null || block.isEmpty()) {
+                continue;
+            }
+            int blockBytes = block.getBytes(StandardCharsets.UTF_8).length;
+            if (bytes + blockBytes > CONTENT_BUDGET_BYTES) {
+                html.append(TRUNCATED_NOTE);
+                break;
+            }
+            html.append(block);
+            bytes += blockBytes;
+        }
+        return html.toString().trim();
     }
 
     private static String text(JsonNode sections, String key) {
@@ -318,6 +398,16 @@ public final class NewsEditorialDraft {
         return labels.isEmpty() ? "无明显变化" : String.join("、", labels);
     }
 
+    /** Contract markers are not prose: known tokens are replaced by their Chinese explanation. */
+    private static String limitationText(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return "";
+        }
+        String trimmed = raw.trim();
+        String mapped = LIMITATION_TOKEN.get(trimmed);
+        return mapped == null ? trimmed : mapped;
+    }
+
     /** First sentence (Chinese or Latin punctuation), collapsed whitespace, bounded. */
     static String firstSentence(String text) {
         return firstSentence(text, false);
@@ -334,15 +424,56 @@ public final class NewsEditorialDraft {
         if (collapsed.isEmpty()) {
             return "";
         }
-        int end = -1;
-        for (char stop : new char[]{'。', '！', '？', '.', '!', '?'}) {
-            int index = collapsed.indexOf(stop);
-            if (index >= 0 && (end < 0 || index < end)) {
-                end = index;
-            }
-        }
+        int end = sentenceEnd(collapsed);
         String sentence = end > 0 ? collapsed.substring(0, keepTerminator ? end + 1 : end) : collapsed;
         return sentence.isBlank() ? collapsed : sentence.trim();
+    }
+
+    /**
+     * Index of the first real sentence terminator, or {@code -1}.
+     *
+     * <p>Chinese punctuation always ends a sentence. ASCII punctuation only counts when it is followed by
+     * whitespace or the end of the text — otherwise {@code "AUC 0.93，仍需验证。"} would be cut at the decimal
+     * point and the draft would publish a wrong number. A bare {@code "1."} style list marker is not an
+     * English sentence end either.</p>
+     */
+    private static int sentenceEnd(String text) {
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c == '。' || c == '！' || c == '？') {
+                return i;
+            }
+            if ((c == '.' || c == '!' || c == '?') && latinTerminator(text, i)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private static boolean latinTerminator(String text, int index) {
+        int next = index + 1;
+        if (next < text.length() && !Character.isWhitespace(text.charAt(next))) {
+            return false;
+        }
+        if (text.charAt(index) != '.') {
+            return true;
+        }
+        // 「1.」「2.」这类序号不是句末；「0.93.」这种以数字结尾的句子仍然算句末。
+        int start = index;
+        while (start > 0 && !Character.isWhitespace(text.charAt(start - 1))) {
+            start--;
+        }
+        return !text.substring(start, index).matches("\\d{1,2}");
+    }
+
+    private static String bound(String value, int max) {
+        if (value == null) {
+            return "";
+        }
+        String trimmed = value.trim();
+        return trimmed.codePointCount(0, trimmed.length()) <= max
+                ? trimmed
+                : trimmed.substring(0, trimmed.offsetByCodePoints(0, max)).trim() + "…";
     }
 
     private static String escape(String value) {

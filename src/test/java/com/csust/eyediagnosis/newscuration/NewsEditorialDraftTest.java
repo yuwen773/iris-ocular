@@ -166,6 +166,88 @@ class NewsEditorialDraftTest {
         assertTrue(title.contains("研究"), title);
     }
 
+    @Test
+    void decimalNumbersAreNotTreatedAsSentenceEnds() throws Exception {
+        JsonNode sections = sections("""
+                {"question":"深度学习筛查的 AUC 0.93，能否在外部队列复现？",
+                 "studyDesign":"回顾性队列。",
+                 "findings":"研究报告的 AUC 为 0.93. 下一步是外部验证。",
+                 "meaning":"提示需要前瞻性研究。",
+                 "limitations":"单中心。"}
+                """);
+
+        NewsEditorialDraft.Draft draft = NewsEditorialDraft.render(insightInput(sections));
+
+        // 小数点后若被当成句末，标题与摘要会印出「AUC 0」这种错误的数字。
+        assertEquals("研究解析：深度学习筛查的 AUC 0.93，能否在外部队列复现", draft.title());
+        assertEquals("研究报告的 AUC 为 0.93.", draft.summary());
+        assertTrue(draft.html().contains("AUC 为 0.93. 下一步是外部验证。"), draft.html());
+    }
+
+    @Test
+    void trialRegistryOnlyMarkerBecomesChineseAndIsNotDuplicated() throws Exception {
+        JsonNode sections = sections("""
+                {"status":"RECRUITING",
+                 "studyDesign":"OBSERVATIONAL",
+                 "phases":["NA"],
+                 "changes":["INITIAL"],
+                 "limitations":"TRIAL_REGISTRY_ONLY"}
+                """);
+
+        // 建稿时 limitationsJson 与章节里的限制是同一条：渲染只能出现一次，且不能印内部标记。
+        NewsEditorialDraft.Draft draft = NewsEditorialDraft.render(new NewsEditorialDraft.Input(
+                "TRIAL_WATCH", sections, List.of(), List.of("TRIAL_REGISTRY_ONLY"), "clinicaltrials-gov",
+                "NCT-2", null, "Trial title", 70, 65, "call-4", "sha-4"));
+
+        String html = draft.html();
+        assertFalse(html.contains("TRIAL_REGISTRY_ONLY"), html);
+        assertEquals(1, occurrences(html, "以下内容仅来自试验登记信息，未包含研究者公开的结果数据。"), html);
+        assertFalse(html.contains("<h2>补充局限</h2>"), "同一限制不得重复成两节");
+        assertTrue(html.contains("本次变化：</strong>首次收录"), html);
+        assertEquals("试验观察：招募中｜不适用｜观察性研究", draft.title());
+    }
+
+    @Test
+    void oversizedContentIsTruncatedInsideTheTextColumnBudget() throws Exception {
+        // 契约允许的章节长度叠加后足以超过 TEXT 的 64 KB：截断必须确定性地发生在块边界上。
+        String huge = "正文段落".repeat(12_000);
+        JsonNode sections = sections("""
+                {"question":"研究问题？",
+                 "studyDesign":"研究设计。",
+                 "findings":"%s",
+                 "meaning":"临床意义。",
+                 "limitations":"局限。"}
+                """.formatted(huge));
+
+        String html = NewsEditorialDraft.render(insightInput(sections)).html();
+
+        assertTrue(html.contains("正文超出单篇长度上限"), html.substring(0, Math.min(200, html.length())));
+        assertTrue(html.getBytes(java.nio.charset.StandardCharsets.UTF_8).length < 65_535,
+                "截断后必须还能写进 t_news.content（TEXT，64 KB）");
+        assertFalse(html.contains(huge), "超长章节不得整段写入");
+    }
+
+    @Test
+    void claimListIsCappedAndEachClaimIsBounded() throws Exception {
+        List<NewsCurationModels.CurationClaim> claims = new java.util.ArrayList<>();
+        for (int i = 0; i < 12; i++) {
+            claims.add(new NewsCurationModels.CurationClaim("c" + i, "abstract",
+                    "要点" + i + "。", "引文" + i + "。"));
+        }
+        claims.set(0, new NewsCurationModels.CurationClaim("c0", "abstract", "长".repeat(500), "引文。"));
+        JsonNode sections = sections("{\"question\":\"研究问题？\",\"findings\":\"结论。\"}");
+
+        String html = NewsEditorialDraft.render(new NewsEditorialDraft.Input(
+                "RESEARCH_INSIGHT", sections, claims, List.of(), "pubmed", "PMID-3", null,
+                "Material title", 80, 70, "call-5", "sha-5")).html();
+
+        assertEquals(8, occurrences(html, "<li><strong>["), "正文最多展开 8 条证据要点");
+        assertTrue(html.contains("另有 4 条证据要点未展开"), html);
+        assertFalse(html.contains("要点9"), html);
+        assertTrue(html.contains("长".repeat(200) + "…"), "单条陈述必须截断到 200 字");
+        assertFalse(html.contains("长".repeat(201)), html);
+    }
+
     private NewsEditorialDraft.Input insightInput(JsonNode sections) {
         return new NewsEditorialDraft.Input("RESEARCH_INSIGHT", sections,
                 List.of(new NewsCurationModels.CurationClaim("c1", "abstract",
@@ -176,5 +258,13 @@ class NewsEditorialDraftTest {
 
     private JsonNode sections(String json) throws Exception {
         return mapper.readTree(json);
+    }
+
+    private static int occurrences(String text, String needle) {
+        int count = 0;
+        for (int i = text.indexOf(needle); i >= 0; i = text.indexOf(needle, i + needle.length())) {
+            count++;
+        }
+        return count;
     }
 }
