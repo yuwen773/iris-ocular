@@ -100,7 +100,7 @@ eye_docker_run_named "$REDIS_CID" -d \
   --mount "type=volume,src=${REDIS_VOL},dst=/data" \
   "$REDIS_IMAGE" >/dev/null
 
-echo "==> starting MySQL 8 (container ${MYSQL_CID})"
+echo "==> starting MySQL 8 (container ${MYSQL_CID}, TLS disabled)"
 eye_docker_run_named "$MYSQL_CID" -d \
   -e MYSQL_DATABASE=diagnosis_ci \
   -e MYSQL_USER=eyeuser \
@@ -108,7 +108,7 @@ eye_docker_run_named "$MYSQL_CID" -d \
   -e MYSQL_ROOT_PASSWORD=root-password \
   -p "$MYSQL_PUBLISH" \
   --mount "type=volume,src=${MYSQL_VOL},dst=/var/lib/mysql" \
-  "$MYSQL_IMAGE" >/dev/null
+  "$MYSQL_IMAGE" --tls-version='' >/dev/null
 
 if [[ -z "$MYSQL_PORT" ]]; then
   for _ in $(seq 1 50); do
@@ -130,7 +130,11 @@ echo "==> MySQL on 127.0.0.1:${MYSQL_PORT}, Redis on 127.0.0.1:${REDIS_PORT}"
 
 READY=0
 for _ in $(seq 1 90); do
-  if docker exec "$MYSQL_CID" mysqladmin ping -h127.0.0.1 -uroot -proot-password >/dev/null 2>&1; then
+  # 必须走 TCP（初始化期间的临时实例不监听网络，只有初始化完成后才可连），
+  # 而服务端已关闭 TLS，caching_sha2_password 账号在明文连接上要求 RSA 公钥交换，
+  # 默认会报「Authentication requires secure connection」，故显式 --get-server-public-key。
+  if docker exec "$MYSQL_CID" mysqladmin -h127.0.0.1 -uroot -proot-password \
+      --get-server-public-key ping >/dev/null 2>&1; then
     READY=1
     break
   fi
@@ -150,8 +154,33 @@ docker exec "$MYSQL_CID" mysql -uroot -proot-password \
 docker exec "$MYSQL_CID" mysql -uroot -proot-password \
   -e "SET GLOBAL log_bin_trust_function_creators=1;" >/dev/null 2>&1
 
-DB_URL="jdbc:mysql://127.0.0.1:${MYSQL_PORT}/diagnosis_ci?serverTimezone=UTC"
-IT_URL="jdbc:mysql://127.0.0.1:${MYSQL_PORT}/diagnosis_ci?serverTimezone=UTC&allowPublicKeyRetrieval=true&useSSL=false"
+# 一次性测试实例**整体关闭 TLS**（上面启动参数 --tls-version=）：
+# 这是仅限本机回环的一次性容器，TLS 不提供额外保护，却会引入一个与产品无关的失败面——
+# 官方 mysql 镜像在容器内**按容器时钟**生成自签证书，若宿主系统时钟落后（Windows 的
+# W32Time 未启动时很常见），JVM 会因「证书 NotBefore 在未来」直接判 TLS 失败，症状是
+# Flyway/Spring 上下文报 Communications link failure（0 ms、未收到任何数据包），
+# 看起来像数据库没起来。2026-11-26 实测：宿主比真实时间慢约 19 分钟，容器证书 NotBefore
+# 落在 JVM 的「未来」，44 个上下文加载全部失败。服务端关掉 TLS 后同一 HEAD 全绿。
+#
+# 之所以在**服务端**关，而不是给每个连接串加 useSSL=false：第三遍的隔离套件对 URL 做
+# 整串正则校验（`jdbc:mysql://127.0.0.1:<port>/<schema>`），带查询参数会被判成「不是隔离库」，
+# 那会把时钟问题扩散成 11 个测试文件的改动。服务端关闭后纯 URL 连接可用，测试不动。
+# CI 走自己的 service 容器与连接串（TCP 到 127.0.0.1），不受此处影响。
+#
+# 这里仍保留 allowPublicKeyRetrieval：无 TLS 时 caching_sha2_password 账号需要它做公钥交换。
+MYSQL_PARAMS="serverTimezone=UTC&useSSL=false&allowPublicKeyRetrieval=true"
+DB_URL="jdbc:mysql://127.0.0.1:${MYSQL_PORT}/diagnosis_ci?${MYSQL_PARAMS}"
+IT_URL="jdbc:mysql://127.0.0.1:${MYSQL_PORT}/diagnosis_ci?${MYSQL_PARAMS}"
+
+# 宿主时钟落后会让上面这条路再变成谜题，所以先把偏移量量出来并明说。
+# 只警告、不拦截：本次修复已让测试不再依赖宿主时钟（所有业务时间比较都在 MySQL 侧）。
+HOST_EPOCH="$(date +%s)"
+CONTAINER_EPOCH="$(docker exec "$MYSQL_CID" date +%s 2>/dev/null || echo "$HOST_EPOCH")"
+SKEW=$(( CONTAINER_EPOCH - HOST_EPOCH ))
+if [[ "${SKEW#-}" -gt 60 ]]; then
+  echo "==> WARNING: 宿主与容器时钟相差 ${SKEW}s。测试链路已关闭回环 TLS，本脚本不受影响；" >&2
+  echo "    但宿主机时间本身仍需校正（管理员执行：net start w32time && w32tm /resync）。" >&2
+fi
 
 # 复刻 .github/workflows/verify.yml 的 backend-unit + flyway-mysql 两个 job。
 export SPRING_PROFILES_ACTIVE=ci
@@ -182,7 +211,8 @@ mvn -o test -Dtest='FlywayMySqlIntegrationTest,UploadTaskMapperMySqlIntegrationT
 # 子 JVM 模拟进程崩溃（恢复与协调）。但它们的门禁是「环境变量给出了隔离库」，
 # 没给就整类跳过——不跑它们等于协作契约、权限负例、恢复语义全都没有验证。
 # 这里按每个类写死的 schema 名和账号建库/建号（URL 必须整串匹配，不能带参数，
-# 故用 mysql_native_password 免掉 allowPublicKeyRetrieval）。
+# 故用 mysql_native_password 免掉 allowPublicKeyRetrieval）。回环 TLS 在服务端整体关闭，
+# 见上面启动参数里的 --tls-version=，所以这些纯 URL 连接不再受宿主时钟影响。
 echo "==> pass 3/3: isolated-database collaboration suites"
 ISO_SQL=""
 for pair in collaboration_test:collaboration graph_execution_test:graph_execution \
