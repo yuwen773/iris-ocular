@@ -116,6 +116,7 @@ export type SourceDetail = {
 
 export type CollectionTask = {
   taskId: string
+  taskType?: "AUTO" | "MANUAL"
   source: string
   sourceConfigVersion: string
   queryText: string
@@ -142,6 +143,40 @@ export type CollectionTask = {
   blockedByTaskId: string | null
   /** 是否是「失败窗口」（可走失败窗口重试入口重新打开）。 */
   retryable: boolean
+}
+
+export type CollectionSchedule = {
+  ingestionEnabled: boolean
+  scheduleEnabled: boolean
+  sources: {
+    source: string
+    sourceEnabled: boolean
+    policyEnabled: boolean
+    configuredVersion: string | null
+    activeVersion: string | null
+    committedCursor: string | null
+    status: string
+    lastRunAt: string | null
+    nextRunAt: string | null
+    relatedTaskId: string | null
+    backlog: string
+    failed: string
+    retryScheduled: string
+    lastFailureCode: string | null
+    lastCompletedStartOn: string | null
+    lastCompletedEndBefore: string | null
+    lastCompletedRecordCount: number | null
+  }[]
+  workers: {
+    workerId: string
+    lastPollAt: string
+    lastClaimAt: string | null
+    lastTaskId: string | null
+  }[]
+}
+
+export async function getCollectionSchedule(): Promise<CollectionSchedule> {
+  return request<CollectionSchedule>("/admin/news-workbench/scheduling", { method: "GET" })
 }
 
 /** 采集任务的操作审计记录。 */
@@ -311,6 +346,7 @@ function toBenchRun(raw: Record<string, unknown>): BenchRunSummary {
 function toTask(raw: Record<string, unknown>): CollectionTask {
   return {
     taskId: reqStr(raw.taskId),
+    taskType: raw.taskType === "AUTO" ? "AUTO" : "MANUAL",
     source: reqStr(raw.source),
     sourceConfigVersion: reqStr(raw.sourceConfigVersion),
     queryText: reqStr(raw.queryText),

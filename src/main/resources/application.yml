@@ -242,6 +242,11 @@ eye-diagnosis:
     retry-base-delay: 30s
     retry-max-delay: 15m
     default-max-attempts: 3
+  # WP-08A 自动规划受两层全局开关与每个信源的开关控制。
+  news-schedule:
+    enabled: false
+    poll-interval: PT1M
+    sources: []
   # Iris News Engine WP-03 资讯精选、证据规则与付费模型预算门（默认 fail-closed 关闭）
   news-curation:
     enabled: false

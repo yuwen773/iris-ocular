@@ -24,10 +24,7 @@ uv run --locked iris-news-worker --help
 且为 **32–256 位可见 ASCII**（约合 200 bit 熵）。控制面按此校验，短于 32 位的密钥会被拒绝，
 部署期基线也会拒绝启动。
 
-本 Worker **只有单次执行形态**（`run-once`）：进程取一批窗口、跑到时间预算或取空即退出。
-仓库内没有 cron / systemd timer / K8s CronJob，也没有常驻调度器——
-「每天自动开新窗口」当前不存在，窗口需要管理员手动入队。自动调度归入
-[WP-08 待办](../docs/product/news/wp-08-backlog.md)。
+Worker 以 `run-once` 执行。Java 周期规划自动窗口，由 Linux systemd 定时启动短进程。两个全局开关均默认关闭。见 [调度配置与停用手册](../docs/product/news/wp-08a-scheduling.md)。
 
 Java 控制面的 `require-https=true` 依赖 Servlet 容器确认连接安全。若由反向代理终止 TLS，容器应只信任受控代理，代理应覆盖客户端转发头。Worker 鉴权过滤器不会直接把请求携带的 `X-Forwarded-Proto` 当作 HTTPS 证明。
 

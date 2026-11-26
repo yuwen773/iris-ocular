@@ -50,6 +50,7 @@ export const queryKeys = {
       all: ["admin", "newsWorkbench"] as const,
       overview: ["admin", "newsWorkbench", "overview"] as const,
       sources: ["admin", "newsWorkbench", "sources"] as const,
+      schedule: ["admin", "newsWorkbench", "schedule"] as const,
       tasks: (q: { source?: string; status?: string; current: number; pageSize: number }) =>
         ["admin", "newsWorkbench", "tasks", q] as const,
       taskLeases: (taskId: string) => ["admin", "newsWorkbench", "taskLeases", taskId] as const,
