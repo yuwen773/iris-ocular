@@ -53,8 +53,9 @@ CI 的 MySQL 作业使用 `mysql:8.0` / `mysql:8.0.36`，`scripts/verify.sh` 与
 | V43 | 无 | 无 | `V43__news_collection_task_event.sql`（WP-07G 新增采集窗口任务的操作审计表 `t_news_collection_task_event`：记录 `action`、`fromStatus`、`toStatus`、操作者与备注；不改动任何既有表） |
 | V44 | 无 | 无 | `V44__news_collection_schedule.sql`（WP-08A 追加任务类型和索引，建自动调度状态与 Worker 领取观测两表） |
 | V45 | 无 | 无 | `V45__news_model_call_identity.sql`（阶段调用身份、冻结输出与全局日预算仲裁） |
+| V46 | 无 | 无 | `V46__news_evidence_verification.sql`（WP-08B.2：新增人工证据核验账本 `t_news_evidence_verification`——只追加、生成列 `activeKey` 唯一索引保证单属性单生效；给 `t_news_curation_candidate` 追加可空的 `evidenceVerificationJson`、`evidenceVerificationSha256`、`materializedAt`、`materializedBy`、`contentType` 与 `idx_news_curation_call` 索引，既有行全部为 NULL，读侧按「未绑定核验」处理） |
 
-整合链为 **V1–V9 + V15–V45**。当前 master 为 V44，WP-08B 追加 V45。
+整合链为 **V1–V9 + V15–V46**。当前 master 为 V45，WP-08B.2 追加 V46。
 V28 只新增 `t_agent_tool_audit`，不修改此前任何已应用脚本；该表独立于 `t_agent_message`，
 不存原始工具参数、Prompt 或患者文本。V29 只给既有表加一列可空列，不改写任何既有行；
 历史行的 `indexVersion` 为 NULL，**在按版本准入的检索里等于「不能证明处理完整」**，
@@ -128,13 +129,13 @@ V32–V34 已随 PR #156 合入 master。V35 最早被反馈分支占用（当�
 
 | 目标库状态 | 识别方式 | 动作 |
 | --- | --- | --- |
-| 空库 | 无 `flyway_schema_history` | 正常启动，Flyway 顺序执行 V1–V9、V15–V45。验证见 `FlywayMySqlIntegrationTest#migratesAnEmptyMySqlDatabaseThroughTheCurrentSafetySchema` |
-| master 生产/主线库 | history 最高版本 V17，V15–V17 checksum 与 master 一致 | 追加 V18–V45，保留既有用户。验证见 `#preservesExistingAccountsWhenUpgradingFromMasterV17` |
+| 空库 | 无 `flyway_schema_history` | 正常启动，Flyway 顺序执行 V1–V9、V15–V46。验证见 `FlywayMySqlIntegrationTest#migratesAnEmptyMySqlDatabaseThroughTheCurrentSafetySchema` |
+| master 生产/主线库 | history 最高版本 V17，V15–V17 checksum 与 master 一致 | 追加 V18–V46，保留既有用户。验证见 `#preservesExistingAccountsWhenUpgradingFromMasterV17` |
 | Java 线旧开发库 | history 含 V10–V20，且 V10–V14 的 checksum 对应原脚本 | **重建**。这些库不在生产序列；旧文件已从 `db/migration` 移出，Flyway 会把 V10–V14 判为 missing。不要用 `repair`/`ignoreMigrationPatterns` 掩盖，按 `db/migration` 全量重建后再灌测试数据 |
-| 站内通知存量库 | history 到 V39，且 V39 为站内通知 | 执行资讯引擎 V40–V45 |
-| 当前 master 存量库 | history 到 V44 | 仅执行 V45。历史调用身份字段为空，原回执和审计保留 |
+| 站内通知存量库 | history 到 V39，且 V39 为站内通知 | 执行资讯引擎 V40–V46 |
+| WP-08B 存量库 | history 到 V45 | 仅执行 V46。历史候选行没有证据核验绑定，按「未绑定」处理，行为与升级前一致 |
 | 旧资讯开发库 | history 使用资讯采集 V39、精选 V40、审核 V41 | 与正式链同号异义，隔离测试库重建。若有须保留的数据，先单独设计导出和迁移 |
-| 迁移中途库 | history 最高版本在 V18–V45 之间且校验和一致 | 直接启动续跑，Flyway 执行缺失的高版本 |
+| 迁移中途库 | history 最高版本在 V18–V46 之间且校验和一致 | 直接启动续跑，Flyway 执行缺失的高版本 |
 | `flyway_schema_history` 校验和不一致 | `Validate failed: checksum mismatch` | 停止发布，先比对实际脚本与 history；不得修改已应用脚本或删除 history 强行通过 |
 
 `spring.flyway.out-of-order` 必须保持 `false`。本整合方案不依赖 out-of-order，也不允许把它当作跳过版本缺口的开关。
@@ -186,14 +187,14 @@ JAVA_HOME=/c/Users/yuwen/.jdks/corretto-21.0.7 \
 mvn -o -B -Dtest=FlywayMySqlIntegrationTest test
 ```
 
-正向覆盖 V17 → V45、空库 → V45、V23 → V24 冻结历史行、V31 → V45 与 V39 → V43 → V44 → V45。
+正向覆盖 V17 → V46、空库 → V46、V23 → V24 冻结历史行、V31 → V46 与 V39 → V43 → V44 → V46。
 另有两个回滚方向用例（旧迁移集合能否接受 future 版本、history 含无法解析版本时是否拒绝启动，见 §2.1）。
 测试会为每次运行创建并删除独立 schema，不触碰现有库。
 
 ## 5. 约束
 
 - 已应用迁移的内容不得修改；只能追加更高版本。
-- 新迁移必须大于 V45。跨分支编号协调见 §1.1。
+- 新迁移必须大于 V46。跨分支编号协调见 §1.1。
 - 不得删除或手工编辑 `flyway_schema_history` 来绕过冲突。
 - **改过迁移文件名后必须 `mvn clean` 再跑门禁。** Maven 的 resources 插件只复制、不清除，
   `target/classes/db/migration/` 会留下改名前的旧脚本（例如改名前的
