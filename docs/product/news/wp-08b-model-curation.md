@@ -30,7 +30,7 @@ Iris 提供专业眼科研究精选。内容面向大众阅读，保留研究设
 | P04 | GENERATION | Trial Watch |
 | P05 | JOINT | 评分、类型建议和可空的结构化稿件 |
 
-Java 验证字段、类型、证据路由、精确引文以及 HTML、链接、指令和常见临床越界表达。可引用证据 ID 为题录 `title`、已授权的 `abstract` 和登记 `trial`，都绑定该次不可变资料修订。逐字匹配只证明引文存在。结论是否由引文语义支持、是否遗漏矛盾证据，由人工审核和后续标注评测确认。B1 有效结构化结果留在调用回执内，待后续明确的候选接入流程。
+Java 验证字段、类型、证据路由、精确引文以及 HTML、链接、指令和常见临床越界表达。Trial Watch 只能复述平台登记的状态、阶段和设计，按 Java 计算的变更字段编码，不能增加自由文本疗效结论。可引用证据 ID 为题录 `title`、已授权的 `abstract` 和登记 `trial`，都绑定该次不可变资料修订。逐字匹配只证明引文存在。结论是否由引文语义支持、是否遗漏矛盾证据，由人工审核和后续标注评测确认。B1 有效结构化结果留在调用回执内，待后续明确的候选接入流程。
 
 ## 适配与安全配置
 
@@ -74,7 +74,7 @@ eye-diagnosis:
           output-per-million: 2000000
 ```
 
-运行时只接受固定官方 HTTPS origin 和路径。Apache HttpClient 与 Spring Retry 都按单次尝试配置，禁用跳转、工具执行、模型回退和结构修复重发。输入只包含可见的公众研究资料及同实验冻结输出。联网搜索、工具、MCP、RAG、Agent Memory 和患者数据都在该调用边界之外。Spring AI 的 `extraBody` 用于官方协议的思考模式参数。 [Spring AI 1.1.2 API](https://docs.spring.io/spring-ai/docs/1.1.2/api/org/springframework/ai/openai/OpenAiChatModel.html)
+运行时只接受固定官方 HTTPS origin 和路径。资讯使用独立 JDK HTTP/1.1 客户端，保持 POST 的非幂等重试语义，并拒绝启用 JDK 全方法重试。Spring Retry 只尝试一次，禁用跳转、工具执行、模型回退和结构修复重发。输入只包含可见的公众研究资料及同实验冻结输出。联网搜索、工具、MCP、RAG、Agent Memory 和患者数据都在该调用边界之外。支持的模型可显式配置 `disable-thinking`，通过 Spring AI `extraBody` 使用相应平台参数。Spark 原生响应的 `sid` 用于对账，成功且未到输出预算的无结束标志响应由适配器补齐供 Spring AI 读取。 [Spring AI 1.1.2 API](https://docs.spring.io/spring-ai/docs/1.1.2/api/org/springframework/ai/openai/OpenAiChatModel.html)
 
 ## 回执、命名空间与预算
 
@@ -83,6 +83,8 @@ V45 添加调用身份、成功冻结输出、缓存 Token 和全局日预算锁
 跨阶段只接受同资料修订、命名空间和策略内已成功的 SCREENING 回执。实验和新生产命名空间的 B1 输出都留在回执账本，与旧候选和发布轨迹隔离。V44 及更早回执的身份扩展字段为 NULL，仍走原来的候选和对账路径。
 
 调用前冻结并提交预扣，随后提交 DISPATCHED，再执行一次 HTTP。全局日预算与各 scope 同时检查，以 MySQL 日预算行仲裁。真实适配器预扣配置的输入和输出上界，按未命中缓存费率取成本上界。计费信息完整时直接结算。缓存命中与普通输入分开计费。有效结构化输出为 SUCCEEDED，证据或结构无效且用量已知记 FAILED_CHARGED。明确的鉴权拒绝和官方 402 记 FAILED_DEFINITIVE。超时、断线、重定向、含糊的限流、服务端错误、缺失账单或超出已授权用量包络进入 OUTCOME_UNKNOWN，保留原日预算。已收费但未取回合规输出的尝试不自动重发。审计对账复用现有接口与状态机。
+
+同一 UTC 日接纳各实例已提交的最严格全局限额。确认免费失败的恢复入口要求显式指定同身份、同 scope 的最后一张失败回执。凭据轮换后仍须由管理员复位已触发的熔断。普通调用重复执行只读已知终态，下一次授权尝试再写新的 `attemptNo`。
 
 ## NewsBench v2 实验与后续
 

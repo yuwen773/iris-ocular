@@ -151,7 +151,7 @@ public class NewsCurationService {
 
         NewsIngestionService.VisibleRevision revision = requireVisibleRevision(materialRevisionId);
         return executeCall(revision, promptBuilder.buildSnapshot(revision), effectivePolicy,
-                effectiveDate, effectiveScope, null).candidate();
+                effectiveDate, effectiveScope, null, null).candidate();
     }
 
     public record ModelRun(NewsModelProtocol.Identity identity, NewsCurationModels.CallReceiptSnapshot receipt,
@@ -161,6 +161,19 @@ public class NewsCurationService {
     /** Runs one frozen public-literature stage. Results remain in the receipt ledger pending editorial workflow. */
     public ModelRun runModel(long materialRevisionId, String policyVersion, String budgetScope,
                              NewsModelProtocol.Selection selection) {
+        return runModel(materialRevisionId, policyVersion, budgetScope, selection, null);
+    }
+
+    public ModelRun retryDefinitiveModel(long materialRevisionId, String policyVersion, String budgetScope,
+                                        NewsModelProtocol.Selection selection, String failedCallId) {
+        if (!NewsModelProfile.identifier(failedCallId, 64)) {
+            throw new IllegalArgumentException("Invalid failed model receipt identifier");
+        }
+        return runModel(materialRevisionId, policyVersion, budgetScope, selection, failedCallId);
+    }
+
+    private ModelRun runModel(long materialRevisionId, String policyVersion, String budgetScope,
+                              NewsModelProtocol.Selection selection, String retryCallId) {
         requireInvocationBoundary();
         NewsModelProfile profile = properties.getModelProfiles().get(selection.profileKey());
         if (profile == null) {
@@ -175,14 +188,15 @@ public class NewsCurationService {
         NewsCurationModels.EvidenceSnapshot snapshot = promptBuilder.buildSnapshot(revision);
         var prepared = modelProtocol.prepare(selection, profile, policy, snapshot, previousTrial(revision),
                 frozenUpstream(selection, revision.revisionId(), policy));
-        Execution execution = executeCall(revision, snapshot, policy, dbUtcDate(), scope, prepared);
+        Execution execution = executeCall(revision, snapshot, policy, dbUtcDate(), scope, prepared, retryCallId);
         var receipt = getCallReceipt(execution.callId()).orElseThrow();
         return new ModelRun(prepared.identity(), receipt, readFrozenOutput(execution.callId()), execution.replayed());
     }
 
     private Execution executeCall(NewsIngestionService.VisibleRevision revision,
                                   NewsCurationModels.EvidenceSnapshot snapshot, String effectivePolicy,
-                                  LocalDate effectiveDate, String effectiveScope, NewsModelProtocol.Prepared prepared) {
+                                  LocalDate effectiveDate, String effectiveScope, NewsModelProtocol.Prepared prepared,
+                                  String retryCallId) {
 
         String snapshotJson = promptBuilder.canonicalSnapshotJson(snapshot);
         String snapshotSha256 = NewsMaterialCanonicalizer.sha256Hex(snapshotJson.getBytes(StandardCharsets.UTF_8));
@@ -194,7 +208,7 @@ public class NewsCurationService {
 
         ReservationOutcome reserved = transactions.execute(status -> reserveAttempt(
                 revision, snapshot, snapshotJson, snapshotSha256,
-                effectivePolicy, effectiveDate, effectiveScope, pendingCallId, prepared));
+                effectivePolicy, effectiveDate, effectiveScope, pendingCallId, prepared, retryCallId));
 
         if (reserved.replayedCallId != null || reserved.replayedResult != null) {
             return new Execution(reserved.replayedCallId, reserved.replayedResult, true);
@@ -535,7 +549,7 @@ public class NewsCurationService {
                                               String policyVersion,
                                               LocalDate budgetDate,
                                               String budgetScope,
-                                              String callId, NewsModelProtocol.Prepared prepared) {
+                                              String callId, NewsModelProtocol.Prepared prepared, String retryCallId) {
         // Canonical lock order: circuit (when needed), global day guard, scope budget, receipts, candidate.
         String circuitReason = lockCircuit(budgetScope);
         NewsCurationModels.BudgetSnapshot budget = lockBudget(budgetDate, budgetScope);
@@ -579,11 +593,18 @@ public class NewsCurationService {
                     || r.state == NewsCurationModels.CallState.OUTCOME_UNKNOWN) {
                 throw new IllegalStateException("CURATION_AWAITING_RECONCILIATION");
             }
-            if (prepared != null && (r.state == NewsCurationModels.CallState.SUCCEEDED
-                    || r.state == NewsCurationModels.CallState.FAILED_CHARGED
-                    || r.state == NewsCurationModels.CallState.FAILED_DEFINITIVE)) {
-                return new ReservationOutcome(r.callId, null, null, 0L, 0L);
-            }
+        }
+
+        ReceiptRow last = existingReceipts.isEmpty() ? null : existingReceipts.getLast();
+        if (retryCallId != null && (last == null || !retryCallId.equals(last.callId)
+                || last.state != NewsCurationModels.CallState.FAILED_DEFINITIVE || !budgetScope.equals(last.budgetScope))) {
+            throw new IllegalArgumentException("MODEL_RETRY_REQUIRES_LAST_DEFINITIVE_FAILURE");
+        }
+        if (prepared != null && retryCallId == null && last != null
+                && (last.state == NewsCurationModels.CallState.SUCCEEDED
+                || last.state == NewsCurationModels.CallState.FAILED_CHARGED
+                || last.state == NewsCurationModels.CallState.FAILED_DEFINITIVE)) {
+            return new ReservationOutcome(last.callId, null, null, 0L, 0L);
         }
 
         if (circuitReason != null) {
@@ -956,6 +977,15 @@ public class NewsCurationService {
     }
 
     private void ensureBudgetRowExists(LocalDate budgetDate, String scope) {
+        // Persist a stricter deployment ceiling even if the next reservation is rejected and rolled back.
+        jdbc.update("""
+                INSERT INTO t_news_curation_budget_guard (budgetDate, maxCalls, maxTokens, maxCostMicros)
+                VALUES (?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE maxCalls = LEAST(maxCalls, VALUES(maxCalls)),
+                    maxTokens = LEAST(maxTokens, VALUES(maxTokens)),
+                    maxCostMicros = LEAST(maxCostMicros, VALUES(maxCostMicros))
+                """, budgetDate, Math.max(0, properties.getDailyMaxCalls()), Math.max(0L, properties.getDailyMaxTokens()),
+                Math.max(0L, properties.getDailyMaxCostMicros()));
         jdbc.update("""
                 INSERT IGNORE INTO t_news_curation_budget
                     (budgetDate, scope, maxCalls, maxTokens, maxCostMicros)
@@ -979,14 +1009,8 @@ public class NewsCurationService {
     }
 
     private NewsCurationModels.BudgetSnapshot lockBudget(LocalDate budgetDate, String scope) {
-        jdbc.update("""
-                INSERT INTO t_news_curation_budget_guard (budgetDate, maxCalls, maxTokens, maxCostMicros)
-                VALUES (?, ?, ?, ?)
-                ON DUPLICATE KEY UPDATE maxCalls = LEAST(maxCalls, VALUES(maxCalls)),
-                    maxTokens = LEAST(maxTokens, VALUES(maxTokens)),
-                    maxCostMicros = LEAST(maxCostMicros, VALUES(maxCostMicros))
-                """, budgetDate, properties.getDailyMaxCalls(), properties.getDailyMaxTokens(),
-                properties.getDailyMaxCostMicros());
+        jdbc.queryForObject("SELECT maxCalls FROM t_news_curation_budget_guard WHERE budgetDate = ? FOR UPDATE",
+                Integer.class, budgetDate);
         return jdbc.queryForObject("""
                 SELECT DATE_FORMAT(budgetDate, '%Y-%m-%d') AS budgetDate, scope,
                        maxCalls, usedCalls, reservedCalls,

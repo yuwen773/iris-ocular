@@ -172,6 +172,82 @@ class NewsOpenAiCompatibleModelClientTest {
         }
     }
 
+    @Test
+    void sparkOfficialSuccessShapeKeepsTheSidAndTreatsTheTokenCapAsTruncation() throws Exception {
+        AtomicInteger requests = new AtomicInteger();
+        AtomicReference<String> payload = new AtomicReference<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/chat/completions", exchange -> {
+            try (exchange) {
+                int tokens = requests.incrementAndGet() == 1 ? 4 : 10;
+                payload.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+                byte[] body = """
+                        {"code":0,"message":"Success","sid":"cht000@fixture",
+                         "choices":[{"index":0,"message":{"role":"assistant","content":"{}"}}],
+                         "usage":{"prompt_tokens":20,"completion_tokens":%d,"total_tokens":%d}}
+                        """.formatted(tokens, 20 + tokens).getBytes(StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().add("Content-Type", "application/json");
+                exchange.sendResponseHeaders(200, body.length);
+                exchange.getResponseBody().write(body);
+            }
+        });
+        server.start();
+        var mapper = JsonConfig.createNewsProtocolObjectMapper();
+        var spark = new NewsModelProfile(NewsModelProfile.Provider.SPARK, NewsModelProfile.Platform.SPARK,
+                URI.create("https://spark-api-open.xf-yun.com"), "/v1/chat/completions", "lite", "FIXTURE_KEY",
+                Duration.ofSeconds(2), Duration.ofSeconds(2), 2048, 10, 0,
+                NewsModelProfile.Format.PROMPT_JSON, new NewsModelProfile.Capabilities(
+                        false, false, NewsModelProfile.UsageFormat.STANDARD),
+                new NewsModelProfile.PricingVersion("fixture-v1", 1_000_000, 1_000_000, 2_000_000));
+        var sparkRequest = new NewsCurationModels.ModelCallRequest("fixture-id", "fixture-key", "SPARK", "lite",
+                "wp08b-test", "JSON only", "{}", "fixture-hash", null, Duration.ofSeconds(4),
+                "spark", "{}");
+        try (var client = new NewsOpenAiCompatibleModelClient(Map.of("spark", spark), key -> "local-test-key",
+                ignored -> URI.create("http://127.0.0.1:" + server.getAddress().getPort()), mapper)) {
+            var response = assertInstanceOf(NewsCurationModels.Succeeded.class, client.invoke(sparkRequest));
+            assertEquals("cht000@fixture", response.providerRequestId());
+            assertFalse(mapper.readTree(payload.get()).has("response_format"));
+            assertEquals("OUTPUT_TRUNCATED", assertInstanceOf(NewsCurationModels.ChargedFailure.class,
+                    client.invoke(sparkRequest)).errorCode());
+            assertEquals(2, requests.get());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void continuouslyTricklingResponseCannotExtendTheDeadline() throws Exception {
+        AtomicInteger requests = new AtomicInteger();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/chat/completions", exchange -> {
+            try (exchange) {
+                requests.incrementAndGet();
+                exchange.getRequestBody().readAllBytes();
+                exchange.getResponseHeaders().add("Content-Type", "application/json");
+                exchange.sendResponseHeaders(200, 0);
+                for (int chunk = 0; chunk < 20; chunk++) {
+                    exchange.getResponseBody().write(' ');
+                    exchange.getResponseBody().flush();
+                    Thread.sleep(30);
+                }
+                exchange.getResponseBody().write(completion("stop", "{}", true).getBytes(StandardCharsets.UTF_8));
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+            } catch (java.io.IOException ignored) {
+                // Deadline cancellation closes the response stream.
+            }
+        });
+        server.start();
+        try (var client = new NewsOpenAiCompatibleModelClient(Map.of("fixture", profile(Duration.ofMillis(250))),
+                key -> "local-test-key", ignored -> URI.create("http://127.0.0.1:" + server.getAddress().getPort()),
+                JsonConfig.createNewsProtocolObjectMapper())) {
+            assertInstanceOf(NewsCurationModels.UnknownOutcome.class, client.invoke(request()));
+            assertEquals(1, requests.get());
+        } finally {
+            server.stop(0);
+        }
+    }
+
     private static String usage() {
         return """
                 {"prompt_tokens":100,"completion_tokens":20,"total_tokens":120,

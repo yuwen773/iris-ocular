@@ -47,7 +47,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * daily budgets, unknown-paid-outcome reconciliation, auth circuit breaking, and NewsBench.
  *
  * <p>Keeps {@code Assumptions.assumeTrue} in {@code @BeforeEach} so Surefire records exact
- * case/skip counts matching {@code scripts/check_surefire_skips.py} (12 cases).
+ * case/skip counts matching {@code scripts/check_surefire_skips.py} (13 cases).
  */
 class NewsCurationMySqlIntegrationTest {
 
@@ -734,6 +734,30 @@ class NewsCurationMySqlIntegrationTest {
                 NewsModelProfile.Format.JSON_OBJECT, new NewsModelProfile.Capabilities(
                         true, false, NewsModelProfile.UsageFormat.STANDARD),
                 new NewsModelProfile.PricingVersion("fixture-v1", 1_000_000, 1_000_000, 2_000_000));
+    }
+
+    @Test
+    void aConfirmedFreeFailureRequiresAnExplicitRetryAfterTheCircuitIsReset() throws Exception {
+        long revision = ingestAndCompleteSingle("pubmed", "PMID-STAGE-3", "Glaucoma screening metadata", 1L);
+        curationProperties.setModelProfiles(Map.of("a", stagedProfile("fixture-a")));
+        var selection = new NewsModelProtocol.Selection("experiment.A", NewsModelProtocol.Prompt.P01, "a", null);
+        modelClient.enqueue(request -> new NewsCurationModels.DefinitiveFailure("MODEL_AUTH_REJECTED", 401, null, true, 1));
+        var failed = curationService.runModel(revision, POLICY_V1, "scope-a", selection);
+        assertEquals(NewsCurationModels.CallState.FAILED_DEFINITIVE, failed.receipt().state());
+        assertTrue(curationService.runModel(revision, POLICY_V1, "scope-a", selection).replayed());
+        assertThrows(IllegalStateException.class, () -> curationService.retryDefinitiveModel(revision, POLICY_V1,
+                "scope-a", selection, failed.receipt().callId()));
+
+        curationService.resetCircuitBreaker(failed.receipt().budgetDate(), "scope-a", "reviewer");
+        modelClient.enqueue(request -> new NewsCurationModels.Succeeded(SCREENING_JSON, 100, 20, 140, 200, "fixture-a", 1));
+        var retry = curationService.retryDefinitiveModel(revision, POLICY_V1, "scope-a", selection, failed.receipt().callId());
+        assertEquals(2, retry.receipt().attemptNo());
+        assertEquals(NewsCurationModels.CallState.SUCCEEDED, retry.receipt().state());
+        assertEquals(failed.receipt().logicalCallSha256(), retry.receipt().logicalCallSha256());
+        assertEquals(retry.receipt().callId(), curationService.runModel(revision, POLICY_V1, "scope-a", selection).receipt().callId());
+        assertThrows(IllegalArgumentException.class, () -> curationService.retryDefinitiveModel(revision, POLICY_V1,
+                "scope-a", selection, failed.receipt().callId()));
+        assertEquals(2, modelClient.invocations.get());
     }
 
     private long ingestAndCompleteSingle(String source, String recordId, String title, long configVersion)

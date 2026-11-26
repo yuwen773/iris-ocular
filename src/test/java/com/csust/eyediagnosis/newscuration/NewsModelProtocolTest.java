@@ -41,6 +41,24 @@ class NewsModelProtocolTest {
     }
 
     @Test
+    void trialWatchRequiresTheRegistryFactsWithoutInferredOutcomes() {
+        var snapshot = snapshot("clinicaltrials-gov", "Registered trial", null, null,
+                "{\"overallStatus\":\"RECRUITING\",\"phases\":[\"PHASE1\"],\"studyType\":\"INTERVENTIONAL\"}");
+        var selected = new NewsModelProtocol.Selection("experiment.A", NewsModelProtocol.Prompt.P04, "qwen", null);
+        var identity = protocol.prepare(selected, profile("https://dashscope.aliyuncs.com", "qwen-flash"),
+                "v1", snapshot, null, null).identity();
+        String watch = """
+                {"contentType":"TRIAL_WATCH","sections":{"status":"RECRUITING","phases":["PHASE1"],
+                 "studyDesign":"INTERVENTIONAL","changes":["INITIAL"],"limitations":"TRIAL_REGISTRY_ONLY"},
+                 "claims":[{"evidenceId":"trial","statement":"RECRUITING","quote":"RECRUITING"}]}
+                """;
+        assertNotNull(protocol.validatedOutput(watch, identity, snapshot, 2048));
+        assertNull(protocol.validatedOutput(watch.replace("\"status\":\"RECRUITING\"", "\"status\":\"COMPLETED\""), identity, snapshot, 2048));
+        assertNull(protocol.validatedOutput(watch.replace("PHASE1", "PHASE4"), identity, snapshot, 2048));
+        assertNull(protocol.validatedOutput(watch.replace("\"statement\":\"RECRUITING\"", "\"statement\":\"使失明风险减半\""), identity, snapshot, 2048));
+    }
+
+    @Test
     void freezesPromptAndConfigSeparatelyAndRejectsInvalidStructuredOutput() {
         var snapshot = snapshot("pubmed", "Glaucoma cohort", null, null, null);
         var profile = profile("https://dashscope.aliyuncs.com", "qwen-flash");

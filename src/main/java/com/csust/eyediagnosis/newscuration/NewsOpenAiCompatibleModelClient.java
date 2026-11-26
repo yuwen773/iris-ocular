@@ -8,13 +8,8 @@ import com.csust.eyediagnosis.newscuration.NewsCurationModels.Succeeded;
 import com.csust.eyediagnosis.newscuration.NewsCurationModels.UnknownOutcome;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.micrometer.observation.ObservationRegistry;
-import org.apache.hc.client5.http.config.ConnectionConfig;
-import org.apache.hc.client5.http.config.RequestConfig;
-import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
-import org.apache.hc.client5.http.impl.classic.HttpClients;
-import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManagerBuilder;
-import org.apache.hc.core5.util.Timeout;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatResponse;
@@ -28,7 +23,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.client.ClientHttpResponse;
-import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.retry.support.RetryTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -37,6 +32,8 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
+import java.net.ProxySelector;
+import java.net.http.HttpClient;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -64,6 +61,9 @@ public class NewsOpenAiCompatibleModelClient implements NewsCurationModelClient,
     NewsOpenAiCompatibleModelClient(Map<String, NewsModelProfile> profiles, Function<String, String> secrets,
                                     Function<NewsModelProfile, URI> endpoint, ObjectMapper mapper) {
         this.mapper = mapper;
+        if (!profiles.isEmpty() && Boolean.getBoolean("jdk.httpclient.enableAllMethodRetry")) {
+            throw new IllegalStateException("JDK all-method retry conflicts with news model single-attempt transport");
+        }
         try {
             profiles.forEach((key, profile) -> {
                 if (!NewsModelProfile.identifier(key, 64)) {
@@ -83,19 +83,14 @@ public class NewsOpenAiCompatibleModelClient implements NewsCurationModelClient,
     }
 
     private Channel openChannel(NewsModelProfile profile, URI endpoint, String token) {
-        Timeout connect = Timeout.ofMilliseconds(profile.connectTimeout().toMillis());
-        Timeout read = Timeout.ofMilliseconds(profile.readTimeout().toMillis());
-        var connections = PoolingHttpClientConnectionManagerBuilder.create()
-                .setDefaultConnectionConfig(ConnectionConfig.custom().setConnectTimeout(connect).setSocketTimeout(read).build())
-                .build();
-        CloseableHttpClient transport = HttpClients.custom().setConnectionManager(connections)
-                .disableAutomaticRetries().disableRedirectHandling().disableAuthCaching()
-                .disableCookieManagement().setDefaultRequestConfig(RequestConfig.custom()
-                        .setAuthenticationEnabled(false).setConnectionRequestTimeout(connect).setResponseTimeout(read).build())
-                .build();
+        HttpClient transport = HttpClient.newBuilder().connectTimeout(profile.connectTimeout())
+                .proxy(ProxySelector.of(null)).followRedirects(HttpClient.Redirect.NEVER)
+                .version(HttpClient.Version.HTTP_1_1).build();
         try {
-            var rest = RestClient.builder().requestFactory(new HttpComponentsClientHttpRequestFactory(transport))
-                    .requestInterceptor((request, body, execution) -> capture(execution.execute(request, body)));
+            var factory = new JdkClientHttpRequestFactory(transport);
+            factory.setReadTimeout(profile.readTimeout());
+            var rest = RestClient.builder().requestFactory(factory)
+                    .requestInterceptor((request, body, execution) -> capture(profile, execution.execute(request, body)));
             OpenAiApi api = OpenAiApi.builder().baseUrl(endpoint.resolve("/").toString())
                     .completionsPath(profile.completionsPath()).apiKey(token).restClientBuilder(rest).build();
             var model = OpenAiChatModel.builder().openAiApi(api)
@@ -104,7 +99,7 @@ public class NewsOpenAiCompatibleModelClient implements NewsCurationModelClient,
                     .retryTemplate(RetryTemplate.builder().maxAttempts(1).build()).build();
             return new Channel(profile, model, transport);
         } catch (RuntimeException ex) {
-            closeTransport(transport);
+            transport.shutdownNow();
             throw ex;
         }
     }
@@ -117,9 +112,9 @@ public class NewsOpenAiCompatibleModelClient implements NewsCurationModelClient,
         } else if (profile.responseFormat() == NewsModelProfile.Format.JSON_SCHEMA && schema != null) {
             builder.responseFormat(new ResponseFormat(ResponseFormat.Type.JSON_SCHEMA, schema));
         }
-        if (profile.servingPlatform() == NewsModelProfile.Platform.DEEPSEEK) {
+        if (profile.providerCapabilities().disableThinking() && profile.servingPlatform() == NewsModelProfile.Platform.DEEPSEEK) {
             builder.extraBody(Map.of("thinking", Map.of("type", "disabled")));
-        } else if (profile.servingPlatform() == NewsModelProfile.Platform.BAILIAN) {
+        } else if (profile.providerCapabilities().disableThinking() && profile.servingPlatform() == NewsModelProfile.Platform.BAILIAN) {
             builder.extraBody(Map.of("enable_thinking", false));
         }
         return builder.build();
@@ -155,11 +150,15 @@ public class NewsOpenAiCompatibleModelClient implements NewsCurationModelClient,
             return classifyError(profile, received, latency);
         }
         JsonNode raw = received.body();
+        if (profile.servingPlatform() == NewsModelProfile.Platform.SPARK && raw != null && raw.has("code")
+                && (!raw.path("code").isIntegralNumber() || raw.path("code").longValue() != 0)) {
+            return new UnknownOutcome("SPARK_RESPONSE_OUTCOME_UNKNOWN", 200, safeId(raw.path("sid").textValue()), latency);
+        }
         JsonNode usage = raw == null ? null : raw.get("usage");
         Integer prompt = usage == null ? null : nonnegativeInt(usage.get("prompt_tokens"));
         Integer output = usage == null ? null : nonnegativeInt(usage.get("completion_tokens"));
         Integer total = usage == null ? null : nonnegativeInt(usage.get("total_tokens"));
-        String requestId = safeId(raw == null ? null : raw.path("id").textValue());
+        String requestId = raw == null ? null : safeId(raw.path("id").asText(raw.path("sid").textValue()));
         if (prompt == null || prompt < 1 || output == null || total == null || (long) prompt + output != total
                 || prompt > profile.maxInputTokens() || output > profile.maxOutputTokens()) {
             return new UnknownOutcome("USAGE_UNKNOWN_OR_OUTSIDE_ENVELOPE", 200, requestId, latency);
@@ -208,6 +207,11 @@ public class NewsOpenAiCompatibleModelClient implements NewsCurationModelClient,
         }
         int status = received.status();
         if (status == 401 || status == 403) {
+            if (status == 403 && profile.servingPlatform() == NewsModelProfile.Platform.BAILIAN
+                    && received.body() != null && ("Arrearage".equals(received.body().path("error").path("code").asText())
+                    || "Arrearage".equals(received.body().path("code").asText()))) {
+                return new DefinitiveFailure("MODEL_BALANCE_INSUFFICIENT", status, null, false, latency);
+            }
             return new DefinitiveFailure("MODEL_AUTH_REJECTED", status, null, true, latency);
         }
         if (status == 402 && profile.servingPlatform() == NewsModelProfile.Platform.DEEPSEEK) {
@@ -219,11 +223,11 @@ public class NewsOpenAiCompatibleModelClient implements NewsCurationModelClient,
         return new UnknownOutcome("MODEL_RESPONSE_OUTCOME_UNKNOWN", status, null, latency);
     }
 
-    private ClientHttpResponse capture(ClientHttpResponse response) throws IOException {
+    private ClientHttpResponse capture(NewsModelProfile profile, ClientHttpResponse response) throws IOException {
         try {
             int status = response.getStatusCode().value();
             wire.set(new WireResponse(status, null));
-            if (status != 200) {
+            if (status != 200 && !(status == 403 && profile.servingPlatform() == NewsModelProfile.Platform.BAILIAN)) {
                 throw new IOException("News model endpoint rejected the request");
             }
             byte[] bytes = response.getBody().readNBytes(MAX_RESPONSE_BYTES + 1);
@@ -232,12 +236,29 @@ public class NewsOpenAiCompatibleModelClient implements NewsCurationModelClient,
             }
             JsonNode body = mapper.readTree(bytes);
             wire.set(new WireResponse(status, body));
+            if (status != 200) {
+                throw new IOException("News model endpoint rejected the request");
+            }
             if (body == null || !body.path("choices").isArray() || body.path("choices").isEmpty()) {
                 throw new IOException("News model response has no choices");
             }
+            if (profile.servingPlatform() == NewsModelProfile.Platform.SPARK
+                    && body.has("code") && body.path("code").isIntegralNumber() && body.path("code").intValue() == 0
+                    && body.path("choices").size() == 1 && body.path("choices").get(0) instanceof ObjectNode choice
+                    && !choice.hasNonNull("finish_reason")) {
+                Integer tokens = nonnegativeInt(body.path("usage").get("completion_tokens"));
+                choice.put("finish_reason", tokens != null && tokens < profile.maxOutputTokens() ? "stop" : "length");
+                bytes = mapper.writeValueAsBytes(body);
+            }
             return new BufferedResponse(response, bytes);
         } catch (IOException | RuntimeException ex) {
-            response.close();
+            try {
+                response.getBody().close();
+            } catch (IOException ignored) {
+                // The request has already failed and must not be retried.
+            } finally {
+                response.close();
+            }
             throw ex;
         }
     }
@@ -248,7 +269,7 @@ public class NewsOpenAiCompatibleModelClient implements NewsCurationModelClient,
     }
 
     private static String safeId(String id) {
-        return NewsModelProfile.identifier(id, 128) ? id : null;
+        return id != null && id.length() <= 128 && id.matches("[A-Za-z0-9][A-Za-z0-9@._-]*") ? id : null;
     }
 
     private static int elapsed(long started) {
@@ -257,18 +278,10 @@ public class NewsOpenAiCompatibleModelClient implements NewsCurationModelClient,
 
     @Override
     public void close() {
-        channels.values().forEach(channel -> closeTransport(channel.transport()));
+        channels.values().forEach(channel -> channel.transport().shutdownNow());
     }
 
-    private static void closeTransport(CloseableHttpClient client) {
-        try {
-            client.close();
-        } catch (IOException ignored) {
-            // Closing a client has no effect on the accounting of prior requests.
-        }
-    }
-
-    private record Channel(NewsModelProfile profile, OpenAiChatModel model, CloseableHttpClient transport) {
+    private record Channel(NewsModelProfile profile, OpenAiChatModel model, HttpClient transport) {
     }
 
     private record WireResponse(int status, JsonNode body) {
@@ -277,7 +290,12 @@ public class NewsOpenAiCompatibleModelClient implements NewsCurationModelClient,
     private record BufferedResponse(ClientHttpResponse original, byte[] bytes) implements ClientHttpResponse {
         @Override public HttpStatusCode getStatusCode() throws IOException { return original.getStatusCode(); }
         @Override public String getStatusText() throws IOException { return original.getStatusText(); }
-        @Override public HttpHeaders getHeaders() { return original.getHeaders(); }
+        @Override public HttpHeaders getHeaders() {
+            HttpHeaders headers = new HttpHeaders();
+            headers.putAll(original.getHeaders());
+            headers.setContentLength(bytes.length);
+            return headers;
+        }
         @Override public InputStream getBody() { return new ByteArrayInputStream(bytes); }
         @Override public void close() { original.close(); }
     }

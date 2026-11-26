@@ -8,12 +8,14 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.networknt.schema.JsonSchema;
 import com.networknt.schema.JsonSchemaFactory;
 import com.networknt.schema.SpecVersion;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
@@ -27,6 +29,7 @@ public final class NewsModelProtocol {
             "(?iu)[<>]|(?:https?|ftp|javascript|data):|\\bwww\\.|\\[[^]]*]\\(");
 
     public enum Stage { SCREENING, GENERATION, JOINT }
+    public enum TrialChange { INITIAL, STATUS, PHASES, STUDY_DESIGN }
 
     public enum Prompt {
         P01(Stage.SCREENING, null),
@@ -60,7 +63,7 @@ public final class NewsModelProtocol {
                            NewsModelProfile.Provider provider, NewsModelProfile.Platform servingPlatform,
                            String modelId, String pricingVersion, Prompt prompt, String promptVersion,
                            String promptSha256, String configurationSha256, String upstreamResponseSha256,
-                           ContentType eligibleType) {
+                           ContentType eligibleType, List<TrialChange> trialChanges) {
     }
 
     record Upstream(String digest, JsonNode payload) {
@@ -102,7 +105,14 @@ public final class NewsModelProtocol {
             JsonSchemaFactory factory = JsonSchemaFactory.getInstance(SpecVersion.VersionFlag.V202012);
             for (Prompt prompt : Prompt.values()) {
                 JsonNode definition = catalog.required("prompts").required(prompt.name());
-                JsonNode schema = definition.required("schema");
+                ObjectNode schema = definition.required("schema").deepCopy();
+                if (prompt == Prompt.P05) {
+                    var definitions = schema.putObject("$defs");
+                    for (Prompt generation : List.of(Prompt.P02, Prompt.P03, Prompt.P04)) {
+                        definitions.set(generation.name(), catalog.required("prompts")
+                                .required(generation.name()).required("schema"));
+                    }
+                }
                 String schemaJson = json(schema);
                 templates.put(prompt, new Template(common + "\n" + definition.required("instruction").textValue()
                         + "\nJSON Schema: " + schemaJson, schemaJson, factory.getSchema(schema)));
@@ -119,6 +129,7 @@ public final class NewsModelProtocol {
         }
         NewsEditorialEvidence evidence = NewsEditorialEvidence.from(snapshot, mapper);
         ContentType eligible = evidence.route(previous, true);
+        List<TrialChange> changes = trialChanges(evidence, previous);
         Prompt prompt = selection.prompt();
         if (prompt.contentType != null && prompt.contentType != eligible) {
             throw new IllegalArgumentException("EDITORIAL_EVIDENCE_INSUFFICIENT");
@@ -127,6 +138,7 @@ public final class NewsModelProtocol {
         var user = mapper.createObjectNode();
         user.put("eligibleType", eligible.name());
         user.set("evidenceAttributes", mapper.valueToTree(evidence));
+        user.set("trialChanges", mapper.valueToTree(changes));
         if (previous != null && evidence.trial() != null) {
             user.set("previousTrialState", mapper.valueToTree(previous.trial()));
             user.put("previousStudyDesign", previous.studyDesign().name());
@@ -155,7 +167,7 @@ public final class NewsModelProtocol {
         String configHash = sha256(json(profile));
         Identity identity = new Identity(snapshot.materialRevisionId(), selection.namespace(), policy, prompt.stage,
                 profile.provider(), profile.servingPlatform(), profile.modelId(), profile.pricingVersion().version(),
-                prompt, version, promptHash, configHash, upstream == null ? null : upstream.digest(), eligible);
+                prompt, version, promptHash, configHash, upstream == null ? null : upstream.digest(), eligible, changes);
         String identityJson = json(identity);
         return new Prepared(identity, identityJson, sha256(identityJson), selection.profileKey(), profile, template, userPrompt);
     }
@@ -174,6 +186,10 @@ public final class NewsModelProtocol {
                 || !safeText(root, "clinicaltrials-gov".equals(snapshot.source()))) {
             return null;
         }
+        boolean registry = "clinicaltrials-gov".equals(snapshot.source());
+        if (registry && root.has("rationale") && !"TRIAL_REGISTRY_ONLY".equals(root.path("rationale").asText())) {
+            return null;
+        }
         JsonNode content = switch (identity.stage()) {
             case SCREENING -> null;
             case GENERATION -> root;
@@ -183,7 +199,14 @@ public final class NewsModelProtocol {
             if (!identity.eligibleType().name().equals(content.path("contentType").asText())) {
                 return null;
             }
+            if (registry && !validTrialSections(content.path("sections"), identity, snapshot)) {
+                return null;
+            }
             for (JsonNode claim : content.path("claims")) {
+                if (registry && (!"trial".equals(claim.path("evidenceId").asText())
+                        || !claim.path("quote").asText().equals(claim.path("statement").asText()))) {
+                    return null;
+                }
                 String evidence = switch (claim.path("evidenceId").textValue()) {
                     case "title" -> snapshot.title();
                     case "abstract" -> NewsEditorialEvidence.from(snapshot, mapper).license()
@@ -197,6 +220,36 @@ public final class NewsModelProtocol {
             }
         }
         return root;
+    }
+
+    private boolean validTrialSections(JsonNode sections, Identity identity, EvidenceSnapshot snapshot) {
+        NewsEditorialEvidence evidence = NewsEditorialEvidence.from(snapshot, mapper);
+        return evidence.trial() != null
+                && evidence.trial().status().equals(sections.path("status").asText())
+                && mapper.valueToTree(evidence.trial().phases()).equals(sections.path("phases"))
+                && evidence.studyDesign().name().equals(sections.path("studyDesign").asText())
+                && mapper.valueToTree(identity.trialChanges()).equals(sections.path("changes"))
+                && "TRIAL_REGISTRY_ONLY".equals(sections.path("limitations").asText());
+    }
+
+    private static List<TrialChange> trialChanges(NewsEditorialEvidence current, NewsEditorialEvidence previous) {
+        if (current.trial() == null) {
+            return List.of();
+        }
+        if (previous == null || previous.trial() == null) {
+            return List.of(TrialChange.INITIAL);
+        }
+        List<TrialChange> changes = new ArrayList<>();
+        if (!current.trial().status().equals(previous.trial().status())) {
+            changes.add(TrialChange.STATUS);
+        }
+        if (!current.trial().phases().equals(previous.trial().phases())) {
+            changes.add(TrialChange.PHASES);
+        }
+        if (current.studyDesign() != previous.studyDesign()) {
+            changes.add(TrialChange.STUDY_DESIGN);
+        }
+        return List.copyOf(changes);
     }
 
     private static boolean safeText(JsonNode node, boolean trial) {

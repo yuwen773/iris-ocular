@@ -568,7 +568,7 @@ class NewsWorkbenchMySqlIntegrationTest {
         curationService.curateRevision(revViolation, POLICY_V1, BUDGET_DATE, SCOPE_GLOBAL);
 
         NewsWorkbenchModels.PageVO<NewsWorkbenchModels.CandidateSummaryVO> acceptedPage =
-                workbenchService.listCandidates("CURATED_ACCEPTED", "pubmed", "PEER_REVIEWED_ABSTRACT", 1, 10);
+                workbenchService.listCandidates("CURATED_ACCEPTED", "pubmed", "LICENSED_ABSTRACT", 1, 10);
         assertEquals(1L, acceptedPage.total());
         long acceptedId = acceptedPage.records().getFirst().id();
         assertNull(acceptedPage.records().getFirst().linkedNewsId());
