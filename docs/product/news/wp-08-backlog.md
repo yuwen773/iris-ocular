@@ -8,7 +8,11 @@ WP-08A 已合入主干并关闭。目标环境按单信源、小窗口灰度。�
 
 ## 2. 真实模型 Provider 适配
 
-WP-08B.0 / B.1 的统一 OpenAI Compatible 适配器、调用回执与模型实验协议见 [资讯精选契约](wp-08b-model-curation.md)。`eye-diagnosis.news-curation.enabled` 默认关闭。真实供应商联调、分层生成接入、人工标注与付费 A/B 留待后续授权。
+WP-08B.0 / B.1 的统一 OpenAI Compatible 适配器、调用回执与模型实验协议见 [资讯精选契约](wp-08b-model-curation.md)。
+WP-08B.2 的人工证据核验账本（V46）、P05 单模型调用、冻结回执转待审候选与撤回闸门见
+[最小资讯生产闭环](wp-08b2-production-loop.md)；付费联调方案见
+[付费联调方案](wp-08b2-paid-integration-plan.md)（未执行）。`eye-diagnosis.news-curation.enabled` 默认关闭。
+真实供应商联调、分层生成接入、人工标注与付费 A/B 留待后续授权。
 
 **进入真实模型联调的条件**
 

@@ -21,6 +21,8 @@ import com.csust.eyediagnosis.newscuration.NewsCurationPromptBuilder;
 import com.csust.eyediagnosis.newscuration.NewsCurationProperties;
 import com.csust.eyediagnosis.newscuration.NewsCurationService;
 import com.csust.eyediagnosis.newscuration.NewsEvidenceVerifier;
+import com.csust.eyediagnosis.newscuration.NewsModelProfile;
+import com.csust.eyediagnosis.newscuration.NewsModelProtocol;
 import com.csust.eyediagnosis.newsingestion.NewsIngestionProperties;
 import com.csust.eyediagnosis.newsingestion.NewsIngestionService;
 import com.csust.eyediagnosis.newsingestion.NewsWireCodec;
@@ -41,6 +43,7 @@ import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.IllegalTransactionStateException;
 
+import java.net.URI;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.LocalDate;
@@ -69,7 +72,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * L2 real-MySQL integration suite for WP-05 News Engine Workbench backend services.
  *
  * <p>Keeps {@code Assumptions.assumeTrue} in {@code @BeforeEach} so Surefire records exact
- * case/skip counts matching {@code scripts/check_surefire_skips.py}.
+ * case/skip counts matching {@code scripts/check_surefire_skips.py} (11 cases).
  */
 class NewsWorkbenchMySqlIntegrationTest {
 
@@ -112,6 +115,7 @@ class NewsWorkbenchMySqlIntegrationTest {
         jdbc.execute("INSERT INTO t_news_cache_epoch (scope, epoch) VALUES ('news_list', 0)");
         jdbc.execute("DELETE FROM t_news_bench_run");
         jdbc.execute("DELETE FROM t_news_curation_candidate");
+        jdbc.execute("DELETE FROM t_news_evidence_verification");
         jdbc.execute("DELETE FROM t_news_model_call_receipt");
         jdbc.execute("DELETE FROM t_news_curation_budget");
         jdbc.execute("DELETE FROM t_news_curation_circuit");
@@ -587,6 +591,116 @@ class NewsWorkbenchMySqlIntegrationTest {
                 workbenchService.listCandidates("REJECTED_EVIDENCE_VIOLATION", null, null, 1, 10);
         assertEquals(1L, violationsPage.total());
         assertTrue(violationsPage.records().getFirst().violationsCount() > 0);
+    }
+
+    @Test
+    void stagedJointCandidateNeedsHumanReviewAndLiveVerifiedEvidenceToDraft() throws Exception {
+        long revisionA = ingestSingleMaterial("wb-b2-1", "pubmed", "PMID-B2-1",
+                "Glaucoma OCT Deep Learning Validation", "CC-BY",
+                "Open-access multicenter ophthalmic abstract validating OCT deep learning screening.");
+        long revisionB = ingestSingleMaterial("wb-b2-2", "pubmed", "PMID-B2-2",
+                "Retinal Vessel Segmentation External Validation", "CC-BY",
+                "External validation of retinal vessel segmentation reported consistent performance.");
+        curationProperties.setModelProfiles(Map.of("prod", stagedProfile("fixture-prod")));
+
+        fullyVerifyThroughWorkbench(revisionA);
+        fullyVerifyThroughWorkbench(revisionB);
+        assertEquals(4, workbenchService.listEvidenceVerifications(revisionA).size());
+
+        NewsCurationService.ModelRun frozenA = runProductionJoint(revisionA,
+                "Open-access multicenter ophthalmic abstract");
+        NewsCurationService.ModelRun frozenB = runProductionJoint(revisionB,
+                "External validation of retinal vessel segmentation");
+        assertEquals(frozenA.identity().evidenceOverlaySha256(),
+                curationService.activeEvidenceOverlaySha256(revisionA));
+
+        NewsWorkbenchModels.MaterializedCandidateVO candidateA =
+                workbenchService.materializeCandidate(frozenA.receipt().callId(), adminActor);
+        NewsWorkbenchModels.MaterializedCandidateVO candidateB =
+                workbenchService.materializeCandidate(frozenB.receipt().callId(), adminActor);
+        assertTrue(candidateA.created());
+        assertEquals("CURATED_NEEDS_REVIEW", candidateA.status());
+        assertEquals("admin:1001", jdbc.queryForObject(
+                "SELECT materializedBy FROM t_news_curation_candidate WHERE id = ?", String.class,
+                candidateA.candidateId()));
+        assertFalse(workbenchService.materializeCandidate(frozenA.receipt().callId(), adminActor).created());
+
+        // The staged result only ever lands in the human queue: drafting is an explicit reviewer action.
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM t_news", Integer.class));
+        Long newsId = lifecycleService.createDraftFromCandidate(candidateA.candidateId(), adminActor, true);
+        NewsWorkbenchModels.CandidateDetailVO detail = workbenchService.getCandidateDetail(candidateA.candidateId());
+        assertEquals(newsId, detail.linkedNewsId());
+        assertEquals(NewsStatus.PENDING_REVIEW, detail.linkedNewsStatus());
+        assertEquals("RESEARCH_INSIGHT", detail.contentType());
+        assertNull(detail.category());
+        assertEquals(1, detail.claims().size());
+        assertEquals(1, detail.limitations().size());
+        assertEquals("SUCCEEDED", detail.callReceipt().state());
+        assertEquals(frozenA.identity().evidenceOverlaySha256(), candidateA.evidenceVerificationSha256());
+
+        // Revoking a verification after the fact makes its frozen answer unusable for drafting.
+        NewsWorkbenchModels.EvidenceVerificationVO peer = workbenchService.listEvidenceVerifications(revisionB).stream()
+                .filter(row -> row.active() && "PEER_REVIEW".equals(row.attribute()))
+                .findFirst().orElseThrow();
+        NewsWorkbenchModels.EvidenceVerificationVO revoked = workbenchService.revokeEvidence(peer.id(),
+                new NewsWorkbenchModels.RevokeEvidenceVerificationRequest("同行评审记录已失效"), adminActor);
+        assertFalse(revoked.active());
+        assertNotNull(revoked.revokedAt());
+
+        BusinessException blocked = assertThrows(BusinessException.class,
+                () -> lifecycleService.createDraftFromCandidate(candidateB.candidateId(), adminActor, true));
+        assertTrue(blocked.getMessage().contains("证据核验已撤回或变更"), blocked.getMessage());
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM t_news", Integer.class));
+
+        // Re-verifying does not revive the old frozen answer: a new paid call must be frozen first.
+        workbenchService.verifyEvidence(revisionB, new NewsWorkbenchModels.SubmitEvidenceVerificationRequest(
+                "PEER_REVIEW", "VERIFIED", "PUBMED_RECORD", "https://pubmed.ncbi.nlm.nih.gov/42000002/",
+                "pubmed-2026-11", "重新核对 PubMed 记录"), adminActor);
+        NewsCurationService.ModelRun renewed = runProductionJoint(revisionB,
+                "External validation of retinal vessel segmentation");
+        assertEquals("CANDIDATE_ALREADY_MATERIALIZED", assertThrows(IllegalStateException.class,
+                () -> curationService.materializeCandidate(renewed.receipt().callId(), "admin:1001")).getMessage());
+    }
+
+    private void fullyVerifyThroughWorkbench(long revision) {
+        workbenchService.verifyEvidence(revision, new NewsWorkbenchModels.SubmitEvidenceVerificationRequest(
+                "PEER_REVIEW", "VERIFIED", "PUBMED_RECORD", "https://pubmed.ncbi.nlm.nih.gov/42000001/",
+                "pubmed-2026", "PubMed 记录标注同行评审"), adminActor);
+        workbenchService.verifyEvidence(revision, new NewsWorkbenchModels.SubmitEvidenceVerificationRequest(
+                "INTEGRITY", "VERIFIED", "PUBMED_RECORD", "https://pubmed.ncbi.nlm.nih.gov/42000001/",
+                "pubmed-2026", null), adminActor);
+        workbenchService.verifyEvidence(revision, new NewsWorkbenchModels.SubmitEvidenceVerificationRequest(
+                "STUDY_DESIGN", "OBSERVATIONAL", "PUBMED_RECORD", "https://pubmed.ncbi.nlm.nih.gov/42000001/",
+                "pubmed-2026", null), adminActor);
+        workbenchService.verifyEvidence(revision, new NewsWorkbenchModels.SubmitEvidenceVerificationRequest(
+                "CONTENT_SCOPE", "LICENSED_RESULTS", "DOI_LANDING_PAGE", "https://doi.org/10.1000/iris.2026.02",
+                "doi-2026-11", "核对 DOI 落地页授权范围"), adminActor);
+    }
+
+    private NewsCurationService.ModelRun runProductionJoint(long revision, String quote) {
+        String joint = """
+                {"relevanceScore":84,"researchValueScore":71,"recommendedType":"RESEARCH_INSIGHT",
+                 "rationale":"同行评审、完整性、研究设计与授权全文范围均已人工核验。",
+                 "content":{"contentType":"RESEARCH_INSIGHT","sections":{
+                   "question":"该研究评估深度学习筛查在真实世界队列中的表现。",
+                   "studyDesign":"多中心前瞻性观察研究。",
+                   "findings":"研究报告了较高的筛查敏感度，仍需外部验证。",
+                   "meaning":"为基层筛查评估提供了可复用的路径。",
+                   "limitations":"未评估长期结局。"},
+                  "claims":[{"evidenceId":"abstract","statement":"公开摘要记录了筛查评估结果。","quote":"%s"}]}}
+                """.formatted(quote);
+        modelClient.enqueue(req -> new NewsCurationModels.Succeeded(joint, 400, 160, 900L, 200, "req-joint", 120));
+        return curationService.runModel(revision, POLICY_V1, SCOPE_GLOBAL,
+                new NewsModelProtocol.Selection("production", NewsModelProtocol.Prompt.P05, "prod", null));
+    }
+
+    private static NewsModelProfile stagedProfile(String model) {
+        return new NewsModelProfile(NewsModelProfile.Provider.QWEN, NewsModelProfile.Platform.BAILIAN,
+                URI.create("https://dashscope.aliyuncs.com"), "/compatible-mode/v1/chat/completions",
+                model, "FIXTURE_KEY", Duration.ofSeconds(2), Duration.ofSeconds(5), 8192, 512, 0,
+                NewsModelProfile.Format.JSON_OBJECT, new NewsModelProfile.Capabilities(
+                        true, false, NewsModelProfile.UsageFormat.STANDARD),
+                new NewsModelProfile.PricingVersion("fixture-v1", 1_000_000, 1_000_000, 2_000_000));
     }
 
     @Test

@@ -15,6 +15,7 @@ import com.csust.eyediagnosis.model.entity.NewsAudit;
 import com.csust.eyediagnosis.model.entity.User;
 import com.csust.eyediagnosis.model.vo.news.NewsRevisionVO;
 import com.csust.eyediagnosis.newscuration.NewsCurationModels;
+import com.csust.eyediagnosis.newscuration.NewsEvidenceLedgerStore;
 import com.csust.eyediagnosis.newscuration.NewsEvidenceVerifier;
 import com.csust.eyediagnosis.newsingestion.NewsMaterialCanonicalizer;
 import com.csust.eyediagnosis.utils.JsonUtils;
@@ -540,7 +541,7 @@ public class NewsLifecycleService {
                 SELECT id, materialId, materialRevisionId, source, sourceRecordId, contentDigest,
                        policyVersion, callId, status, decision, evidenceTier, relevanceScore,
                        suggestedTitle, suggestedSummary, category, limitationsJson, claimsJson,
-                       violationsJson, evidenceSnapshotJson, evidenceSnapshotSha256
+                       violationsJson, evidenceSnapshotJson, evidenceSnapshotSha256, evidenceVerificationSha256
                 FROM t_news_curation_candidate
                 WHERE id = ?
                 FOR UPDATE
@@ -579,16 +580,55 @@ public class NewsLifecycleService {
         if (isBlank(candidate.callId)) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "候选缺少有效模型调用回执");
         }
-        Integer matchingReceipt = jdbc.queryForObject("""
-                SELECT COUNT(*) FROM t_news_model_call_receipt
-                WHERE callId = ? AND materialRevisionId = ? AND policyVersion = ? AND state = 'SUCCEEDED'
-                  AND logicalCallSha256 IS NULL
-                """, Integer.class, candidate.callId, candidate.materialRevisionId, candidate.policyVersion);
-        if (!Integer.valueOf(1).equals(matchingReceipt)) {
+        List<Map<String, Object>> receipts = jdbc.queryForList("""
+                SELECT state, logicalCallSha256, callIdentityJson, frozenResponseJson, responseSha256
+                FROM t_news_model_call_receipt
+                WHERE callId = ? AND materialRevisionId = ? AND policyVersion = ?
+                """, candidate.callId, candidate.materialRevisionId, candidate.policyVersion);
+        if (receipts.size() != 1 || !"SUCCEEDED".equals(receipts.getFirst().get("state"))) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "模型调用回执未成功或与候选证据不匹配");
+        }
+        Map<String, Object> receipt = receipts.getFirst();
+        if (receipt.get("logicalCallSha256") != null) {
+            verifyStagedReceipt(candidate, receipt);
         }
 
         return candidate;
+    }
+
+    /**
+     * WP-08B.2：B1 staged 回执（带逻辑调用身份与冻结响应）可以绑定候选，但只在以下条件下：
+     * 身份属于 production 命名空间的联合精选阶段、候选绑定的证据核验摘要与该调用冻结的完全一致，
+     * 且该核验此刻仍然有效。任一条件不满足都拒绝建稿——撤回核验会立刻让已冻结的调用不可用。
+     */
+    private void verifyStagedReceipt(CandidateRow candidate, Map<String, Object> receipt) {
+        if (isBlank(Objects.toString(receipt.get("callIdentityJson"), ""))
+                || isBlank(Objects.toString(receipt.get("frozenResponseJson"), ""))
+                || isBlank(Objects.toString(receipt.get("responseSha256"), ""))) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "模型调用回执缺少冻结身份或冻结响应");
+        }
+        JsonNode identity;
+        try {
+            identity = protocolMapper.readTree(Objects.toString(receipt.get("callIdentityJson")));
+        } catch (JsonProcessingException ex) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "模型调用回执身份无法解析");
+        }
+        if (!"production".equals(identity.path("namespace").asText())
+                || !"JOINT".equals(identity.path("stage").asText())) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "实验命名空间或非联合精选阶段的模型结果不得转为候选");
+        }
+        if (identity.path("materialRevisionId").asLong() != candidate.materialRevisionId) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "模型调用回执与候选资料修订不一致");
+        }
+        String frozenOverlay = identity.path("evidenceOverlaySha256").asText("");
+        if (isBlank(candidate.evidenceVerificationSha256)
+                || !candidate.evidenceVerificationSha256.equals(frozenOverlay)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "候选未绑定本次调用冻结的证据核验结果");
+        }
+        String activeOverlay = new NewsEvidenceLedgerStore(jdbc).overlay(candidate.materialRevisionId).sha256();
+        if (!activeOverlay.equals(frozenOverlay)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "证据核验已撤回或变更，需重新核验后才能建稿");
+        }
     }
 
     private void verifySnapshotIdentity(CandidateRow candidate) {
@@ -878,7 +918,8 @@ public class NewsLifecycleService {
                 rs.getString("claimsJson"),
                 rs.getString("violationsJson"),
                 rs.getString("evidenceSnapshotJson"),
-                rs.getString("evidenceSnapshotSha256")
+                rs.getString("evidenceSnapshotSha256"),
+                rs.getString("evidenceVerificationSha256")
         );
     }
 
@@ -1064,7 +1105,8 @@ public class NewsLifecycleService {
             String claimsJson,
             String violationsJson,
             String evidenceSnapshotJson,
-            String evidenceSnapshotSha256
+            String evidenceSnapshotSha256,
+            String evidenceVerificationSha256
     ) {
     }
 }

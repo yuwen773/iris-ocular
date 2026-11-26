@@ -66,9 +66,9 @@ BACKEND_UNIT_CONTRACT = {
         P + "integration.AdminAnalyticsMySqlIntegrationTest": {"env": "FLYWAY_TEST_URL", "cases": 1, "skipped": 1},
         P + "newsingestion.NewsIngestionMySqlIntegrationTest": {"env": "FLYWAY_TEST_URL", "cases": 13, "skipped": 13},
         P + "newsingestion.NewsCollectionScheduleMySqlIntegrationTest": {"env": "FLYWAY_TEST_URL", "cases": 6, "skipped": 6},
-        P + "newscuration.NewsCurationMySqlIntegrationTest": {"env": "FLYWAY_TEST_URL", "cases": 13, "skipped": 13},
+        P + "newscuration.NewsCurationMySqlIntegrationTest": {"env": "FLYWAY_TEST_URL", "cases": 16, "skipped": 16},
         P + "service.NewsEditorialPublishMySqlIntegrationTest": {"env": "FLYWAY_TEST_URL", "cases": 8, "skipped": 8},
-        P + "newsworkbench.NewsWorkbenchMySqlIntegrationTest": {"env": "FLYWAY_TEST_URL", "cases": 10, "skipped": 10},
+        P + "newsworkbench.NewsWorkbenchMySqlIntegrationTest": {"env": "FLYWAY_TEST_URL", "cases": 11, "skipped": 11},
     },
 }
 
@@ -96,9 +96,9 @@ FLYWAY_CONTRACT = {
         P + "integration.AdminAnalyticsMySqlIntegrationTest": 1,
         P + "newsingestion.NewsIngestionMySqlIntegrationTest": 13,
         P + "newsingestion.NewsCollectionScheduleMySqlIntegrationTest": 6,
-        P + "newscuration.NewsCurationMySqlIntegrationTest": 13,
+        P + "newscuration.NewsCurationMySqlIntegrationTest": 16,
         P + "service.NewsEditorialPublishMySqlIntegrationTest": 8,
-        P + "newsworkbench.NewsWorkbenchMySqlIntegrationTest": 10,
+        P + "newsworkbench.NewsWorkbenchMySqlIntegrationTest": 11,
     },
     "opt_in": {},
 }

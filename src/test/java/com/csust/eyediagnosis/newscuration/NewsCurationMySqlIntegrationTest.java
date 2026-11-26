@@ -37,6 +37,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -47,7 +48,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * daily budgets, unknown-paid-outcome reconciliation, auth circuit breaking, and NewsBench.
  *
  * <p>Keeps {@code Assumptions.assumeTrue} in {@code @BeforeEach} so Surefire records exact
- * case/skip counts matching {@code scripts/check_surefire_skips.py} (13 cases).
+ * case/skip counts matching {@code scripts/check_surefire_skips.py} (16 cases).
  */
 class NewsCurationMySqlIntegrationTest {
 
@@ -80,6 +81,7 @@ class NewsCurationMySqlIntegrationTest {
 
         jdbc.execute("DELETE FROM t_news_bench_run");
         jdbc.execute("DELETE FROM t_news_curation_candidate");
+        jdbc.execute("DELETE FROM t_news_evidence_verification");
         jdbc.execute("DELETE FROM t_news_model_call_receipt");
         jdbc.execute("DELETE FROM t_news_curation_budget");
         jdbc.execute("DELETE FROM t_news_curation_budget_guard");
@@ -759,6 +761,219 @@ class NewsCurationMySqlIntegrationTest {
                 "scope-a", selection, failed.receipt().callId()));
         assertEquals(2, modelClient.invocations.get());
     }
+
+    @Test
+    void reviewerEvidenceIsAppendOnlySingleActiveAndFrozenIntoTheOverlayDigest() throws Exception {
+        long revision = ingestAndCompleteSingle("pubmed", "PMID-EV-1", "Glaucoma evidence ledger", 1L);
+        String empty = curationService.activeEvidenceOverlaySha256(revision);
+        assertEquals(NewsEvidenceLedger.Overlay.empty(revision).sha256(), empty);
+        assertThrows(IllegalArgumentException.class, () -> curationService.verifyEvidence(999_999L,
+                evidence(NewsEvidenceLedger.Attribute.PEER_REVIEW, "VERIFIED", NewsEvidenceLedger.Method.PUBMED_RECORD),
+                "admin:1001"));
+
+        NewsEvidenceLedger.Verification scope = curationService.verifyEvidence(revision,
+                new NewsEvidenceLedger.Request(NewsEvidenceLedger.Attribute.CONTENT_SCOPE, "LICENSED_RESULTS",
+                        NewsEvidenceLedger.Method.DOI_LANDING_PAGE, "https://doi.org/10.1000/iris.2026.01",
+                        "doi-2026-11", " 核对 DOI 落地页授权范围 "), "admin:1001");
+        assertTrue(scope.active());
+        assertEquals("LICENSED_RESULTS", scope.value());
+        assertEquals("admin:1001", scope.verifiedBy());
+        assertNotNull(scope.verifiedAt());
+        assertEquals("核对 DOI 落地页授权范围", scope.evidenceNote());
+        String withScope = curationService.activeEvidenceOverlaySha256(revision);
+        assertNotEquals(empty, withScope);
+
+        // At most one active row per attribute: the database, not the caller, decides the race winner.
+        IllegalStateException duplicate = assertThrows(IllegalStateException.class, () -> curationService.verifyEvidence(
+                revision, new NewsEvidenceLedger.Request(NewsEvidenceLedger.Attribute.CONTENT_SCOPE, "LICENSED_RESULTS",
+                        NewsEvidenceLedger.Method.PUBMED_RECORD, "https://pubmed.ncbi.nlm.nih.gov/42000001/",
+                        "pubmed-2026", null), "admin:1002"));
+        assertEquals("EVIDENCE_ALREADY_ACTIVE", duplicate.getMessage());
+
+        NewsEvidenceLedger.Verification peer = curationService.verifyEvidence(revision,
+                evidence(NewsEvidenceLedger.Attribute.PEER_REVIEW, "VERIFIED", NewsEvidenceLedger.Method.PUBMED_RECORD),
+                "admin:1001");
+        String withPeer = curationService.activeEvidenceOverlaySha256(revision);
+        assertNotEquals(withScope, withPeer);
+
+        // Revocation keeps the row and history but immediately leaves the overlay.
+        NewsEvidenceLedger.Verification revoked = curationService.revokeEvidence(scope.id(), "admin:1002", " 授权范围变更 ");
+        assertFalse(revoked.active());
+        assertNotNull(revoked.revokedAt());
+        assertEquals("admin:1002", revoked.revokedBy());
+        String peerOnly = NewsEvidenceLedger.Overlay.of(revision, List.of(new NewsEvidenceLedger.Active(
+                peer.attribute(), peer.value(), peer.method(), peer.evidenceUrl(), peer.sourceVersion(),
+                peer.verifiedBy(), peer.verifiedAt()))).sha256();
+        assertEquals(peerOnly, curationService.activeEvidenceOverlaySha256(revision));
+        assertNotEquals(withPeer, peerOnly);
+        IllegalStateException notActive = assertThrows(IllegalStateException.class,
+                () -> curationService.revokeEvidence(scope.id(), "admin:1002", null));
+        assertEquals("EVIDENCE_NOT_ACTIVE", notActive.getMessage());
+
+        curationService.revokeEvidence(peer.id(), "admin:1002", null);
+        assertEquals(empty, curationService.activeEvidenceOverlaySha256(revision));
+        List<NewsEvidenceLedger.Verification> history = curationService.listEvidenceVerifications(revision);
+        assertEquals(2, history.size());
+        assertEquals(List.of(false, false), history.stream().map(NewsEvidenceLedger.Verification::active).toList());
+
+        // A re-verification is a new append-only row, so the old decision stays auditable.
+        NewsEvidenceLedger.Verification reverified = curationService.verifyEvidence(revision,
+                evidence(NewsEvidenceLedger.Attribute.PEER_REVIEW, "VERIFIED", NewsEvidenceLedger.Method.PUBMED_RECORD),
+                "admin:1002");
+        assertNotEquals(peer.id(), reverified.id());
+        assertTrue(reverified.active());
+        assertEquals(3, curationService.listEvidenceVerifications(revision).size());
+
+        // Submissions that the frozen material cannot support are refused before they are stored.
+        IllegalArgumentException conflict = assertThrows(IllegalArgumentException.class, () -> curationService.verifyEvidence(
+                revision, new NewsEvidenceLedger.Request(NewsEvidenceLedger.Attribute.LICENSE, "CC0",
+                        NewsEvidenceLedger.Method.LICENSE_STATEMENT, "https://pubmed.ncbi.nlm.nih.gov/42000001/",
+                        "pubmed-2026", null), "admin:1001"));
+        assertEquals("EVIDENCE_LICENSE_CONFLICT", conflict.getMessage());
+        assertEquals(3, curationService.listEvidenceVerifications(revision).size());
+    }
+
+    @Test
+    void frozenProductionJointResultMaterializesOnceAsPendingHumanReview() throws Exception {
+        long revision = ingestAndCompleteSingle("pubmed", "PMID-MAT-1", "Glaucoma OCT screening validation", 1L);
+        curationProperties.setModelProfiles(Map.of("prod", stagedProfile("fixture-prod")));
+        String overlaySha = fullyVerify(revision);
+
+        modelClient.enqueue(request -> success(JOINT_INSIGHT_JSON, 400, 160, 900, "fixture-prod"));
+        var run = curationService.runModel(revision, POLICY_V1, "joint",
+                new NewsModelProtocol.Selection("production", NewsModelProtocol.Prompt.P05, "prod", null));
+        assertEquals(NewsCurationModels.CallState.SUCCEEDED, run.receipt().state());
+        assertEquals(overlaySha, run.identity().evidenceOverlaySha256());
+        assertEquals(4, run.identity().evidenceOverlay().size());
+        assertEquals(NewsEditorialEvidence.ContentType.RESEARCH_INSIGHT, run.identity().eligibleType());
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM t_news_curation_candidate", Integer.class));
+
+        NewsCurationService.MaterializedCandidate materialized =
+                curationService.materializeCandidate(run.receipt().callId(), "admin:1001");
+        assertTrue(materialized.created());
+        assertEquals("CURATED_NEEDS_REVIEW", materialized.status());
+        assertEquals(overlaySha, materialized.evidenceVerificationSha256());
+
+        Map<String, Object> row = jdbc.queryForMap("""
+                SELECT status, decision, contentType, category, suggestedSummary, limitationsJson, claimsJson,
+                       evidenceVerificationJson, evidenceVerificationSha256, materializedBy, callId
+                FROM t_news_curation_candidate WHERE id = ?
+                """, materialized.candidateId());
+        assertEquals("CURATED_NEEDS_REVIEW", row.get("status"));
+        assertEquals("NEEDS_REVIEW", row.get("decision"));
+        assertEquals("RESEARCH_INSIGHT", row.get("contentType"));
+        assertNull(row.get("category"));
+        assertEquals("研究报告了较高的筛查敏感度，仍需外部验证。", row.get("suggestedSummary"));
+        assertEquals(run.receipt().callId(), row.get("callId"));
+        assertEquals("admin:1001", row.get("materializedBy"));
+        assertEquals(overlaySha, row.get("evidenceVerificationSha256"));
+        assertTrue(String.valueOf(row.get("limitationsJson")).contains("未评估长期结局"));
+        assertTrue(String.valueOf(row.get("claimsJson")).contains("abstract"));
+        assertEquals(overlaySha, NewsEvidenceLedger.Overlay.of(revision, run.identity().evidenceOverlay()).sha256());
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM t_news", Integer.class));
+
+        // Conversion is idempotent and never re-asks the model.
+        NewsCurationService.MaterializedCandidate replay =
+                curationService.materializeCandidate(run.receipt().callId(), "admin:1002");
+        assertFalse(replay.created());
+        assertEquals(materialized.candidateId(), replay.candidateId());
+        assertEquals("CURATED_NEEDS_REVIEW", replay.status());
+        assertEquals(1, modelClient.invocations.get());
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM t_news_curation_candidate", Integer.class));
+    }
+
+    @Test
+    void materializeRefusesExperimentStageRevokedEvidenceAndCandidateOverwrite() throws Exception {
+        long revision = ingestAndCompleteSingle("pubmed", "PMID-MAT-2", "Glaucoma materialization guard", 1L);
+        curationProperties.setModelProfiles(Map.of("fixture-a", stagedProfile("fixture-a"),
+                "fixture-b", stagedProfile("fixture-b")));
+        fullyVerify(revision);
+
+        modelClient.enqueue(request -> success(JOINT_INSIGHT_JSON, 400, 160, 900, "fixture-a"));
+        var experiment = curationService.runModel(revision, POLICY_V1, "experiment",
+                new NewsModelProtocol.Selection("experiment.A", NewsModelProtocol.Prompt.P05, "fixture-a", null));
+        assertEquals("MODEL_CALL_NOT_PRODUCTION_JOINT", assertThrows(IllegalStateException.class,
+                () -> curationService.materializeCandidate(experiment.receipt().callId(), "admin:1001")).getMessage());
+
+        modelClient.enqueue(request -> success(SCREENING_JSON, 100, 20, 140, "fixture-a"));
+        var screening = curationService.runModel(revision, POLICY_V1, "screen",
+                new NewsModelProtocol.Selection("production", NewsModelProtocol.Prompt.P01, "fixture-a", null));
+        assertEquals("MODEL_CALL_NOT_PRODUCTION_JOINT", assertThrows(IllegalStateException.class,
+                () -> curationService.materializeCandidate(screening.receipt().callId(), "admin:1001")).getMessage());
+
+        modelClient.enqueue(request -> success(JOINT_INSIGHT_JSON, 400, 160, 900, "fixture-a"));
+        var frozen = curationService.runModel(revision, POLICY_V1, "joint",
+                new NewsModelProtocol.Selection("production", NewsModelProtocol.Prompt.P05, "fixture-a", null));
+        NewsEvidenceLedger.Verification peer = curationService.listEvidenceVerifications(revision).stream()
+                .filter(row -> row.active() && row.attribute() == NewsEvidenceLedger.Attribute.PEER_REVIEW)
+                .findFirst().orElseThrow();
+        curationService.revokeEvidence(peer.id(), "admin:1002", "同行评审记录失效");
+        assertEquals("EVIDENCE_VERIFICATION_STALE", assertThrows(IllegalStateException.class,
+                () -> curationService.materializeCandidate(frozen.receipt().callId(), "admin:1001")).getMessage());
+
+        // Re-verification appends a new row, so the old frozen call stays stale and a new call is required.
+        curationService.verifyEvidence(revision,
+                evidence(NewsEvidenceLedger.Attribute.PEER_REVIEW, "VERIFIED", NewsEvidenceLedger.Method.PUBMED_RECORD),
+                "admin:1002");
+        assertEquals("EVIDENCE_VERIFICATION_STALE", assertThrows(IllegalStateException.class,
+                () -> curationService.materializeCandidate(frozen.receipt().callId(), "admin:1001")).getMessage());
+
+        modelClient.enqueue(request -> success(JOINT_INSIGHT_JSON, 400, 160, 900, "fixture-b"));
+        var renewed = curationService.runModel(revision, POLICY_V1, "joint",
+                new NewsModelProtocol.Selection("production", NewsModelProtocol.Prompt.P05, "fixture-b", null));
+        NewsCurationService.MaterializedCandidate materialized =
+                curationService.materializeCandidate(renewed.receipt().callId(), "admin:1001");
+        assertTrue(materialized.created());
+
+        modelClient.enqueue(request -> success(JOINT_INSIGHT_JSON, 400, 160, 900, "fixture-a"));
+        var competing = curationService.runModel(revision, POLICY_V1, "joint",
+                new NewsModelProtocol.Selection("production", NewsModelProtocol.Prompt.P05, "fixture-a", null));
+        assertNotEquals(renewed.receipt().callId(), competing.receipt().callId());
+        assertEquals("CANDIDATE_ALREADY_MATERIALIZED", assertThrows(IllegalStateException.class,
+                () -> curationService.materializeCandidate(competing.receipt().callId(), "admin:1001")).getMessage());
+        assertEquals("MODEL_CALL_NOT_FOUND", assertThrows(IllegalStateException.class,
+                () -> curationService.materializeCandidate("missing-call", "admin:1001")).getMessage());
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM t_news_curation_candidate", Integer.class));
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM t_news", Integer.class));
+    }
+
+    private String fullyVerify(long revision) {
+        curationService.verifyEvidence(revision,
+                evidence(NewsEvidenceLedger.Attribute.PEER_REVIEW, "VERIFIED", NewsEvidenceLedger.Method.PUBMED_RECORD),
+                "admin:1001");
+        curationService.verifyEvidence(revision,
+                evidence(NewsEvidenceLedger.Attribute.INTEGRITY, "VERIFIED", NewsEvidenceLedger.Method.PUBMED_RECORD),
+                "admin:1001");
+        curationService.verifyEvidence(revision,
+                evidence(NewsEvidenceLedger.Attribute.STUDY_DESIGN, "OBSERVATIONAL", NewsEvidenceLedger.Method.PUBMED_RECORD),
+                "admin:1001");
+        curationService.verifyEvidence(revision,
+                evidence(NewsEvidenceLedger.Attribute.CONTENT_SCOPE, "LICENSED_RESULTS",
+                        NewsEvidenceLedger.Method.DOI_LANDING_PAGE),
+                "admin:1001");
+        return curationService.activeEvidenceOverlaySha256(revision);
+    }
+
+    private static NewsEvidenceLedger.Request evidence(NewsEvidenceLedger.Attribute attribute, String value,
+                                                       NewsEvidenceLedger.Method method) {
+        String url = method == NewsEvidenceLedger.Method.DOI_LANDING_PAGE
+                ? "https://doi.org/10.1000/iris.2026.01"
+                : "https://pubmed.ncbi.nlm.nih.gov/42000001/";
+        return new NewsEvidenceLedger.Request(attribute, value, method, url, "pubmed-2026", null);
+    }
+
+    private static final String JOINT_INSIGHT_JSON = """
+            {"relevanceScore":84,"researchValueScore":71,"recommendedType":"RESEARCH_INSIGHT",
+             "rationale":"同行评审、完整性、研究设计与授权全文范围均已人工核验。",
+             "content":{"contentType":"RESEARCH_INSIGHT","sections":{
+               "question":"深度学习筛查在真实世界队列中能否稳定识别需转诊的视网膜病变？",
+               "studyDesign":"多中心前瞻性观察研究。",
+               "findings":"研究报告了较高的筛查敏感度，仍需外部验证。",
+               "meaning":"为基层筛查评估提供了可复用的路径。",
+               "limitations":"未评估长期结局。"},
+              "claims":[{"evidenceId":"abstract","statement":"公开摘要记录了筛查评估结果。",
+                         "quote":"Open-access multicenter ophthalmic abstract"}]}}
+            """;
 
     private long ingestAndCompleteSingle(String source, String recordId, String title, long configVersion)
             throws Exception {

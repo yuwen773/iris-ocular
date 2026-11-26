@@ -126,13 +126,79 @@ class NewsWorkbenchControllerSecurityTest {
                 mappedMethods.add(method);
             }
         }
-        assertEquals(19, mappedMethods.size());
+        assertEquals(23, mappedMethods.size());
         for (Method method : mappedMethods) {
             AuthCheck authCheck = method.getAnnotation(AuthCheck.class);
             assertNotNull(authCheck, () -> "Missing @AuthCheck on " + method.getName());
             assertEquals(AuthConstant.ADMIN_ROLE, authCheck.mustRole(),
                     () -> "Expected ADMIN_ROLE @AuthCheck on " + method.getName());
         }
+    }
+
+    @Test
+    void evidenceLedgerAndMaterializeEndpointsStayAdminOnlyAndNeverCacheReads() throws Exception {
+        User viewer = new User();
+        viewer.setId(1002L);
+        viewer.setUserRole(AuthConstant.DEFAULT_ROLE);
+        when(userService.getLoginUser(any())).thenReturn(viewer);
+
+        mockMvc.perform(get("/api/admin/news-workbench/materials/7/evidence-verifications").contextPath("/api"))
+                .andExpect(jsonPath("$.code").value(ErrorCode.NO_AUTH_ERROR.getCode()));
+        verifyNoInteractions(workbenchService);
+
+        viewer.setUserRole(AuthConstant.ADMIN_ROLE);
+        when(workbenchService.listEvidenceVerifications(7L)).thenReturn(List.of());
+        mockMvc.perform(get("/api/admin/news-workbench/materials/7/evidence-verifications").contextPath("/api"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.data").isEmpty());
+
+        when(workbenchService.verifyEvidence(eq(7L), any(), any())).thenReturn(
+                new NewsWorkbenchModels.EvidenceVerificationVO(11L, 7L, "PEER_REVIEW", "VERIFIED", "PUBMED_RECORD",
+                        "https://pubmed.ncbi.nlm.nih.gov/42000001/", "pubmed-2026", null, "admin:1001",
+                        "2026-11-26T08:00:00Z", true, null, null, null));
+        mockMvc.perform(post("/api/admin/news-workbench/materials/7/evidence-verifications")
+                        .contextPath("/api")
+                        .header("Origin", "http://localhost")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"attribute":"PEER_REVIEW","value":"VERIFIED","method":"PUBMED_RECORD",
+                                 "evidenceUrl":"https://pubmed.ncbi.nlm.nih.gov/42000001/","sourceVersion":"pubmed-2026"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.attribute").value("PEER_REVIEW"))
+                .andExpect(jsonPath("$.data.active").value(true));
+
+        when(workbenchService.revokeEvidence(eq(11L), any(), any())).thenReturn(
+                new NewsWorkbenchModels.EvidenceVerificationVO(11L, 7L, "PEER_REVIEW", "VERIFIED", "PUBMED_RECORD",
+                        "https://pubmed.ncbi.nlm.nih.gov/42000001/", "pubmed-2026", null, "admin:1001",
+                        "2026-11-26T08:00:00Z", false, "admin:1001", "2026-11-26T09:00:00Z", "记录失效"));
+        mockMvc.perform(post("/api/admin/news-workbench/evidence-verifications/11/revoke")
+                        .contextPath("/api")
+                        .header("Origin", "http://localhost")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"note\":\"记录失效\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.active").value(false))
+                .andExpect(jsonPath("$.data.revokeNote").value("记录失效"));
+
+        when(workbenchService.materializeCandidate(eq("call-1"), any())).thenReturn(
+                new NewsWorkbenchModels.MaterializedCandidateVO(21L, "CURATED_NEEDS_REVIEW", "call-1", true,
+                        "d".repeat(64)));
+        mockMvc.perform(post("/api/admin/news-workbench/receipts/call-1/materialize")
+                        .contextPath("/api")
+                        .header("Origin", "http://localhost"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("CURATED_NEEDS_REVIEW"))
+                .andExpect(jsonPath("$.data.created").value(true));
+
+        when(workbenchService.materializeCandidate(eq("call-2"), any())).thenThrow(
+                new BusinessException(ErrorCode.PARAMS_ERROR, "证据核验已撤回或变更，请重新核验后再转换"));
+        mockMvc.perform(post("/api/admin/news-workbench/receipts/call-2/materialize")
+                        .contextPath("/api")
+                        .header("Origin", "http://localhost"))
+                .andExpect(jsonPath("$.code").value(ErrorCode.PARAMS_ERROR.getCode()))
+                .andExpect(jsonPath("$.msg").value(containsString("证据核验已撤回或变更")));
     }
 
     @Test
