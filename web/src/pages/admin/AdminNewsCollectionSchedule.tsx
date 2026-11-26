@@ -42,12 +42,12 @@ export function AdminNewsCollectionSchedule() {
       <p className="admin-workbench__note" role="status">正在加载自动采集调度…</p>
     )
   }
-  if (query.error) {
-    const error = describeError(query.error)
-    return <FaultNote fault={fault({ severity: "attention", kind: "client", title: error.text, code: error.code })} />
-  }
+  const error = query.error ? describeError(query.error) : null
+  const errorNote = error
+    ? <FaultNote fault={fault({ severity: "attention", kind: "client", title: error.text, code: error.code })} />
+    : null
   const schedule = query.data
-  if (!schedule) return null
+  if (!schedule) return errorNote
   const running = schedule.ingestionEnabled && schedule.scheduleEnabled
   return (
     <section className="admin-workbench__sourcecard" aria-label="自动采集调度">
@@ -60,6 +60,7 @@ export function AdminNewsCollectionSchedule() {
       <p className="admin-workbench__note">
         采集控制面{schedule.ingestionEnabled ? "开启" : "关闭"} · 自动规划{schedule.scheduleEnabled ? "开启" : "关闭"}
       </p>
+      {errorNote}
       {schedule.sources.length === 0 && <p className="admin-workbench__note">暂无信源</p>}
       <div className="admin-workbench__sources">
         {schedule.sources.map((source) => (

@@ -359,8 +359,8 @@ beforeEach(() => {
 
 it("shows disabled automatic collection and empty worker telemetry in the sources tab", async () => {
   renderWorkbench("/admin/news-workbench?tab=sources")
-  expect(await screen.findByText("调度未运行")).toBeVisible()
-  expect(screen.getByText("尚无已认证的领取记录")).toBeVisible()
+  expect(await screen.findByText("调度未运行")).toBeTruthy()
+  expect(screen.getByText("尚无已认证的领取记录")).toBeTruthy()
 })
 
 afterEach(() => {

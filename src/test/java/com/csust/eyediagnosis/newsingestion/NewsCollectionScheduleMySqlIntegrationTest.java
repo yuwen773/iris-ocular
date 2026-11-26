@@ -91,6 +91,7 @@ class NewsCollectionScheduleMySqlIntegrationTest {
 
     @Test
     void switchesAndMissingInitialCursorGateEnqueueIncludingAfterReEnable() {
+        ingestion.registerSourceConfig(SOURCE, 1, "glaucoma", null);
         scheduler.tick();
         assertEquals("INITIAL_CURSOR_REQUIRED", decision());
         assertEquals(0, automaticTasks());
@@ -232,15 +233,18 @@ class NewsCollectionScheduleMySqlIntegrationTest {
     void onlyHistoricalManualReplayCanCoexistWithAnAdoptedVersion() {
         initialize();
         scheduler.tick();
+        var automatic = ingestion.claim(WORKER).orElseThrow();
         assertThrows(IllegalArgumentException.class, () -> ingestion.enqueueWindow(
                 "human-future", SOURCE, 1, "glaucoma", initial, initial.plusDays(1), 1));
         assertThrows(IllegalArgumentException.class, () -> ingestion.enqueueWindow(
                 "auto-reserved", SOURCE, 1, "glaucoma", initial.minusDays(1), initial, 1));
         ingestion.enqueueWindow("human-history", SOURCE, 1, "glaucoma", initial.minusDays(1), initial, 1);
+        complete(automatic);
+        assertEquals(initial.plusDays(2), cursor(1));
         var history = ingestion.claim(WORKER).orElseThrow();
         assertEquals("human-history", history.taskId());
         complete(history);
-        assertEquals(initial, cursor(1));
+        assertEquals(initial.plusDays(2), cursor(1));
         assertEquals(1, automaticTasks());
     }
 

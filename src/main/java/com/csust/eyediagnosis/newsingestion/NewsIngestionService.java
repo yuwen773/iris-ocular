@@ -133,7 +133,19 @@ public class NewsIngestionService {
         validateSourceAndConfig(source, sourceConfigVersion, query);
         transactions.executeWithoutResult(status -> {
             jdbc.update("INSERT IGNORE INTO t_news_source (source, enabled) VALUES (?, 1)", source);
-            lockOrCreateCursorRow(source, sourceConfigVersion, query.trim(), initialCursor);
+            CursorRow cursor = lockOrCreateCursorRow(source, sourceConfigVersion, query.trim(), initialCursor);
+            if (initialCursor != null && cursor.committedCursor == null) {
+                if (Boolean.TRUE.equals(jdbc.queryForObject("""
+                        SELECT EXISTS (SELECT 1 FROM t_news_collection_task
+                                       WHERE source = ? AND sourceConfigVersion = ?)
+                        """, Boolean.class, source, sourceConfigVersion))) {
+                    throw new IllegalArgumentException("已有采集任务，请先完成该窗口以初始化游标");
+                }
+                jdbc.update("""
+                        UPDATE t_news_source_cursor SET committedCursor = ?
+                        WHERE source = ? AND sourceConfigVersion = ?
+                        """, initialCursor, source, sourceConfigVersion);
+            }
         });
     }
 
@@ -388,6 +400,7 @@ public class NewsIngestionService {
                 if (cursorRow.committedCursor != null && task.windowStartOn.isAfter(cursorRow.committedCursor)) {
                     throw NewsControlException.staleLease();
                 }
+                // An already covered replay enqueued during an automatic lease does not create a coverage gap.
                 Integer earlierUnfinished = jdbc.queryForObject("""
                         SELECT COUNT(*)
                         FROM t_news_collection_task
@@ -395,9 +408,10 @@ public class NewsIngestionService {
                           AND sourceConfigVersion = ?
                           AND taskId <> ?
                           AND status <> 'COMPLETED'
+                          AND NOT (? = 'AUTO' AND taskType = 'MANUAL' AND windowEndBefore <= ?)
                           AND (windowStartOn < ? OR (windowStartOn = ? AND windowEndBefore < ?))
                         """, Integer.class,
-                        task.source, task.sourceConfigVersion, taskId,
+                        task.source, task.sourceConfigVersion, taskId, task.taskType, cursorRow.committedCursor,
                         task.windowStartOn.toString(), task.windowStartOn.toString(), task.windowEndBefore.toString());
                 if (earlierUnfinished != null && earlierUnfinished > 0) {
                     throw NewsControlException.staleLease();
@@ -634,7 +648,7 @@ public class NewsIngestionService {
                 SELECT t.taskId, t.source, t.sourceConfigVersion, t.queryText,
                        DATE_FORMAT(t.windowStartOn, '%Y-%m-%d') AS windowStartOn,
                        DATE_FORMAT(t.windowEndBefore, '%Y-%m-%d') AS windowEndBefore,
-                       t.status, t.generation, t.leaseTokenHash, t.leaseWorkerId,
+                       t.status, t.taskType, t.generation, t.leaseTokenHash, t.leaseWorkerId,
                        t.attemptCount, t.maxAttempts,
                        0 AS leaseActive
                 FROM t_news_collection_task t
@@ -717,7 +731,7 @@ public class NewsIngestionService {
                 SELECT taskId, source, sourceConfigVersion, queryText,
                        DATE_FORMAT(windowStartOn, '%Y-%m-%d') AS windowStartOn,
                        DATE_FORMAT(windowEndBefore, '%Y-%m-%d') AS windowEndBefore,
-                       status, generation, leaseTokenHash, leaseWorkerId,
+                       status, taskType, generation, leaseTokenHash, leaseWorkerId,
                        attemptCount, maxAttempts,
                        (leaseExpiresAt IS NOT NULL AND leaseExpiresAt > UTC_TIMESTAMP(6)) AS leaseActive
                 FROM t_news_collection_task
@@ -1016,6 +1030,7 @@ public class NewsIngestionService {
                 LocalDate.parse(rs.getString("windowStartOn")),
                 LocalDate.parse(rs.getString("windowEndBefore")),
                 rs.getString("status"),
+                rs.getString("taskType"),
                 rs.getLong("generation"),
                 rs.getString("leaseTokenHash"),
                 rs.getString("leaseWorkerId"),
@@ -1041,6 +1056,7 @@ public class NewsIngestionService {
             LocalDate windowStartOn,
             LocalDate windowEndBefore,
             String status,
+            String taskType,
             long generation,
             String leaseTokenHash,
             String leaseWorkerId,

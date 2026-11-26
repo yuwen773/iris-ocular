@@ -32,6 +32,7 @@ public class NewsCollectionScheduler {
                                    NewsIngestionService ingestion) {
         this.jdbc = jdbc;
         this.transactions = new TransactionTemplate(manager);
+        this.transactions.setTimeout(5);
         this.ingestionProperties = ingestionProperties;
         this.scheduleProperties = scheduleProperties;
         this.ingestion = ingestion;
@@ -76,12 +77,6 @@ public class NewsCollectionScheduler {
             return;
         }
         State current = previous == null ? new State(null, null, version, true) : previous;
-        Cursor cursor = cursor(source, version);
-        if (cursor == null || cursor.date() == null) {
-            save(policy, current, Status.INITIAL_CURSOR_REQUIRED, null);
-            return;
-        }
-
         String failed = first("""
                 SELECT taskId FROM t_news_collection_task
                 WHERE source = ? AND status = 'FAILED'
@@ -98,6 +93,11 @@ public class NewsCollectionScheduler {
                 """, (rs, row) -> rs.getString(1), source);
         if (pending != null) {
             save(policy, current, Status.WAITING_FOR_TASK, pending);
+            return;
+        }
+        Cursor cursor = cursor(source, version);
+        if (cursor == null || cursor.date() == null) {
+            save(policy, current, Status.INITIAL_CURSOR_REQUIRED, null);
             return;
         }
 
@@ -134,9 +134,11 @@ public class NewsCollectionScheduler {
     }
 
     private Cursor cursor(String source, long version) {
+        // The source mutex excludes enqueue, retry and registration. A live completion remains visible
+        // as unfinished until its task and cursor commit, so planning needs no cursor lock.
         return first("""
                 SELECT queryText, committedCursor FROM t_news_source_cursor
-                WHERE source = ? AND sourceConfigVersion = ? FOR UPDATE
+                WHERE source = ? AND sourceConfigVersion = ?
                 """, (rs, row) -> new Cursor(rs.getString(1), rs.getObject(2, LocalDate.class)), source, version);
     }
 
