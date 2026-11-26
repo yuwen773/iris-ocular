@@ -177,7 +177,12 @@ class PatientAuthorizationApiTest {
         JsonNode saved = approve(offer);
         assertEquals("APPROVED", saved.path("status").asText());
         assertFalse(saved.path("receipt").path("receiptId").asText().isBlank());
-        assertTrue(java.time.Duration.between(java.time.Instant.parse(saved.path("receipt").path("authorizedAt").asText()), java.time.Instant.now()).abs().getSeconds() < 60);
+        // 回执时间同样由 `authorizedAt=UTC_TIMESTAMP(6)` 写入，故与数据库当下比较；
+        // 跨到 JVM 时钟就等于要求宿主机与数据库时钟一致（2026-11-26 宿主慢约 19 分钟）。
+        java.time.Instant approvedAt = java.time.Instant.parse(saved.path("receipt").path("authorizedAt").asText());
+        java.time.Instant dbNow = java.time.Instant.parse(jdbc.queryForObject(
+                "SELECT DATE_FORMAT(UTC_TIMESTAMP(6), '%Y-%m-%dT%H:%i:%s.%fZ')", String.class));
+        assertTrue(java.time.Duration.between(approvedAt, dbNow).abs().getSeconds() < 60);
         assertEquals(saved.path("receipt"), offer().path("receipt"));
         assertEquals(saved.path("receipt"), approve(offer).path("receipt"));
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM t_diagnosis", Integer.class));
