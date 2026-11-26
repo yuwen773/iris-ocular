@@ -257,6 +257,11 @@ eye-diagnosis:
     daily-max-calls: 100
     daily-max-tokens: 500000
     daily-max-cost-micros: 5000000
+    # 整次实验总上限：与日上限不同，计数跨 UTC 日期、跨 budget scope、跨进程重启。
+    # 0 表示该维度不设上限；上限只能收紧，更大的配置值不会抬高已记录的值。
+    lifetime-max-calls: 0
+    lifetime-max-tokens: 0
+    lifetime-max-cost-micros: 0
     estimated-tokens-per-call: 4000
     estimated-cost-micros-per-call: 50000
     max-response-chars: 16000

@@ -24,6 +24,7 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -60,6 +61,7 @@ public class NewsCurationService {
     private final NewsCurationPromptBuilder promptBuilder;
     private final ObjectMapper mapper;
     private final NewsModelProtocol modelProtocol;
+    private final NewsEvidenceLedgerStore ledger;
 
     @Autowired
     public NewsCurationService(JdbcTemplate jdbc,
@@ -77,6 +79,7 @@ public class NewsCurationService {
         this.promptBuilder = promptBuilder;
         this.mapper = mapper;
         this.modelProtocol = new NewsModelProtocol(mapper);
+        this.ledger = new NewsEvidenceLedgerStore(jdbc);
     }
 
     public NewsCurationService(JdbcTemplate jdbc,
@@ -187,7 +190,8 @@ public class NewsCurationService {
         NewsIngestionService.VisibleRevision revision = requireVisibleRevision(materialRevisionId);
         NewsCurationModels.EvidenceSnapshot snapshot = promptBuilder.buildSnapshot(revision);
         var prepared = modelProtocol.prepare(selection, profile, policy, snapshot, previousTrial(revision),
-                frozenUpstream(selection, revision.revisionId(), policy));
+                frozenUpstream(selection, revision.revisionId(), policy),
+                ledger.overlay(materialRevisionId));
         Execution execution = executeCall(revision, snapshot, policy, dbUtcDate(), scope, prepared, retryCallId);
         var receipt = getCallReceipt(execution.callId()).orElseThrow();
         return new ModelRun(prepared.identity(), receipt, readFrozenOutput(execution.callId()), execution.replayed());
@@ -204,6 +208,7 @@ public class NewsCurationService {
 
         // Ensure budget row exists outside reserve transaction so SELECT ... FOR UPDATE hits a real row without gap locks.
         ensureBudgetRowExists(effectiveDate, effectiveScope);
+        ensureLifetimeBudgetRowExists();
         ensureCircuitRowExists(effectiveScope);
 
         ReservationOutcome reserved = transactions.execute(status -> reserveAttempt(
@@ -550,9 +555,11 @@ public class NewsCurationService {
                                               LocalDate budgetDate,
                                               String budgetScope,
                                               String callId, NewsModelProtocol.Prepared prepared, String retryCallId) {
-        // Canonical lock order: circuit (when needed), global day guard, scope budget, receipts, candidate.
+        // Canonical lock order: circuit (when needed), global day guard, scope budget, lifetime ceiling,
+        // receipts, candidate.
         String circuitReason = lockCircuit(budgetScope);
         NewsCurationModels.BudgetSnapshot budget = lockBudget(budgetDate, budgetScope);
+        NewsCurationModels.LifetimeBudget lifetime = lockLifetimeBudget();
         String logical = prepared == null ? null : prepared.logicalCallSha256();
 
         List<ReceiptRow> existingReceipts = jdbc.query("""
@@ -619,6 +626,11 @@ public class NewsCurationService {
                 || budget.usedCostMicros() + budget.reservedCostMicros() + estCost > budget.maxCostMicros()
                 || !withinGlobalBudget(budgetDate, estTokens, estCost)) {
             throw new IllegalStateException("BUDGET_EXHAUSTED");
+        }
+        // The lifetime ceiling counts every receipt ever written, so it cannot be escaped by crossing a UTC
+        // date, splitting the budget scope or restarting the process.
+        if (lifetime.exhaustedBy(estTokens, estCost)) {
+            throw new IllegalStateException("LIFETIME_BUDGET_EXHAUSTED");
         }
 
         int nextAttempt = maxAttempt + 1;
@@ -1002,6 +1014,78 @@ public class NewsCurationService {
         jdbc.update("INSERT IGNORE INTO t_news_curation_circuit (scope) VALUES (?)", scope);
     }
 
+    /**
+     * Seeds the singleton whole-experiment ceiling. A ceiling may only ever be tightened: {@code 0} means
+     * "unset" on either side, and when both sides carry a value the smaller one wins. This runs outside the
+     * reserve transaction on purpose, so a reservation that is later rejected still persists the stricter
+     * ceiling it tried to apply.
+     */
+    private void ensureLifetimeBudgetRowExists() {
+        jdbc.update("""
+                INSERT INTO t_news_curation_lifetime_budget (id, maxCalls, maxTokens, maxCostMicros, note)
+                VALUES (1, ?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE
+                    maxCalls = CASE WHEN maxCalls = 0 THEN VALUES(maxCalls)
+                                    WHEN VALUES(maxCalls) = 0 THEN maxCalls
+                                    ELSE LEAST(maxCalls, VALUES(maxCalls)) END,
+                    maxTokens = CASE WHEN maxTokens = 0 THEN VALUES(maxTokens)
+                                     WHEN VALUES(maxTokens) = 0 THEN maxTokens
+                                     ELSE LEAST(maxTokens, VALUES(maxTokens)) END,
+                    maxCostMicros = CASE WHEN maxCostMicros = 0 THEN VALUES(maxCostMicros)
+                                         WHEN VALUES(maxCostMicros) = 0 THEN maxCostMicros
+                                         ELSE LEAST(maxCostMicros, VALUES(maxCostMicros)) END
+                """,
+                Math.max(0, properties.getLifetimeMaxCalls()),
+                Math.max(0L, properties.getLifetimeMaxTokens()),
+                Math.max(0L, properties.getLifetimeMaxCostMicros()),
+                "seeded from eye-diagnosis.news-curation.lifetime-* configuration");
+    }
+
+    /** Whole-experiment ceiling as recorded, or {@code null} before the first reservation seeds it. */
+    public NewsCurationModels.LifetimeBudget lifetimeBudget() {
+        List<Map<String, Object>> rows = jdbc.queryForList("""
+                SELECT maxCalls, maxTokens, maxCostMicros, note
+                FROM t_news_curation_lifetime_budget WHERE id = 1
+                """);
+        return rows.isEmpty() ? null : lifetimeSnapshot(rows.getFirst());
+    }
+
+    /** Locks the lifetime row for the rest of the reservation transaction. */
+    private NewsCurationModels.LifetimeBudget lockLifetimeBudget() {
+        Map<String, Object> row = jdbc.queryForMap("""
+                SELECT maxCalls, maxTokens, maxCostMicros, note
+                FROM t_news_curation_lifetime_budget WHERE id = 1 FOR UPDATE
+                """);
+        return lifetimeSnapshot(row);
+    }
+
+    /**
+     * Limits plus real usage. Usage is derived from every receipt ever written: settled receipts count their
+     * recorded tokens and cost, receipts still in flight count their full reservation (fail-safe), so a
+     * crash mid-call can only over-count against the ceiling, never under-count.
+     */
+    private NewsCurationModels.LifetimeBudget lifetimeSnapshot(Map<String, Object> row) {
+        Map<String, Object> used = jdbc.queryForMap("""
+                SELECT COUNT(*) AS usedCalls,
+                       COALESCE(SUM(CASE WHEN state IN ('RESERVED', 'DISPATCHED', 'OUTCOME_UNKNOWN')
+                                         THEN reservedTokens
+                                         ELSE COALESCE(promptTokens, 0) + COALESCE(completionTokens, 0) END), 0)
+                           AS usedTokens,
+                       COALESCE(SUM(CASE WHEN state IN ('RESERVED', 'DISPATCHED', 'OUTCOME_UNKNOWN')
+                                         THEN reservedCostMicros
+                                         ELSE COALESCE(actualCostMicros, 0) END), 0) AS usedCostMicros
+                FROM t_news_model_call_receipt
+                """);
+        return new NewsCurationModels.LifetimeBudget(
+                ((Number) row.get("maxCalls")).intValue(),
+                ((Number) row.get("maxTokens")).longValue(),
+                ((Number) row.get("maxCostMicros")).longValue(),
+                ((Number) used.get("usedCalls")).intValue(),
+                ((Number) used.get("usedTokens")).longValue(),
+                ((Number) used.get("usedCostMicros")).longValue(),
+                Objects.toString(row.get("note"), null));
+    }
+
     private String lockCircuit(String scope) {
         return jdbc.queryForObject("""
                 SELECT circuitReason FROM t_news_curation_circuit WHERE scope = ? FOR UPDATE
@@ -1259,5 +1343,320 @@ public class NewsCurationService {
     }
 
     private record BudgetRef(LocalDate budgetDate, String scope) {
+    }
+
+    /** Result of converting one frozen production call into a review candidate. */
+    public record MaterializedCandidate(long candidateId, String status, String callId, boolean created,
+                                        String evidenceVerificationSha256, Long supersededCandidateId) {
+    }
+
+    /**
+     * WP-08B.2：把一条**生产命名空间**的联合精选（P05）冻结结果转成待人工审核的候选。
+     *
+     * <p>只做转换，不发明判断：结果必须通过 {@link NewsModelProtocol#validatedOutput} 的同一套契约校验；
+     * 候选一律落在 {@code CURATED_NEEDS_REVIEW}（有内容）或 {@code CURATED_REJECTED}（无内容），
+     * 永不自动 {@code CURATED_ACCEPTED}。若该调用冻结的证据核验此后被撤回或变更，转换直接拒绝，
+     * 要求重新核验——已付费的冻结结果不会因为账本变动而自动继续可信。实验命名空间的回执一律拒绝。</p>
+     *
+     * <p>幂等：同一调用重复转换返回同一候选（{@code created=false}）；同一资料修订与策略版本已被
+     * 另一条调用占用时，默认拒绝（{@code CANDIDATE_ALREADY_MATERIALIZED}）——绝不覆盖。</p>
+     */
+    public MaterializedCandidate materializeCandidate(String callId, String actor) {
+        return materializeCandidate(callId, actor, null, null);
+    }
+
+    /**
+     * 带显式替代的转换。证据核验被撤回、重新核验并重新付费调用后，旧候选按规则不能再建稿或发布；
+     * 新的成功结果只能在**点名**旧候选并给出理由时接管：
+     *
+     * <ul>
+     *   <li>旧候选行的内容列一个都不改，只写 {@code status=SUPERSEDED} 与三个替代指针；</li>
+     *   <li>新结果另起一行，两边各写一条 {@code t_news_curation_candidate_event}；</li>
+     *   <li>旧候选已关联未删除的资讯行时拒绝（{@code CANDIDATE_ALREADY_DRAFTED}），先人工处置草稿；</li>
+     *   <li>同一资料修订上出现不同 {@code policyVersion} 的候选一律拒绝（{@code CANDIDATE_POLICY_CONFLICT}），
+     *       改策略版本绕不过候选冲突。</li>
+     * </ul>
+     */
+    public MaterializedCandidate materializeCandidate(String callId, String actor, Long supersedesCandidateId,
+                                                      String supersedeReason) {
+        if (!NewsModelProfile.identifier(callId, 64) || actor == null || actor.isBlank()) {
+            throw new IllegalArgumentException("Invalid materialize request");
+        }
+        String reviewer = actor.trim();
+        if (reviewer.length() > 128) {
+            throw new IllegalArgumentException("Invalid materialize request");
+        }
+        String reason = supersedeReason == null ? null : supersedeReason.trim();
+        boolean supersede = supersedesCandidateId != null;
+        if (supersede && (reason == null || reason.isEmpty())) {
+            throw new IllegalArgumentException("SUPERSEDE_REASON_REQUIRED");
+        }
+        if (!supersede && reason != null && !reason.isEmpty()) {
+            throw new IllegalArgumentException("SUPERSEDE_REASON_WITHOUT_TARGET");
+        }
+        if (reason != null && (reason.length() > 255 || reason.indexOf('<') >= 0)) {
+            throw new IllegalArgumentException("SUPERSEDE_REASON_INVALID");
+        }
+        return transactions.execute(status -> materializeInTransaction(callId, reviewer,
+                supersedesCandidateId, supersede ? reason : null));
+    }
+
+    private MaterializedCandidate materializeInTransaction(String callId, String reviewer,
+                                                           Long supersedesCandidateId, String reason) {
+        List<Map<String, Object>> rows = jdbc.queryForList("""
+                SELECT state, materialRevisionId, policyVersion, callIdentityJson, frozenResponseJson,
+                       logicalCallSha256
+                FROM t_news_model_call_receipt
+                WHERE callId = ?
+                FOR UPDATE
+                """, callId);
+        if (rows.size() != 1) {
+            throw new IllegalStateException("MODEL_CALL_NOT_FOUND");
+        }
+        Map<String, Object> row = rows.getFirst();
+        if (!"SUCCEEDED".equals(row.get("state")) || row.get("logicalCallSha256") == null
+                || row.get("frozenResponseJson") == null) {
+            throw new IllegalStateException("MODEL_CALL_NOT_MATERIALIZABLE");
+        }
+        long revisionId = ((Number) row.get("materialRevisionId")).longValue();
+        String policy = Objects.toString(row.get("policyVersion"));
+        NewsModelProtocol.Identity identity;
+        try {
+            identity = mapper.readValue(Objects.toString(row.get("callIdentityJson")),
+                    NewsModelProtocol.Identity.class);
+        } catch (JsonProcessingException ex) {
+            throw new IllegalStateException("MODEL_CALL_IDENTITY_INVALID", ex);
+        }
+        if (identity == null || !"production".equals(identity.namespace())
+                || identity.prompt() != NewsModelProtocol.Prompt.P05
+                || identity.stage() != NewsModelProtocol.Stage.JOINT) {
+            throw new IllegalStateException("MODEL_CALL_NOT_PRODUCTION_JOINT");
+        }
+        if (identity.materialRevisionId() != revisionId) {
+            throw new IllegalStateException("MODEL_CALL_IDENTITY_INVALID");
+        }
+        NewsEvidenceLedger.Overlay overlay = ledger.overlay(revisionId);
+        if (!overlay.sha256().equals(identity.evidenceOverlaySha256())) {
+            throw new IllegalStateException("EVIDENCE_VERIFICATION_STALE");
+        }
+        NewsIngestionService.VisibleRevision revision = requireVisibleRevision(revisionId);
+        NewsCurationModels.EvidenceSnapshot snapshot = promptBuilder.buildSnapshot(revision);
+        JsonNode validated = modelProtocol.validatedOutput(Objects.toString(row.get("frozenResponseJson")),
+                identity, snapshot, properties.getMaxResponseChars());
+        if (validated == null) {
+            throw new IllegalStateException("FROZEN_OUTPUT_INVALID");
+        }
+        JsonNode content = validated.path("content");
+        boolean hasContent = content.isObject();
+        JsonNode sections = content.path("sections");
+        String contentType = hasContent ? content.path("contentType").asText(null) : null;
+        String decision = hasContent ? NewsCurationModels.Decision.NEEDS_REVIEW.name()
+                : NewsCurationModels.Decision.REJECT.name();
+        String summary = hasContent ? switch (String.valueOf(contentType)) {
+            case "RESEARCH_INSIGHT" -> sections.path("findings").asText(null);
+            case "RESEARCH_RADAR" -> sections.path("reasonToWatch").asText(null);
+            default -> sections.path("status").asText(null);
+        } : null;
+        List<String> limitations = hasContent && !sections.path("limitations").asText("").isBlank()
+                ? List.of(sections.path("limitations").asText()) : List.of();
+        String claimsJson = hasContent ? writeJson(claims(content.path("claims"))) : null;
+        List<NewsCurationModels.EvidenceViolation> violations = safetyViolations(content);
+        String candidateStatus = !violations.isEmpty()
+                ? NewsCurationModels.CandidateStatus.REJECTED_EVIDENCE_VIOLATION.name()
+                : hasContent ? NewsCurationModels.CandidateStatus.CURATED_NEEDS_REVIEW.name()
+                : NewsCurationModels.CandidateStatus.CURATED_REJECTED.name();
+
+        // Every candidate row of this revision is locked here, across all policy versions, so concurrent
+        // materializations serialize and a changed policyVersion cannot sidestep the conflict check.
+        List<Map<String, Object>> siblings = jdbc.queryForList("""
+                SELECT id, policyVersion, callId, status, evidenceVerificationSha256, supersededAt
+                FROM t_news_curation_candidate
+                WHERE materialRevisionId = ?
+                ORDER BY id ASC
+                FOR UPDATE
+                """, revisionId);
+        Map<String, Object> active = null;
+        for (Map<String, Object> sibling : siblings) {
+            if (!policy.equals(Objects.toString(sibling.get("policyVersion"), ""))) {
+                throw new IllegalStateException("CANDIDATE_POLICY_CONFLICT");
+            }
+            if (sibling.get("supersededAt") == null) {
+                active = sibling;
+            }
+        }
+        String supersededFromStatus = null;
+        if (active != null) {
+            if (callId.equals(Objects.toString(active.get("callId"), ""))) {
+                return new MaterializedCandidate(((Number) active.get("id")).longValue(),
+                        Objects.toString(active.get("status")), callId, false,
+                        Objects.toString(active.get("evidenceVerificationSha256"), null), null);
+            }
+            if (supersedesCandidateId == null) {
+                throw new IllegalStateException("CANDIDATE_ALREADY_MATERIALIZED");
+            }
+            long activeId = ((Number) active.get("id")).longValue();
+            if (activeId != supersedesCandidateId) {
+                throw new IllegalStateException("CANDIDATE_SUPERSEDE_TARGET_MISMATCH");
+            }
+            supersededFromStatus = Objects.toString(active.get("status"), "");
+            if (!supersedable(supersededFromStatus)) {
+                throw new IllegalStateException("CANDIDATE_NOT_SUPERSEDABLE:" + supersededFromStatus);
+            }
+            Integer bound = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM t_news WHERE curationCandidateId = ? AND isDelete = 0",
+                    Integer.class, supersedesCandidateId);
+            if (bound != null && bound > 0) {
+                throw new IllegalStateException("CANDIDATE_ALREADY_DRAFTED");
+            }
+            // Retire the old row first: this clears its activeKey so the new active row can be inserted.
+            // The forward pointer is filled in right after the insert; both writes share this transaction, so
+            // no reader ever sees a superseded row without its successor.
+            int retired = jdbc.update("""
+                    UPDATE t_news_curation_candidate
+                    SET status = 'SUPERSEDED', supersededAt = UTC_TIMESTAMP(6), supersedeReason = ?
+                    WHERE id = ? AND supersededAt IS NULL AND status = ?
+                    """, reason, supersedesCandidateId, supersededFromStatus);
+            if (retired != 1) {
+                throw new IllegalStateException("CANDIDATE_SUPERSEDE_FAILED");
+            }
+        } else if (supersedesCandidateId != null) {
+            throw new IllegalStateException("CANDIDATE_SUPERSEDE_TARGET_MISSING");
+        }
+
+        String snapshotJson = promptBuilder.canonicalSnapshotJson(snapshot);
+        String snapshotSha256 = NewsMaterialCanonicalizer.sha256Hex(
+                snapshotJson.getBytes(StandardCharsets.UTF_8));
+        String overlayJson = writeJson(overlay.attributes());
+        jdbc.update("""
+                        INSERT INTO t_news_curation_candidate
+                            (materialId, materialRevisionId, source, sourceRecordId, contentDigest,
+                             policyVersion, callId, status, decision, evidenceTier, relevanceScore,
+                             suggestedTitle, suggestedSummary, category, contentType, limitationsJson, claimsJson,
+                             violationsJson, evidenceSnapshotJson, evidenceSnapshotSha256,
+                             evidenceVerificationJson, evidenceVerificationSha256, materializedAt, materializedBy,
+                             draftTemplateVersion, structuredContentJson, researchValueScore)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP(6),?,?,?,?)
+                        """,
+                snapshot.materialId(), snapshot.materialRevisionId(), snapshot.source(),
+                snapshot.sourceRecordId(), snapshot.contentDigest(), policy, callId, candidateStatus,
+                decision, snapshot.evidenceTier().name(), validated.path("relevanceScore").isInt()
+                        ? validated.path("relevanceScore").intValue() : null,
+                null, summary, null, contentType, writeJson(limitations), claimsJson,
+                violations.isEmpty() ? null : writeJson(violations), snapshotJson, snapshotSha256,
+                overlayJson, overlay.sha256(), reviewer,
+                NewsEditorialDraft.TEMPLATE_VERSION, hasContent ? writeJson(content) : null,
+                validated.path("researchValueScore").isInt()
+                        ? validated.path("researchValueScore").intValue() : null);
+        long newId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        if (supersededFromStatus != null) {
+            int linked = jdbc.update("""
+                    UPDATE t_news_curation_candidate SET supersededByCandidateId = ?
+                    WHERE id = ? AND supersededByCandidateId IS NULL
+                    """, newId, supersedesCandidateId);
+            if (linked != 1) {
+                throw new IllegalStateException("CANDIDATE_SUPERSEDE_FAILED");
+            }
+            recordCandidateEvent(supersedesCandidateId, "superseded", supersededFromStatus,
+                    NewsCurationModels.CandidateStatus.SUPERSEDED.name(), newId, callId, reviewer, reason);
+        }
+        recordCandidateEvent(newId, "materialized", null, candidateStatus, supersedesCandidateId, callId, reviewer,
+                supersededFromStatus == null ? null : "supersedes candidate " + supersedesCandidateId);
+        return new MaterializedCandidate(newId, candidateStatus, callId, true, overlay.sha256(),
+                supersedesCandidateId);
+    }
+
+    /** Statuses a named replacement may retire. A candidate awaiting reconciliation must be reconciled first. */
+    private static boolean supersedable(String status) {
+        return switch (status) {
+            case "CURATED_ACCEPTED", "CURATED_NEEDS_REVIEW", "CURATED_REJECTED",
+                 "REJECTED_EVIDENCE_VIOLATION" -> true;
+            default -> false;
+        };
+    }
+
+    private void recordCandidateEvent(long candidateId, String eventType, String fromStatus, String toStatus,
+                                      Long relatedCandidateId, String relatedCallId, String actor, String note) {
+        jdbc.update("""
+                INSERT INTO t_news_curation_candidate_event
+                    (candidateId, eventType, fromStatus, toStatus, relatedCandidateId, relatedCallId, actor, note)
+                VALUES (?,?,?,?,?,?,?,?)
+                """, candidateId, eventType, fromStatus, toStatus, relatedCandidateId, relatedCallId, actor, note);
+    }
+
+    private static List<NewsCurationModels.CurationClaim> claims(JsonNode claims) {
+        List<NewsCurationModels.CurationClaim> out = new java.util.ArrayList<>();
+        int index = 0;
+        for (JsonNode claim : claims) {
+            index++;
+            out.add(new NewsCurationModels.CurationClaim("c" + index, claim.path("evidenceId").asText(null),
+                    claim.path("statement").asText(null), claim.path("quote").asText(null)));
+        }
+        return List.copyOf(out);
+    }
+
+    /** Generated text must clear the same clinical/injection boundaries as the publish path. */
+    private static List<NewsCurationModels.EvidenceViolation> safetyViolations(JsonNode content) {
+        List<NewsCurationModels.EvidenceViolation> violations = new java.util.ArrayList<>();
+        if (!content.isObject()) {
+            return List.of();
+        }
+        for (String text : texts(content)) {
+            NewsEvidenceVerifier.findProhibitedClinicalMarker(text).ifPresent(marker ->
+                    violations.add(new NewsCurationModels.EvidenceViolation(
+                            "PROHIBITED_CLINICAL_CLAIM", "content", marker)));
+            NewsEvidenceVerifier.findPromptInjectionMarker(text).ifPresent(marker ->
+                    violations.add(new NewsCurationModels.EvidenceViolation("PROMPT_INJECTION", "content", marker)));
+            NewsEvidenceVerifier.findUnsupportedTrialOutcome(text).ifPresent(marker ->
+                    violations.add(new NewsCurationModels.EvidenceViolation(
+                            "UNSUPPORTED_TRIAL_OUTCOME", "content", marker)));
+        }
+        return List.copyOf(violations);
+    }
+
+    private static List<String> texts(JsonNode node) {
+        List<String> values = new java.util.ArrayList<>();
+        collectTexts(node, values);
+        return values;
+    }
+
+    private static void collectTexts(JsonNode node, List<String> values) {
+        if (node.isTextual()) {
+            values.add(node.textValue());
+        } else if (node.isContainerNode()) {
+            node.forEach(child -> collectTexts(child, values));
+        }
+    }
+
+    /** Active and revoked verifications for one material revision, newest last. */
+    public List<NewsEvidenceLedger.Verification> listEvidenceVerifications(long materialRevisionId) {
+        return ledger.list(materialRevisionId);
+    }
+
+    /**
+     * Records one reviewer verification after validating it against the frozen snapshot, so a ledger row
+     * can never describe an attribute the material does not actually support.
+     */
+    public NewsEvidenceLedger.Verification verifyEvidence(long materialRevisionId, NewsEvidenceLedger.Request request,
+                                                          String reviewer) {
+        if (reviewer == null || reviewer.isBlank()) {
+            throw new IllegalArgumentException("Invalid evidence reviewer");
+        }
+        NewsIngestionService.VisibleRevision revision = requireVisibleRevision(materialRevisionId);
+        NewsCurationModels.EvidenceSnapshot snapshot = promptBuilder.buildSnapshot(revision);
+        NewsEvidenceLedger.Request validated = NewsEvidenceLedger.validate(request, snapshot);
+        return ledger.append(materialRevisionId, validated, reviewer.trim());
+    }
+
+    /** Revokes one active verification; the row and its history are retained. */
+    public NewsEvidenceLedger.Verification revokeEvidence(long verificationId, String reviewer, String note) {
+        if (verificationId <= 0 || reviewer == null || reviewer.isBlank()) {
+            throw new IllegalArgumentException("Invalid evidence revocation");
+        }
+        return ledger.revoke(verificationId, reviewer.trim(), note);
+    }
+
+    /** Current active overlay digest; used by admin views to show what a candidate is bound to. */
+    public String activeEvidenceOverlaySha256(long materialRevisionId) {
+        return ledger.overlay(materialRevisionId).sha256();
     }
 }

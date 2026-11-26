@@ -63,7 +63,8 @@ public final class NewsModelProtocol {
                            NewsModelProfile.Provider provider, NewsModelProfile.Platform servingPlatform,
                            String modelId, String pricingVersion, Prompt prompt, String promptVersion,
                            String promptSha256, String configurationSha256, String upstreamResponseSha256,
-                           ContentType eligibleType, List<TrialChange> trialChanges) {
+                           ContentType eligibleType, List<TrialChange> trialChanges,
+                           String evidenceOverlaySha256, List<NewsEvidenceLedger.Active> evidenceOverlay) {
     }
 
     record Upstream(String digest, JsonNode payload) {
@@ -124,10 +125,18 @@ public final class NewsModelProtocol {
 
     Prepared prepare(Selection selection, NewsModelProfile profile, String policy, EvidenceSnapshot snapshot,
                      NewsEditorialEvidence previous, Upstream upstream) {
+        return prepare(selection, profile, policy, snapshot, previous, upstream,
+                NewsEvidenceLedger.Overlay.empty(snapshot.materialRevisionId()));
+    }
+
+    Prepared prepare(Selection selection, NewsModelProfile profile, String policy, EvidenceSnapshot snapshot,
+                     NewsEditorialEvidence previous, Upstream upstream, NewsEvidenceLedger.Overlay overlay) {
         if (!NewsModelProfile.identifier(policy, 64)) {
             throw new IllegalArgumentException("Invalid news policy version");
         }
-        NewsEditorialEvidence evidence = NewsEditorialEvidence.from(snapshot, mapper);
+        NewsEvidenceLedger.Overlay evidenceOverlay = overlay == null
+                ? NewsEvidenceLedger.Overlay.empty(snapshot.materialRevisionId()) : overlay;
+        NewsEditorialEvidence evidence = NewsEditorialEvidence.from(snapshot, mapper, evidenceOverlay);
         ContentType eligible = evidence.route(previous, true);
         List<TrialChange> changes = trialChanges(evidence, previous);
         Prompt prompt = selection.prompt();
@@ -167,7 +176,8 @@ public final class NewsModelProtocol {
         String configHash = sha256(json(profile));
         Identity identity = new Identity(snapshot.materialRevisionId(), selection.namespace(), policy, prompt.stage,
                 profile.provider(), profile.servingPlatform(), profile.modelId(), profile.pricingVersion().version(),
-                prompt, version, promptHash, configHash, upstream == null ? null : upstream.digest(), eligible, changes);
+                prompt, version, promptHash, configHash, upstream == null ? null : upstream.digest(), eligible, changes,
+                evidenceOverlay.sha256(), evidenceOverlay.attributes());
         String identityJson = json(identity);
         return new Prepared(identity, identityJson, sha256(identityJson), selection.profileKey(), profile, template, userPrompt);
     }
@@ -176,6 +186,10 @@ public final class NewsModelProtocol {
         if (!version.equals(identity.promptVersion()) || raw == null || raw.isBlank() || raw.length() > maxChars) {
             return null;
         }
+        // Replay uses the overlay frozen into this call's identity, never the current ledger:
+        // revoking an attribute later must not silently change what an already-paid answer meant.
+        NewsEvidenceLedger.Overlay overlay = NewsEvidenceLedgerStore.frozen(
+                snapshot.materialRevisionId(), identity.evidenceOverlay());
         JsonNode root;
         try {
             root = mapper.readTree(raw);
@@ -199,10 +213,10 @@ public final class NewsModelProtocol {
             if (!identity.eligibleType().name().equals(content.path("contentType").asText())) {
                 return null;
             }
-            if (registry && !validTrialSections(content.path("sections"), identity, snapshot)) {
+            if (registry && !validTrialSections(content.path("sections"), identity, snapshot, overlay)) {
                 return null;
             }
-            NewsEditorialEvidence trialEvidence = registry ? NewsEditorialEvidence.from(snapshot, mapper) : null;
+            NewsEditorialEvidence trialEvidence = registry ? NewsEditorialEvidence.from(snapshot, mapper, overlay) : null;
             for (JsonNode claim : content.path("claims")) {
                 if (trialEvidence != null) {
                     String value = claim.path("quote").asText();
@@ -216,7 +230,7 @@ public final class NewsModelProtocol {
                 }
                 String evidence = switch (claim.path("evidenceId").textValue()) {
                     case "title" -> snapshot.title();
-                    case "abstract" -> NewsEditorialEvidence.from(snapshot, mapper).license()
+                    case "abstract" -> NewsEditorialEvidence.from(snapshot, mapper, overlay).license()
                             == NewsEditorialEvidence.License.UNKNOWN ? null : snapshot.abstractText();
                     case "trial" -> "clinicaltrials-gov".equals(snapshot.source()) ? snapshot.trialJson() : null;
                     default -> null;
@@ -229,8 +243,9 @@ public final class NewsModelProtocol {
         return root;
     }
 
-    private boolean validTrialSections(JsonNode sections, Identity identity, EvidenceSnapshot snapshot) {
-        NewsEditorialEvidence evidence = NewsEditorialEvidence.from(snapshot, mapper);
+    private boolean validTrialSections(JsonNode sections, Identity identity, EvidenceSnapshot snapshot,
+                                       NewsEvidenceLedger.Overlay overlay) {
+        NewsEditorialEvidence evidence = NewsEditorialEvidence.from(snapshot, mapper, overlay);
         return evidence.trial() != null
                 && evidence.trial().status().equals(sections.path("status").asText())
                 && mapper.valueToTree(evidence.trial().phases()).equals(sections.path("phases"))

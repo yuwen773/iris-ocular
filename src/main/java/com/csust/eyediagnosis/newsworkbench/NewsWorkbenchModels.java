@@ -174,6 +174,7 @@ public final class NewsWorkbenchModels {
             String suggestedTitle,
             String suggestedSummary,
             String category,
+            String contentType,
             int claimsCount,
             int violationsCount,
             String evidenceSnapshotSha256,
@@ -200,6 +201,7 @@ public final class NewsWorkbenchModels {
             String suggestedTitle,
             String suggestedSummary,
             String category,
+            String contentType,
             List<String> limitations,
             List<NewsCurationModels.CurationClaim> claims,
             List<NewsCurationModels.EvidenceViolation> violations,
@@ -339,5 +341,52 @@ public final class NewsWorkbenchModels {
             Long actualCostMicros,
             String providerRequestId
     ) {
+    }
+
+    /** One row of the human evidence verification ledger. */
+    public record EvidenceVerificationVO(
+            long id,
+            long materialRevisionId,
+            String attribute,
+            String value,
+            String method,
+            String evidenceUrl,
+            String sourceVersion,
+            String evidenceNote,
+            String verifiedBy,
+            String verifiedAt,
+            boolean active,
+            String revokedBy,
+            String revokedAt,
+            String revokeNote
+    ) {
+    }
+
+    public record SubmitEvidenceVerificationRequest(
+            String attribute,
+            String value,
+            String method,
+            String evidenceUrl,
+            String sourceVersion,
+            String evidenceNote
+    ) {
+    }
+
+    public record RevokeEvidenceVerificationRequest(String note) {
+    }
+
+    /** Result of converting one frozen production model call into a review candidate. */
+    public record MaterializedCandidateVO(
+            long candidateId,
+            String status,
+            String callId,
+            boolean created,
+            String evidenceVerificationSha256,
+            Long supersededCandidateId
+    ) {
+    }
+
+    /** Optional body for materializing a candidate that explicitly replaces a named, now-stale one. */
+    public record MaterializeCandidateRequest(Long supersedesCandidateId, String reason) {
     }
 }

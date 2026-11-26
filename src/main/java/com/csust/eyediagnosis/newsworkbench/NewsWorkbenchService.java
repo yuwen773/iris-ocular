@@ -6,6 +6,7 @@ import com.csust.eyediagnosis.model.entity.User;
 import com.csust.eyediagnosis.newscuration.NewsCurationModels;
 import com.csust.eyediagnosis.newscuration.NewsCurationProperties;
 import com.csust.eyediagnosis.newscuration.NewsCurationService;
+import com.csust.eyediagnosis.newscuration.NewsEvidenceLedger;
 import com.csust.eyediagnosis.newsingestion.NewsIngestionService;
 import com.csust.eyediagnosis.newsingestion.NewsWireCodec;
 import com.csust.eyediagnosis.newsingestion.NewsWireModels;
@@ -578,7 +579,7 @@ public class NewsWorkbenchService {
                 SELECT c.id, c.materialId, c.materialRevisionId, c.source, c.sourceRecordId,
                        c.contentDigest, c.policyVersion, c.callId, c.status, c.decision,
                        c.evidenceTier, c.relevanceScore, c.suggestedTitle, c.suggestedSummary,
-                       c.category,
+                       c.category, c.contentType,
                        COALESCE(JSON_LENGTH(c.claimsJson), 0) AS claimsCount,
                        COALESCE(JSON_LENGTH(c.violationsJson), 0) AS violationsCount,
                        c.evidenceSnapshotSha256,
@@ -604,7 +605,7 @@ public class NewsWorkbenchService {
                 SELECT c.id, c.materialId, c.materialRevisionId, c.source, c.sourceRecordId,
                        c.contentDigest, c.policyVersion, c.callId, c.status, c.decision,
                        c.evidenceTier, c.relevanceScore, c.suggestedTitle, c.suggestedSummary,
-                       c.category, c.limitationsJson, c.claimsJson, c.violationsJson,
+                       c.category, c.contentType, c.limitationsJson, c.claimsJson, c.violationsJson,
                        c.evidenceSnapshotSha256, c.evidenceSnapshotJson,
                 """ + LINKED_NEWS_ID_SQL + " AS linkedNewsId, "
                 + LINKED_NEWS_STATUS_SQL + """
@@ -629,6 +630,7 @@ public class NewsWorkbenchService {
                 rs.getString("suggestedTitle"),
                 rs.getString("suggestedSummary"),
                 rs.getString("category"),
+                rs.getString("contentType"),
                 rs.getString("limitationsJson"),
                 rs.getString("claimsJson"),
                 rs.getString("violationsJson"),
@@ -667,6 +669,7 @@ public class NewsWorkbenchService {
                 row.suggestedTitle,
                 row.suggestedSummary,
                 row.category,
+                row.contentType,
                 readJsonList(row.limitationsJson, STRING_LIST_TYPE),
                 readJsonList(row.claimsJson, CLAIM_LIST_TYPE),
                 readJsonList(row.violationsJson, VIOLATION_LIST_TYPE),
@@ -1173,6 +1176,7 @@ public class NewsWorkbenchService {
                 rs.getString("suggestedTitle"),
                 rs.getString("suggestedSummary"),
                 rs.getString("category"),
+                rs.getString("contentType"),
                 rs.getInt("claimsCount"),
                 rs.getInt("violationsCount"),
                 rs.getString("evidenceSnapshotSha256"),
@@ -1313,6 +1317,7 @@ public class NewsWorkbenchService {
             String suggestedTitle,
             String suggestedSummary,
             String category,
+            String contentType,
             String limitationsJson,
             String claimsJson,
             String violationsJson,
@@ -1323,5 +1328,142 @@ public class NewsWorkbenchService {
             Instant createdAt,
             Instant updatedAt
     ) {
+    }
+
+    /** WP-08B.2：查看某份资料修订的证据核验历史（含已撤回行）。 */
+    public List<NewsWorkbenchModels.EvidenceVerificationVO> listEvidenceVerifications(long materialRevisionId) {
+        if (materialRevisionId <= 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "materialRevisionId 必须大于 0");
+        }
+        return curationService.listEvidenceVerifications(materialRevisionId).stream()
+                .map(NewsWorkbenchService::toEvidenceVerificationVO)
+                .toList();
+    }
+
+    /** WP-08B.2：登记一条人工证据核验；只有管理员可以写，值必须能由冻结资料佐证。 */
+    public NewsWorkbenchModels.EvidenceVerificationVO verifyEvidence(
+            long materialRevisionId,
+            NewsWorkbenchModels.SubmitEvidenceVerificationRequest body,
+            User operator) {
+        if (materialRevisionId <= 0 || body == null) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "证据核验参数不完整");
+        }
+        String reviewer = requireOperator(operator);
+        NewsEvidenceLedger.Attribute attribute = parseEnum(NewsEvidenceLedger.Attribute.class, body.attribute());
+        NewsEvidenceLedger.Method method = parseEnum(NewsEvidenceLedger.Method.class, body.method());
+        try {
+            NewsEvidenceLedger.Verification stored = curationService.verifyEvidence(materialRevisionId,
+                    new NewsEvidenceLedger.Request(attribute, body.value(), method, body.evidenceUrl(),
+                            body.sourceVersion(), body.evidenceNote()), reviewer);
+            return toEvidenceVerificationVO(stored);
+        } catch (IllegalArgumentException invalid) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, invalid.getMessage());
+        } catch (IllegalStateException active) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR,
+                    "EVIDENCE_ALREADY_ACTIVE".equals(active.getMessage())
+                            ? "该属性已有生效中的核验，请先撤回再重新登记" : active.getMessage());
+        }
+    }
+
+    /** WP-08B.2：撤回一条证据核验；撤回后依赖它的候选无法建稿，必须重新核验。 */
+    public NewsWorkbenchModels.EvidenceVerificationVO revokeEvidence(
+            long verificationId,
+            NewsWorkbenchModels.RevokeEvidenceVerificationRequest body,
+            User operator) {
+        if (verificationId <= 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "verificationId 必须大于 0");
+        }
+        String reviewer = requireOperator(operator);
+        try {
+            return toEvidenceVerificationVO(curationService.revokeEvidence(verificationId, reviewer,
+                    body == null ? null : body.note()));
+        } catch (IllegalStateException notActive) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "该核验不存在或已撤回");
+        } catch (IllegalArgumentException invalid) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, invalid.getMessage());
+        }
+    }
+
+    /** WP-08B.2：把一条冻结的生产联合精选回执转成待人工审核候选（幂等）。 */
+    public NewsWorkbenchModels.MaterializedCandidateVO materializeCandidate(String callId, User operator) {
+        return materializeCandidate(callId, operator, null, null);
+    }
+
+    /**
+     * 同一入口的替代形态：点名一条已失效的旧候选并给出理由，才允许新的成功回执接管它。
+     * 未点名时保持旧行为——重复转换一律拒绝，绝不覆盖。
+     */
+    public NewsWorkbenchModels.MaterializedCandidateVO materializeCandidate(String callId, User operator,
+                                                                           Long supersedesCandidateId,
+                                                                           String supersedeReason) {
+        if (callId == null || callId.isBlank()) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "callId 不能为空");
+        }
+        if (supersedesCandidateId != null && (supersedeReason == null || supersedeReason.isBlank())) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "替代旧候选必须写明理由");
+        }
+        String reviewer = requireOperator(operator);
+        try {
+            NewsCurationService.MaterializedCandidate materialized =
+                    curationService.materializeCandidate(callId.trim(), reviewer, supersedesCandidateId,
+                            supersedeReason);
+            return new NewsWorkbenchModels.MaterializedCandidateVO(materialized.candidateId(),
+                    materialized.status(), materialized.callId(), materialized.created(),
+                    materialized.evidenceVerificationSha256(), materialized.supersededCandidateId());
+        } catch (IllegalStateException refused) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, materializeMessage(refused.getMessage()));
+        } catch (IllegalArgumentException invalid) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, invalid.getMessage());
+        }
+    }
+
+    private static String materializeMessage(String rawCode) {
+        String code = String.valueOf(rawCode);
+        int separator = code.indexOf(':');
+        if (separator > 0) {
+            code = code.substring(0, separator);
+        }
+        return switch (code) {
+            case "MODEL_CALL_NOT_FOUND" -> "模型调用回执不存在";
+            case "MODEL_CALL_NOT_MATERIALIZABLE" -> "只有已成功且冻结了响应的回执可以转为候选";
+            case "MODEL_CALL_NOT_PRODUCTION_JOINT" -> "只有生产命名空间的联合精选结果可以转为候选";
+            case "MODEL_CALL_IDENTITY_INVALID" -> "模型调用身份无法解析";
+            case "EVIDENCE_VERIFICATION_STALE" -> "证据核验已撤回或变更，请重新核验后再转换";
+            case "FROZEN_OUTPUT_INVALID" -> "冻结响应未通过当前契约校验";
+            case "CANDIDATE_ALREADY_MATERIALIZED" -> "该资料修订与策略版本已有候选，禁止覆盖；确需替代请点名旧候选并写明理由";
+            case "CANDIDATE_POLICY_CONFLICT" -> "同一资料修订已存在其他策略版本的候选，禁止通过改策略版本绕开冲突";
+            case "CANDIDATE_SUPERSEDE_TARGET_MISSING" -> "没有可替代的生效候选";
+            case "CANDIDATE_SUPERSEDE_TARGET_MISMATCH" -> "指定的替代对象不是当前生效候选";
+            case "CANDIDATE_NOT_SUPERSEDABLE" -> "当前候选状态不允许被替代，请先处理对账或状态问题";
+            case "CANDIDATE_ALREADY_DRAFTED" -> "旧候选已关联未删除的资讯，请先处置该草稿后再替代";
+            default -> "模型结果无法转为候选: " + code;
+        };
+    }
+
+    private static String requireOperator(User operator) {
+        if (operator == null || operator.getId() == null) {
+            throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR, "需要管理员身份");
+        }
+        return "admin:" + operator.getId();
+    }
+
+    private static <E extends Enum<E>> E parseEnum(Class<E> type, String raw) {
+        if (raw == null || raw.isBlank()) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "枚举值不能为空");
+        }
+        try {
+            return Enum.valueOf(type, raw.trim().toUpperCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException invalid) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "不支持的枚举值: " + raw);
+        }
+    }
+
+    private static NewsWorkbenchModels.EvidenceVerificationVO toEvidenceVerificationVO(
+            NewsEvidenceLedger.Verification row) {
+        return new NewsWorkbenchModels.EvidenceVerificationVO(row.id(), row.materialRevisionId(),
+                row.attribute().name(), row.value(), row.method().name(), row.evidenceUrl(), row.sourceVersion(),
+                row.evidenceNote(), row.verifiedBy(), row.verifiedAt() == null ? null : row.verifiedAt().toString(),
+                row.active(), row.revokedBy(), row.revokedAt() == null ? null : row.revokedAt().toString(),
+                row.revokeNote());
     }
 }

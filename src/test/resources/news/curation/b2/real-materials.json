@@ -1,0 +1,446 @@
+{
+ "capturedOn": "2026-11-26",
+ "captureMethod": "Europe PMC REST core search（公开记录）与 WHO ICTRP 记录页；ClinicalTrials.gov 直连在本环境被网络策略阻断",
+ "note": "scriptedOutput 是离线测试的脚本化模型输出，不是真实供应商调用结果。",
+ "materials": [
+  {
+   "id": "insight-acupuncture-ntg-rct",
+   "category": "RESEARCH_INSIGHT",
+   "expectedRoute": "RESEARCH_INSIGHT",
+   "material": {
+    "source": "pubmed",
+    "sourceRecordId": "41887338",
+    "pmid": "41887338",
+    "pmcid": null,
+    "doi": "10.1016/j.ctim.2026.103363",
+    "title": "Efficacy and safety of acupuncture in slowing visual field loss in normal-tension glaucoma: A 24-week randomized controlled trial.",
+    "journal": "Complementary therapies in medicine",
+    "publishedOn": "2026-03-24",
+    "abstractLicense": "CC-BY",
+    "abstract": "Background Normal-tension glaucoma (NTG) is a progressive optic neuropathy for which effective treatment strategies remain limited. We previously demonstrated that short-term (2-week) acupuncture can reduce intraocular pressure (IOP). In this study, we investigated the long-term efficacy and safety of acupuncture on visual function and structural parameters in NTG patients. Methods In this 24-week randomized controlled trial, 40 patients with NTG received once-weekly acupuncture at the Jingming (BL1) and Qiuhou (EX-HN7) acupoints (n = 20) or sham acupuncture with Vaccaria seeds (Wang-Bu-Liu-Xing) (n = 20) at the same locations. Results At 24 weeks, the true acupuncture group significantly improved their best-corrected visual acuity (BCVA) from baseline in both the right (p = 0.0102) and left (p = 0.0128) eyes, increased retinal nerve fiber layer (RNFL) thickness in both eyes (right: p = 0.0477; left: p = 0.0208), and reduced IOP (right: p = 0.0430; left: p = 0.0401). No such improvements were observed with sham acupuncture. The rate of visual field deterioration was also significantly slower with true acupuncture compared with sham acupuncture (p Conclusion This is the first clinical trial to demonstrate that long-term acupuncture may effectively preserve both structural and functional visual parameters in patients with NTG, suggesting a potential neuroprotective effect of acupuncture and supporting its role as a promising adjunctive therapy. Further validation is warranted with larger, double-blind, multicenter trials."
+   },
+   "verifications": [
+    {
+     "attribute": "PEER_REVIEW",
+     "value": "VERIFIED",
+     "method": "PUBMED_RECORD",
+     "evidenceUrl": "https://pubmed.ncbi.nlm.nih.gov/41887338/",
+     "sourceVersion": "epmc-2026-11-26",
+     "note": "PubMed 记录标注同行评审"
+    },
+    {
+     "attribute": "INTEGRITY",
+     "value": "VERIFIED",
+     "method": "PUBMED_RECORD",
+     "evidenceUrl": "https://pubmed.ncbi.nlm.nih.gov/41887338/",
+     "sourceVersion": "epmc-2026-11-26",
+     "note": "未见撤稿或关注声明"
+    },
+    {
+     "attribute": "STUDY_DESIGN",
+     "value": "INTERVENTIONAL",
+     "method": "PUBMED_RECORD",
+     "evidenceUrl": "https://pubmed.ncbi.nlm.nih.gov/41887338/",
+     "sourceVersion": "epmc-2026-11-26",
+     "note": "记录标注随机对照试验"
+    },
+    {
+     "attribute": "CONTENT_SCOPE",
+     "value": "LICENSED_RESULTS",
+     "method": "DOI_LANDING_PAGE",
+     "evidenceUrl": "https://doi.org/10.1016/j.ctim.2026.103363",
+     "sourceVersion": "epmc-2026-11-26",
+     "note": "DOI 落地页确认 CC BY 授权"
+    }
+   ],
+   "scriptedOutput": {
+    "contentType": "RESEARCH_INSIGHT",
+    "sections": {
+     "question": "慢速针刺是否延缓正常眼压性青光眼视野缺损？",
+     "studyDesign": "24 周随机对照试验，40 例正常眼压性青光眼患者分为真针刺与假针刺。",
+     "findings": "真针刺组最佳矫正视力、视网膜神经纤维层厚度与眼压较基线改善，假针刺组未见同类改善；视野恶化速度较慢。",
+     "meaning": "为正常眼压性青光眼的非药物干预提供了随机对照证据。",
+     "limitations": "样本量小、单中心、24 周随访，长期结局未知。"
+    },
+    "claims": [
+     {
+      "evidenceId": "abstract",
+      "statement": "公开摘要记录了该项研究的设计与结果。",
+      "quote": "Normal-tension glaucoma (NTG) is a progressive optic neuropathy"
+     }
+    ]
+   }
+  },
+  {
+   "id": "insight-tags-visual-field-qol",
+   "category": "RESEARCH_INSIGHT",
+   "expectedRoute": "RESEARCH_INSIGHT",
+   "material": {
+    "source": "pubmed",
+    "sourceRecordId": "42036075",
+    "pmid": "42036075",
+    "pmcid": null,
+    "doi": "10.1016/j.ophtha.2026.04.020",
+    "title": "Longitudinal Visual Field and Quality-of-Life Change in the Treatment for Advanced Glaucoma Study.",
+    "journal": "Ophthalmology",
+    "publishedOn": "2026-04-24",
+    "abstractLicense": "CC-BY",
+    "abstract": "Purpose Progressive visual field (VF) loss resulting from glaucoma affects quality of life (QoL). Although treatments aim to preserve vision, the extent to which slowing VF loss translates into QoL changes in advanced disease is not understood fully. We compare the 5-year rate of VF and QoL change and examined their correlation in the Treatment for Advanced Glaucoma Study. Design Multicenter randomized clinical trial (27 secondary care glaucoma departments in the UK). Participants Adults (n = 453) with newly diagnosed advanced open-angle glaucoma in at least 1 eye were randomized to trabeculectomy (n = 227) or medical management (n = 226) as initial treatment. One eligible index eye was identified per participant. Main outcome measures Mean difference in rate of change in monocular index eye VF (24-2 SITA Standard), binocular integrated (BI) VF, and the 25-item Visual Function Questionnaire (VFQ-25) composite score over 5 years (intention to treat) using a Bayesian longitudinal hierarchical model. Results Data from 442 patients with reliable VF (false-positive rate ≤15%) or VFQ-25 data from >2 time points were included (221 patients in the trabeculectomy-first arm). Baseline characteristics were similar between arms. The rate of index eye VF loss was faster in the medications-first arm (-0.75 [95% credible interval (CrI), -0.90 to -0.59] dB/year) compared with the trabeculectomy-first arm (-0.37 [95% CrI, -0.53 to -0.22] dB/year; P = 0.002). Differences between groups were not statistically significant for BI VF decline (P = 0.062) or VFQ-25 change (P = 0.392). Correlations"
+   },
+   "verifications": [
+    {
+     "attribute": "PEER_REVIEW",
+     "value": "VERIFIED",
+     "method": "PUBMED_RECORD",
+     "evidenceUrl": "https://pubmed.ncbi.nlm.nih.gov/42036075/",
+     "sourceVersion": "epmc-2026-11-26",
+     "note": "PubMed 记录标注同行评审"
+    },
+    {
+     "attribute": "INTEGRITY",
+     "value": "VERIFIED",
+     "method": "PUBMED_RECORD",
+     "evidenceUrl": "https://pubmed.ncbi.nlm.nih.gov/42036075/",
+     "sourceVersion": "epmc-2026-11-26",
+     "note": "未见撤稿或关注声明"
+    },
+    {
+     "attribute": "STUDY_DESIGN",
+     "value": "INTERVENTIONAL",
+     "method": "PUBMED_RECORD",
+     "evidenceUrl": "https://pubmed.ncbi.nlm.nih.gov/42036075/",
+     "sourceVersion": "epmc-2026-11-26",
+     "note": "记录标注随机对照试验"
+    },
+    {
+     "attribute": "CONTENT_SCOPE",
+     "value": "LICENSED_RESULTS",
+     "method": "DOI_LANDING_PAGE",
+     "evidenceUrl": "https://doi.org/10.1016/j.ophtha.2026.04.020",
+     "sourceVersion": "epmc-2026-11-26",
+     "note": "DOI 落地页确认 CC BY 授权"
+    }
+   ],
+   "scriptedOutput": {
+    "contentType": "RESEARCH_INSIGHT",
+    "sections": {
+     "question": "进展期青光眼治疗中视野变化与生活质量的关系如何？",
+     "studyDesign": "英国 27 家二级医疗中心的多中心随机临床试验，453 例新诊断进展期开角型青光眼。",
+     "findings": "药物治疗优先组指标眼视野丢失速度快于小梁切除术优先组，视野与生活质量变化的相关性在五年随访中得到评估。",
+     "meaning": "为进展期青光眼首选治疗决策提供了长期随机对照数据。",
+     "limitations": "仅纳入新诊断进展期开角型青光眼，结论不能外推到其他分期。"
+    },
+    "claims": [
+     {
+      "evidenceId": "abstract",
+      "statement": "公开摘要记录了该项研究的设计与结果。",
+      "quote": "Progressive visual field (VF) loss resulting from glaucoma affects quality of life"
+     }
+    ]
+   }
+  },
+  {
+   "id": "insight-see-adherence-rct",
+   "category": "RESEARCH_INSIGHT",
+   "expectedRoute": "RESEARCH_INSIGHT",
+   "material": {
+    "source": "europe-pmc",
+    "sourceRecordId": "41746659",
+    "pmid": "41746659",
+    "pmcid": "PMC12947086",
+    "doi": "10.1001/jamaophthalmol.2026.0001",
+    "title": "Effect of the Support, Educate, Empower Personalized Glaucoma Coaching Program on Medication Adherence: The SEE Program Randomized Clinical Trial.",
+    "journal": "JAMA ophthalmology",
+    "publishedOn": "2026-04-01",
+    "abstractLicense": "CC-BY",
+    "abstract": "Importance Medication nonadherence contributes to vision loss from glaucoma, a leading cause of irreversible blindness in the US. Intervention to improve adherence can benefit health outcomes and quality of life, while reducing health system and public health burden. Objective To compare the Support, Educate, Empower (SEE) intervention with standard written education on glaucoma medication adherence. Design, setting, and participants The SEE study was a parallel, nonmasked, 1:1 randomized clinical trial testing intervention superiority. Participants were recruited from the University of Michigan (UM) and Henry Ford Health System (HFHS) between April 27, 2021, and December 18, 2023. Adults with glaucoma taking 1 or more ocular hypotensive eye drop medications who self-reported adherence of 85% or lower were eligible. Intervention The SEE intervention is a 6-month motivational interviewing-based glaucoma health coaching program administered by a nonphysician counselor, including 3 in-person sessions, 4 between-visit phone calls, personalized multimedia glaucoma education, and automated medication reminders. The control consisted of usual care and 3 mailings of standard written glaucoma education. Main outcomes and measures Medication adherence (primary outcome) was electronically monitored (AdhereTech) and calculated as the percentage of doses taken on time divided by those prescribed over the 6-month study period. Change in glaucoma-related distress (secondary outcome) was also investigated. Results Of 236 participants enrolled (108 in UM and 128 in HFHS), 235 (mean [SD] age"
+   },
+   "verifications": [
+    {
+     "attribute": "PEER_REVIEW",
+     "value": "VERIFIED",
+     "method": "PUBMED_RECORD",
+     "evidenceUrl": "https://pubmed.ncbi.nlm.nih.gov/41746659/",
+     "sourceVersion": "epmc-2026-11-26",
+     "note": "PubMed 记录标注同行评审"
+    },
+    {
+     "attribute": "INTEGRITY",
+     "value": "VERIFIED",
+     "method": "PUBMED_RECORD",
+     "evidenceUrl": "https://pubmed.ncbi.nlm.nih.gov/41746659/",
+     "sourceVersion": "epmc-2026-11-26",
+     "note": "未见撤稿或关注声明"
+    },
+    {
+     "attribute": "STUDY_DESIGN",
+     "value": "INTERVENTIONAL",
+     "method": "PUBMED_RECORD",
+     "evidenceUrl": "https://pubmed.ncbi.nlm.nih.gov/41746659/",
+     "sourceVersion": "epmc-2026-11-26",
+     "note": "记录标注随机对照试验"
+    },
+    {
+     "attribute": "CONTENT_SCOPE",
+     "value": "LICENSED_RESULTS",
+     "method": "DOI_LANDING_PAGE",
+     "evidenceUrl": "https://doi.org/10.1001/jamaophthalmol.2026.0001",
+     "sourceVersion": "epmc-2026-11-26",
+     "note": "DOI 落地页确认 CC BY 授权"
+    }
+   ],
+   "scriptedOutput": {
+    "contentType": "RESEARCH_INSIGHT",
+    "sections": {
+     "question": "个性化用药辅导能否改善青光眼患者的药物依从性？",
+     "studyDesign": "平行、非盲、1:1 随机临床试验，在美国两家医疗机构招募受试者。",
+     "findings": "研究比较 SEE 辅导项目与标准书面教育对电子监测用药依从性的影响。",
+     "meaning": "为以行为干预改善青光眼用药依从性提供了随机对照证据。",
+     "limitations": "依从性由电子监测评估，随访期内行为可能受监测本身影响。"
+    },
+    "claims": [
+     {
+      "evidenceId": "abstract",
+      "statement": "公开摘要记录了该项研究的设计与结果。",
+      "quote": "Medication nonadherence contributes to vision loss from glaucoma"
+     }
+    ]
+   }
+  },
+  {
+   "id": "radar-amd-prognostic-models-review",
+   "category": "RESEARCH_RADAR",
+   "expectedRoute": "RESEARCH_RADAR",
+   "material": {
+    "source": "europe-pmc",
+    "sourceRecordId": "42763542",
+    "pmid": "42763542",
+    "pmcid": "PMC13589163",
+    "doi": "10.1155/joph/9231744",
+    "title": "Multivariable Prognostic Models for Age-Related Macular Degeneration: A Systematic Review.",
+    "journal": "Journal of ophthalmology",
+    "publishedOn": "2026-09-18",
+    "abstractLicense": "CC-BY",
+    "abstract": "Background Prognostic prediction models for age-related macular degeneration (AMD) are proliferating, driven by machine learning applied to retinal imaging. Although the methodological limitations of clinical prediction models are well recognized in general, AMD-specific multivariable prognostic models, as distinct from diagnostic or image-classification models, have not been appraised against contemporary prediction-model standards, with integrated assessment of outcome definitions, prediction horizons, calibration, validation design, and risk of bias. Objective To systematically identify and critically appraise multivariable prognostic models predicting progression from non-late to late AMD and to determine whether quantitative synthesis was appropriate, with emphasis on model design, predictors, performance reporting, validation, and risk of bias. Methods We searched PubMed/MEDLINE, and Embase from inception to April 2022, updated to December 2024, for studies developing, validating, or evaluating multivariable prognostic models for progression to late AMD. We extracted study population, outcomes, prediction horizons, predictors, modeling methods, performance measures, and validation approach and assessed risk of bias with PROBAST. Given substantial heterogeneity, findings were synthesized narratively in accordance with a prespecified conditional analysis plan (PROSPERO CRD42022323522). Results Twenty studies were included. Models were derived from a small number of recurring cohorts, notably AREDS and HARBOR, of predominantly European ancestry; this limited population d"
+   },
+   "verifications": [],
+   "scriptedOutput": {
+    "contentType": "RESEARCH_RADAR",
+    "sections": {
+     "introduction": "综述系统评价了进展为晚期年龄相关性黄斑变性的多变量预后模型。",
+     "reasonToWatch": "模型设计、预测因子、性能报告与验证方式异质性较大，作者采用叙述性综合。",
+     "limitations": "仅依据公开摘要，未核验同行评审与研究完整性。"
+    },
+    "claims": [
+     {
+      "evidenceId": "title",
+      "statement": "题录写明该研究的主题。",
+      "quote": "Multivariable Prognostic Models for Age-Related Macular Degeneration"
+     }
+    ]
+   }
+  },
+  {
+   "id": "radar-thyroid-autoimmunity-amd",
+   "category": "RESEARCH_RADAR",
+   "expectedRoute": "RESEARCH_RADAR",
+   "material": {
+    "source": "europe-pmc",
+    "sourceRecordId": "42969572",
+    "pmid": "42969572",
+    "pmcid": "PMC13743821",
+    "doi": "10.1167/tvst.15.11.3",
+    "title": "Association of Thyroid Autoimmunity With Age-Related Macular Degeneration in U.S. Adults.",
+    "journal": "Translational vision science & technology",
+    "publishedOn": "2026-11-01",
+    "abstractLicense": "CC-BY",
+    "abstract": "Purpose To investigate the associations of thyroid autoimmunity, assessed by thyroid peroxidase antibody (TPOAb) and thyroglobulin antibody (TgAb), with prevalent age-related macular degeneration (AMD) in U.S. adults, and to explore whether genetic liabilities to Hashimoto thyroiditis (HT) and Graves' disease (GD) were associated with AMD risk using two-sample Mendelian randomization (MR). Methods This cross-sectional study included 2967 adults aged 40 years or older from the 2007-2008 National Health and Nutrition Examination Survey. Survey-weighted logistic regression models included TPOAb and TgAb positivity simultaneously. Two-sample MR analyses were exploratory. Results Among 2967 participants, 234 had AMD, corresponding to a weighted prevalence of 6.6% (95% confidence interval [CI], 5.6%-7.9%). In the mutually adjusted observational model, TgAb positivity was associated with higher odds of prevalent AMD (odds ratio [OR], 2.02; 95% CI, 1.13-3.61; P = 0.022), whereas TPOAb positivity was not associated with AMD (OR, 0.93; 95% CI, 0.63-1.37; P = 0.676). Exploratory MR analyses suggested a possible association between genetic liability to HT and AMD (OR, 1.14; 95% CI, 1.01-1.29; P = 0.033), whereas evidence for GD was less consistent. Conclusions TgAb positivity was associated with prevalent AMD. The cross-sectional design and the nonidentical exposures assessed in the observational and MR analyses preclude causal inference. Translational relevance Thyroglobulin antibody positivity was associated with prevalent AMD and may reflect a systemic immune phenotype warranting pr"
+   },
+   "verifications": [],
+   "scriptedOutput": {
+    "contentType": "RESEARCH_RADAR",
+    "sections": {
+     "introduction": "横断面研究分析了美国成年人甲状腺自身抗体与年龄相关性黄斑变性的关联。",
+     "reasonToWatch": "甲状腺球蛋白抗体阳性与患病率升高相关，横断面设计不能证明因果。",
+     "limitations": "仅依据公开摘要，未核验同行评审与研究完整性。"
+    },
+    "claims": [
+     {
+      "evidenceId": "title",
+      "statement": "题录写明该研究的主题。",
+      "quote": "Thyroid Autoimmunity"
+     }
+    ]
+   }
+  },
+  {
+   "id": "trial-glaucoma-drainage-device",
+   "category": "TRIAL_WATCH",
+   "expectedRoute": "TRIAL_WATCH",
+   "material": {
+    "source": "clinicaltrials-gov",
+    "sourceRecordId": "NCT05924477",
+    "url": "https://clinicaltrials.gov/study/NCT05924477",
+    "title": "Glaucoma Drainage Device and Endothelial Cell Loss Compare Trial",
+    "publishedOn": null,
+    "trial": {
+     "studyType": "INTERVENTIONAL",
+     "overallStatus": "RECRUITING",
+     "phases": [],
+     "conditions": [
+      "Glaucoma"
+     ]
+    },
+    "registryRefreshedOn": "3 August 2026"
+   },
+   "verifications": [],
+   "scriptedOutput": {
+    "contentType": "TRIAL_WATCH",
+    "sections": {
+     "status": "RECRUITING",
+     "studyDesign": "INTERVENTIONAL",
+     "limitations": "TRIAL_REGISTRY_ONLY",
+     "phases": [],
+     "changes": [
+      "INITIAL"
+     ]
+    },
+    "claims": [
+     {
+      "evidenceId": "trial",
+      "statement": "RECRUITING",
+      "quote": "RECRUITING"
+     }
+    ]
+   }
+  },
+  {
+   "id": "trial-brolucizumab-phase3",
+   "category": "TRIAL_WATCH",
+   "expectedRoute": "TRIAL_WATCH",
+   "material": {
+    "source": "clinicaltrials-gov",
+    "sourceRecordId": "NCT03917472",
+    "url": "https://clinicaltrials.gov/show/NCT03917472",
+    "title": "Efficacy and Safety of Brolucizumab vs Aflibercept in Patients With Visual Impairment Due to Diabetic Macular Edema",
+    "publishedOn": null,
+    "trial": {
+     "studyType": "INTERVENTIONAL",
+     "overallStatus": "COMPLETED",
+     "phases": [
+      "PHASE3"
+     ],
+     "conditions": []
+    },
+    "registryRefreshedOn": "22 August 2022"
+   },
+   "verifications": [],
+   "scriptedOutput": {
+    "contentType": "TRIAL_WATCH",
+    "sections": {
+     "status": "COMPLETED",
+     "studyDesign": "INTERVENTIONAL",
+     "limitations": "TRIAL_REGISTRY_ONLY",
+     "phases": [
+      "PHASE3"
+     ],
+     "changes": [
+      "INITIAL"
+     ]
+    },
+    "claims": [
+     {
+      "evidenceId": "trial",
+      "statement": "COMPLETED",
+      "quote": "COMPLETED"
+     }
+    ]
+   }
+  },
+  {
+   "id": "retracted-plos-one-rta408",
+   "category": "RETRACTED",
+   "expectedRoute": "SKIP",
+   "material": {
+    "source": "europe-pmc",
+    "sourceRecordId": "39527591",
+    "pmid": "39527591",
+    "pmcid": "PMC11554135",
+    "doi": "10.1371/journal.pone.0313446",
+    "title": "RTA408 alleviates retinal ganglion cells damage in mouse glaucoma by inhibiting excessive autophagy.",
+    "journal": "PloS one",
+    "publishedOn": "2024-11-11",
+    "abstractLicense": "CC-BY",
+    "abstract": "Background Glaucoma, characterized by a high incidence and significant ocular harm, has been elucidated through various mechanisms. Excessive autophagy leading to the loss of retinal ganglion cells (RGCs) is suggested as one potential cause for visual impairment in glaucoma. Methods A glaucoma model was established through anterior chamber injection of silicone oil in mice. RTA408 and the positive control tafluprost were administered for intervention. The efficacy was preliminarily assessed by intraocular pressure measurement. HE staining and fluorescent staining were used to assess RGC loss, while fluorescent staining and western blot were employed to evaluate the expression of Nrf2. The role of autophagy in the pathogenesis of glaucoma was investigated by artificially modulating autophagy levels. Results In glaucomatous mice, RTA408 significantly reduces the apoptosis levels of RGCs and decreases RGC loss. Further investigations reveal a notable upregulation of autophagy levels in glaucomatous mice, with RGC loss being associated with autophagy. RTA408 promotes the expression of Nrf2 and downstream antioxidant molecules, enhancing the antioxidant system while downregulating mitochondrial autophagy levels. This reduces RGC apoptosis and loss, demonstrating a protective effect against glaucoma. Conclusion Autophagy mediates the occurrence of glaucoma in mice, promoting RGC apoptosis. RTA408 alleviates RGCs damage by inhibiting excessive autophagy in the context of glaucoma."
+   },
+   "verifications": [
+    {
+     "attribute": "INTEGRITY",
+     "value": "RETRACTED",
+     "method": "RETRACTION_NOTICE",
+     "evidenceUrl": "https://pubmed.ncbi.nlm.nih.gov/39527591/",
+     "sourceVersion": "epmc-2026-11-26",
+     "note": "PubMed 记录标注 Retracted Publication"
+    }
+   ],
+   "scriptedOutput": null
+  },
+  {
+   "id": "metadata-only-statpearls-nvg",
+   "category": "METADATA_ONLY",
+   "expectedRoute": "RESEARCH_RADAR",
+   "material": {
+    "source": "pubmed",
+    "sourceRecordId": "35015418",
+    "pmid": "35015418",
+    "pmcid": null,
+    "doi": null,
+    "title": "Neovascular Glaucoma",
+    "journal": null,
+    "publishedOn": "2026-11-02",
+    "abstractLicense": null,
+    "abstract": "Neovascular glaucoma (NVG) is characterized as a secondary glaucoma in which new vessels develop on the iris and angle of the anterior chamber. A poor visual prognosis is usually associated with the condition. Anterior segment neovascularization is caused by posterior segment ischemia resulting from several ophthalmic and systemic etiologies. Contemporary reviews emphasize that anterior segment neovascularization represents the end result of a sustained angiogenic stimulus arising from a hypoxic posterior segment rather than a primary disorder of the trabecular meshwork. The nomenclature, staging, and therapeutic hierarchy of the condition have been consolidated in recent narrative syntheses addressing its etiopathogenesis and treatment. The most common etiologies are represented by central retinal vein occlusion (CRVO), proliferative diabetic retinopathy (PDR), and carotid artery occlusive disease (ocular ischemic syndrome [OIS]). In 1906, new vessels over the iris (rubeosis iridis) were described by Coats in a patient with CRVO. Following the formation of new vessels in the anterior segment of the eye, an increase in intraocular pressure, and connective tissue growth, the term NVG was coined by Weiss et al. Hemorrhagic glaucoma, thrombotic glaucoma, and congestive glaucoma have also been used as synonyms for NVG. Refractoriness to treatment is commonly observed in NVG, and significant visual morbidity is associated with the condition. An increasing number of NVG cases have been reported, possibly because of the rising prevalence of diabetes and other noncommunicable disea"
+   },
+   "verifications": [],
+   "scriptedOutput": {
+    "contentType": "RESEARCH_RADAR",
+    "sections": {
+     "introduction": "综述介绍新生血管性青光眼的分期与治疗层级。",
+     "reasonToWatch": "该主题与眼科临床相关，但资料未声明开放授权。",
+     "limitations": "仅有题录，无授权摘要可用。"
+    },
+    "claims": [
+     {
+      "evidenceId": "title",
+      "statement": "题录主题为新生血管性青光眼。",
+      "quote": "Neovascular Glaucoma"
+     }
+    ]
+   }
+  },
+  {
+   "id": "not-relevant-aromatherapy-trial",
+   "category": "NOT_RELEVANT",
+   "expectedRoute": "TRIAL_WATCH",
+   "material": {
+    "source": "clinicaltrials-gov",
+    "sourceRecordId": "NCT04800744",
+    "url": "https://clinicaltrials.gov/study/NCT04800744",
+    "title": "Aromatherapy for Improving Post-Surgical Quality of Life",
+    "publishedOn": null,
+    "trial": {
+     "studyType": "INTERVENTIONAL",
+     "overallStatus": "COMPLETED",
+     "phases": [],
+     "conditions": [
+      "Anxiety Postoperative",
+      "Quality of Life"
+     ]
+    },
+    "registryRefreshedOn": "9 November 2026"
+   },
+   "verifications": [],
+   "scriptedOutput": null
+  }
+ ]
+}

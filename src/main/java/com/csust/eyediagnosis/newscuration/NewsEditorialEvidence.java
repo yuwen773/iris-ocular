@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.util.Objects;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -31,6 +32,52 @@ public record NewsEditorialEvidence(String source, StudyDesign studyDesign, Peer
             "APPROVED_FOR_MARKETING", "WITHHELD");
 
     static NewsEditorialEvidence from(NewsCurationModels.EvidenceSnapshot snapshot, ObjectMapper mapper) {
+        return from(snapshot, mapper, null);
+    }
+
+    /**
+     * Derives the snapshot's own editorial facts, then merges the reviewer-verified overlay.
+     *
+     * <p>The overlay can only supply attributes a human recorded with a source URL, method and version
+     * (see {@link NewsEvidenceLedger}); the routing gates below are unchanged, so verification alone never
+     * bypasses them. An overlay for a different material revision is refused outright.</p>
+     */
+    static NewsEditorialEvidence from(NewsCurationModels.EvidenceSnapshot snapshot, ObjectMapper mapper,
+                                      NewsEvidenceLedger.Overlay overlay) {
+        NewsEditorialEvidence base = derive(snapshot, mapper);
+        if (overlay == null || overlay.isEmpty()) {
+            return base;
+        }
+        if (overlay.materialRevisionId() != snapshot.materialRevisionId()) {
+            throw new IllegalArgumentException("EVIDENCE_OVERLAY_REVISION_MISMATCH");
+        }
+        Map<NewsEvidenceLedger.Attribute, NewsEvidenceLedger.Active> verified = overlay.byAttribute();
+        PeerReview peerReview = verified.containsKey(NewsEvidenceLedger.Attribute.PEER_REVIEW)
+                ? PeerReview.valueOf(verified.get(NewsEvidenceLedger.Attribute.PEER_REVIEW).value())
+                : base.peerReview();
+        Integrity integrity = verified.containsKey(NewsEvidenceLedger.Attribute.INTEGRITY)
+                ? Integrity.valueOf(verified.get(NewsEvidenceLedger.Attribute.INTEGRITY).value())
+                : base.integrity();
+        StudyDesign studyDesign = verified.containsKey(NewsEvidenceLedger.Attribute.STUDY_DESIGN)
+                ? StudyDesign.valueOf(verified.get(NewsEvidenceLedger.Attribute.STUDY_DESIGN).value())
+                : base.studyDesign();
+        ContentScope contentScope = base.contentScope();
+        if (verified.containsKey(NewsEvidenceLedger.Attribute.CONTENT_SCOPE)) {
+            ContentScope verifiedScope = ContentScope.valueOf(
+                    verified.get(NewsEvidenceLedger.Attribute.CONTENT_SCOPE).value());
+            // Verified full-text results still require a licensed, non-blank abstract to quote from.
+            if (verifiedScope == ContentScope.LICENSED_RESULTS
+                    && (base.license() == License.UNKNOWN || snapshot.abstractText() == null
+                    || snapshot.abstractText().isBlank())) {
+                throw new IllegalArgumentException("EVIDENCE_LICENSE_UNKNOWN");
+            }
+            contentScope = verifiedScope;
+        }
+        return new NewsEditorialEvidence(base.source(), studyDesign, peerReview, contentScope,
+                base.license(), integrity, base.trial());
+    }
+
+    private static NewsEditorialEvidence derive(NewsCurationModels.EvidenceSnapshot snapshot, ObjectMapper mapper) {
         License license = switch (Objects.toString(snapshot.abstractLicense(), "")) {
             case "CC0" -> License.CC0;
             case "CC-BY" -> License.CC_BY;

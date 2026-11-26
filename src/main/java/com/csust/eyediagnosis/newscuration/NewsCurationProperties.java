@@ -26,6 +26,15 @@ public class NewsCurationProperties {
     private int dailyMaxCalls = 100;
     private long dailyMaxTokens = 500_000L;
     private long dailyMaxCostMicros = 5_000_000L;
+    /**
+     * Whole-experiment ceiling. Unlike the daily knobs these are counted across every UTC date, every budget
+     * scope and every process restart: a value of 0 means "no lifetime cap" for that dimension, and the first
+     * non-zero value ever written to {@code t_news_curation_lifetime_budget} can only be tightened, never
+     * removed by editing configuration later.
+     */
+    private int lifetimeMaxCalls = 0;
+    private long lifetimeMaxTokens = 0L;
+    private long lifetimeMaxCostMicros = 0L;
     private long estimatedTokensPerCall = 4_000L;
     private long estimatedCostMicrosPerCall = 50_000L;
     private int maxResponseChars = 16_000;

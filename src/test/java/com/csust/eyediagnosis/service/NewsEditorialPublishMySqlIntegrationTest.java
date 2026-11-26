@@ -158,6 +158,8 @@ class NewsEditorialPublishMySqlIntegrationTest {
         jdbc.execute("DELETE FROM t_news");
         jdbc.execute("DELETE FROM t_news_cache_epoch");
         jdbc.execute("INSERT INTO t_news_cache_epoch (scope, epoch) VALUES ('news_list', 0)");
+        jdbc.execute("DELETE FROM t_news_curation_candidate_event");
+        jdbc.execute("DELETE FROM t_news_curation_lifetime_budget");
         jdbc.execute("DELETE FROM t_news_curation_candidate");
         jdbc.execute("DELETE FROM t_news_model_call_receipt");
         jdbc.execute("DELETE FROM t_news_curation_budget");

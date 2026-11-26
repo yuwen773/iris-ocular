@@ -32,6 +32,11 @@ public final class NewsCurationModels {
         CURATED_NEEDS_REVIEW,
         CURATED_REJECTED,
         REJECTED_EVIDENCE_VIOLATION,
+        /**
+         * Replaced by an explicitly named newer candidate. The row, its frozen snapshot and its claims are
+         * never rewritten; only the status and the supersede pointers move, and the move is event-logged.
+         */
+        SUPERSEDED,
         NEEDS_RECONCILIATION
     }
 
@@ -237,6 +242,27 @@ public final class NewsCurationModels {
     }
 
     public record StaleReclaimResult(int abortedPreIoCount, int markedUnknownCount) {
+    }
+
+    /**
+     * Whole-experiment ceiling: counts every receipt for the curation pipeline regardless of UTC date,
+     * budget scope or process restart. A {@code null} snapshot means no lifetime row exists yet.
+     */
+    public record LifetimeBudget(
+            int maxCalls,
+            long maxTokens,
+            long maxCostMicros,
+            int usedCalls,
+            long usedTokens,
+            long usedCostMicros,
+            String note
+    ) {
+        public boolean exhaustedBy(long nextTokens, long nextCostMicros) {
+            boolean calls = maxCalls > 0 && usedCalls + 1 > maxCalls;
+            boolean tokens = maxTokens > 0 && usedTokens + nextTokens > maxTokens;
+            boolean cost = maxCostMicros > 0 && usedCostMicros + nextCostMicros > maxCostMicros;
+            return calls || tokens || cost;
+        }
     }
 
     public record NewsBenchCaseResult(

@@ -213,4 +213,50 @@ public class NewsWorkbenchController {
             @RequestParam(value = "limit", defaultValue = "20") int limit) {
         return ResultUtils.success(workbenchService.listBenchRuns(limit));
     }
+
+    // ---- WP-08B.2：证据核验账本与候选转换 ----
+
+    @GetMapping("/materials/{materialRevisionId}/evidence-verifications")
+    @AuthCheck(mustRole = AuthConstant.ADMIN_ROLE)
+    @Operation(summary = "查看资料修订的人工证据核验历史")
+    public ResponseEntity<BaseResponse<List<NewsWorkbenchModels.EvidenceVerificationVO>>> listEvidenceVerifications(
+            @PathVariable("materialRevisionId") long materialRevisionId) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(ResultUtils.success(workbenchService.listEvidenceVerifications(materialRevisionId)));
+    }
+
+    @PostMapping("/materials/{materialRevisionId}/evidence-verifications")
+    @AuthCheck(mustRole = AuthConstant.ADMIN_ROLE)
+    @Operation(summary = "登记人工证据核验（同行评审 / 完整性 / 研究设计 / 授权全文范围）")
+    public BaseResponse<NewsWorkbenchModels.EvidenceVerificationVO> verifyEvidence(
+            @PathVariable("materialRevisionId") long materialRevisionId,
+            @RequestBody(required = false) NewsWorkbenchModels.SubmitEvidenceVerificationRequest body,
+            HttpServletRequest request) {
+        User operator = userService.getLoginUser(request);
+        return ResultUtils.success(workbenchService.verifyEvidence(materialRevisionId, body, operator));
+    }
+
+    @PostMapping("/evidence-verifications/{verificationId}/revoke")
+    @AuthCheck(mustRole = AuthConstant.ADMIN_ROLE)
+    @Operation(summary = "撤回一条证据核验（保留历史，依赖它的候选需重新核验）")
+    public BaseResponse<NewsWorkbenchModels.EvidenceVerificationVO> revokeEvidence(
+            @PathVariable("verificationId") long verificationId,
+            @RequestBody(required = false) NewsWorkbenchModels.RevokeEvidenceVerificationRequest body,
+            HttpServletRequest request) {
+        User operator = userService.getLoginUser(request);
+        return ResultUtils.success(workbenchService.revokeEvidence(verificationId, body, operator));
+    }
+
+    @PostMapping("/receipts/{callId}/materialize")
+    @AuthCheck(mustRole = AuthConstant.ADMIN_ROLE)
+    @Operation(summary = "把冻结的生产联合精选回执转成待人工审核候选（幂等；可显式替代一条失效旧候选）")
+    public BaseResponse<NewsWorkbenchModels.MaterializedCandidateVO> materializeCandidate(
+            @PathVariable("callId") String callId,
+            @RequestBody(required = false) NewsWorkbenchModels.MaterializeCandidateRequest body,
+            HttpServletRequest request) {
+        User operator = userService.getLoginUser(request);
+        return ResultUtils.success(workbenchService.materializeCandidate(callId, operator,
+                body == null ? null : body.supersedesCandidateId(),
+                body == null ? null : body.reason()));
+    }
 }
