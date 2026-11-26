@@ -1,0 +1,40 @@
+[project]
+name = "iris-news-worker"
+version = "0.1.0"
+description = "Bounded collection worker for Iris News Engine"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "defusedxml>=0.7.1,<1",
+    "httpx>=0.28,<0.29",
+    "pydantic>=2.12,<3",
+    "tenacity>=9,<10",
+]
+
+[project.scripts]
+iris-news-worker = "iris_news_worker.cli:main"
+
+[dependency-groups]
+dev = [
+    "jsonschema[format]>=4.23,<5",
+    "pytest>=8.3,<10",
+    "pytest-asyncio>=0.26,<2",
+    "respx>=0.22,<1",
+    "ruff>=0.11,<1",
+]
+
+[build-system]
+requires = ["hatchling==1.29.0"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "UP"]
+
+[tool.pytest.ini_options]
+addopts = "--strict-config --strict-markers"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]

@@ -1,10 +1,11 @@
 package com.csust.eyediagnosis.config;
 
-import jakarta.servlet.FilterChain;
-import jakarta.servlet.ServletException;
 import com.csust.eyediagnosis.constant.MiniAppConstant;
 import com.csust.eyediagnosis.miniapp.MiniAppPaths;
+import com.csust.eyediagnosis.newsingestion.NewsWorkerAuthFilter;
 import com.csust.eyediagnosis.security.SecurityEventSink;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
@@ -100,6 +101,11 @@ public class SameOriginFilter extends OncePerRequestFilter {
             if (!allowsStrictOrigin(request, response)) {
                 return;
             }
+            chain.doFilter(request, response);
+            return;
+        }
+        // 内部 News Worker 机器通道：仅在 NewsWorkerAuthFilter 已验证机器凭据并拦截 Cookie/Bearer 后豁免 Origin。
+        if (NewsWorkerAuthFilter.isAuthenticatedWorkerRequest(request)) {
             chain.doFilter(request, response);
             return;
         }

@@ -47,8 +47,12 @@ CI 的 MySQL 作业使用 `mysql:8.0` / `mysql:8.0.36`，`scripts/verify.sh` 与
 | V37 | 无 | 无 | `V37__control_center_publish_approval.sql`（发布审批：新增 `t_config_publish_request`，把「申请时的草稿 revision + 载荷摘要 + 验证摘要 + 期望活跃版本」钉死；唯一键 `(actorId, requestId)`；不改动任何既有表，不建外键） |
 | V38 | 无 | 无 | `V38__user_feedback.sql`（新增 `t_user_feedback`：用户反馈的正文、分类、关联对象、状态机、回复与私有截图 key；不改动任何既有表） |
 | V39 | 无 | 无 | `V39__user_notification.sql`（新增 `t_user_notification`：站内通知的类型、发送时定稿的文案、关联指针与已读时间；不改动任何既有表） |
+| V40 | 无 | 无 | `V40__news_ingestion_pool.sql`（WP-02 新增资讯采集调度与资料池 9 张新表：`t_news_source`、`t_news_source_cursor`、`t_news_collection_task`、`t_news_collection_lease`、`t_news_collection_batch`、`t_news_batch_item`、`t_news_worker_receipt`、`t_news_material`、`t_news_material_revision`；不改动任何既有表） |
+| V41 | 无 | 无 | `V41__news_curation_and_receipts.sql`（WP-03 新增资讯精选与付费调用台账 4 张新表：`t_news_curation_budget`、`t_news_model_call_receipt`、`t_news_curation_candidate`、`t_news_bench_run`；不改动任何既有表） |
+| V42 | 无 | 无 | `V42__news_editorial_publish_and_revisions.sql`（WP-04 为 `t_news` 追加可空/带默认值的证据绑定与修订序号列 `curationCandidateId`、`materialRevisionId`、`evidenceSnapshotSha256`、`currentRevisionNo`、`publishedRevisionNo`，并新增不可变修订表 `t_news_revision` 与持久缓存纪元表 `t_news_cache_epoch`） |
+| V43 | 无 | 无 | `V43__news_collection_task_event.sql`（WP-07G 新增采集窗口任务的操作审计表 `t_news_collection_task_event`：记录 `action`、`fromStatus`、`toStatus`、操作者与备注；不改动任何既有表） |
 
-整合后的唯一链为 **V1–V9 + V15–V27**，其后追加 **V28、V29、V30、V31、V32、V33、V34、V35、V36、V37**，本分支再追加 **V38、V39**。目录里不再存在同号迁移。
+整合链为 **V1–V9 + V15–V43**。当前 master 为 V39，本分支追加 V40–V43。
 V28 只新增 `t_agent_tool_audit`，不修改此前任何已应用脚本；该表独立于 `t_agent_message`，
 不存原始工具参数、Prompt 或患者文本。V29 只给既有表加一列可空列，不改写任何既有行；
 历史行的 `indexVersion` 为 NULL，**在按版本准入的检索里等于「不能证明处理完整」**，
@@ -100,7 +104,7 @@ V38、V39 同样只新增表（`t_user_feedback`、`t_user_notification`），�
 | V35 | 小程序后端微信绑定（PR #160，`V35__miniapp_wechat_binding.sql`） | 已合入 master |
 | V36 / V37 | 配置中心核心五表 + 发布审批单（PR #164） | 已合入 master |
 | V38 / V39 | 用户反馈 + 站内通知（本分支，PR #166） | 本分支 |
-| V40+ | 新闻摄取与回执（无 PR，在途开发；原计划的 V39–V41 必须整体让号） | 在途 |
+| V40+ | 新闻摄取与回执（PR #168，V40–V42 已提交，WP-07G 再追加 V43） | 在途 |
 
 V32–V34 已随 PR #156 合入 master。V35 最早被反馈分支占用（当时叫
 `V35__user_feedback.sql`），随后让给小程序分支；配置中心也让开 V35 后取 V36/V37，
@@ -112,7 +116,8 @@ V32–V34 已随 PR #156 合入 master。V35 最早被反馈分支占用（当�
   不能靠打开 out-of-order 掩盖。若某个库已经越过顺序，**重建库**。
 - **新闻线还没开 PR，它开 PR 前必须把 V39–V41 整体后移到 V40–V42**（它的 V39 与本分支的
   V39 同号，同号两脚本会让 Flyway 启动失败）。按「谁先合谁保留」，本分支已进入评审、
-  新闻线仍在开发，故由新闻线让号。
+  新闻线仍在开发，故由新闻线让号。新闻线随后开了 PR #168，并在 WP-07G 追加 V43，
+  实际占用 **V40–V43**。
 - 重编号成本很低：改文件名 + `FlywayMySqlIntegrationTest` 里的版本与迁移数断言，
   脚本内容不含自身版本号（本分支已按此从 V35 改到 V37，再改到 V38/V39，演练过两次）。
 
@@ -120,10 +125,12 @@ V32–V34 已随 PR #156 合入 master。V35 最早被反馈分支占用（当�
 
 | 目标库状态 | 识别方式 | 动作 |
 | --- | --- | --- |
-| 空库 | 无 `flyway_schema_history` | 正常启动，Flyway 顺序执行 V1–V9、V15–V39；等价于 `FlywayMySqlIntegrationTest#migratesAnEmptyMySqlDatabaseThroughTheCurrentSafetySchema` |
-| master 生产/主线库 | history 最高版本 V17，V15–V17 checksum 与 master 一致 | 直接启动，追加执行 V18–V39；V15 的 `CREATE TABLE IF NOT EXISTS` 不会改动既有 `t_user`；等价于 `#preservesExistingAccountsWhenUpgradingFromMasterV17` |
+| 空库 | 无 `flyway_schema_history` | 正常启动，Flyway 顺序执行 V1–V9、V15–V43；等价于 `FlywayMySqlIntegrationTest#migratesAnEmptyMySqlDatabaseThroughTheCurrentSafetySchema` |
+| master 生产/主线库 | history 最高版本 V17，V15–V17 checksum 与 master 一致 | 直接启动，追加执行 V18–V43；V15 的 `CREATE TABLE IF NOT EXISTS` 不会改动既有 `t_user`；等价于 `#preservesExistingAccountsWhenUpgradingFromMasterV17` |
 | Java 线旧开发库 | history 含 V10–V20，且 V10–V14 的 checksum 对应原脚本 | **重建**。这些库不在生产序列；旧文件已从 `db/migration` 移出，Flyway 会把 V10–V14 判为 missing。不要用 `repair`/`ignoreMigrationPatterns` 掩盖，按 `db/migration` 全量重建后再灌测试数据 |
-| 迁移中途库 | history 最高版本在 V18–V39 之间且校验和一致 | 直接启动续跑；Flyway 只执行缺失的高版本 |
+| 当前 master 存量库 | history 到 V39，且 V39 为站内通知 | 只执行资讯引擎 V40–V43 |
+| 旧资讯开发库 | history 使用资讯采集 V39、精选 V40、审核 V41 | 与正式链同号异义，隔离测试库重建。若有须保留的数据，先单独设计导出和迁移 |
+| 迁移中途库 | history 最高版本在 V18–V43 之间且校验和一致 | 直接启动续跑；Flyway 只执行缺失的高版本 |
 | `flyway_schema_history` 校验和不一致 | `Validate failed: checksum mismatch` | 停止发布，先比对实际脚本与 history；不得修改已应用脚本或删除 history 强行通过 |
 
 `spring.flyway.out-of-order` 必须保持 `false`。本整合方案不依赖 out-of-order，也不允许把它当作跳过版本缺口的开关。
@@ -135,7 +142,7 @@ V32–V34 已随 PR #156 合入 master。V35 最早被反馈分支占用（当�
 
 | 库的 history | 更旧的 jar（只认到 V17）能否直接启动 | 依据 |
 | --- | --- | --- |
-| 升到 V39 之后（master V17 线上来的） | **能启动**。V18–V39 对它记为 `FUTURE_SUCCESS`，Flyway 默认 `ignoreMigrationPatterns=*:future` 放行，迁移数 0；对既有表只有 V22 加的一列可空 `patientTaskId`、V29 的一列可空 `indexVersion`、V30 的三列可空版本字段、V32 的两列可空候选版本字段、V33 的一列可空 `restrictReason`、V34 的六列可空证据字段，以及 V31 的 `t_diagnosis_run`、V35 的 `t_user_wechat`、V36 的配置中心五表（空表）、V37 的审批单表（空表）、V38 的 `t_user_feedback`、V39 的 `t_user_notification` 等新表 | `#oldMigrationSetAcceptsFutureVersionsWithoutCertifyingArtifactSafety` |
+| 升到 V43 之后（master V17 线上来的） | **能启动**。V18–V43 对它记为 `FUTURE_SUCCESS`，Flyway 默认 `ignoreMigrationPatterns=*:future` 放行，迁移数 0；对既有表只有 V22 加的一列可空 `patientTaskId`、V29 的一列可空 `indexVersion`、V30 的三列可空版本字段、V32 的两列可空候选版本字段、V33 的一列可空 `restrictReason`、V34 的六列可空证据字段，以及 V31 的 `t_diagnosis_run`、V35 的 `t_user_wechat`、V36 的配置中心五表（空表）、V37 的审批单表（空表）、V38 的 `t_user_feedback`、V39 的 `t_user_notification` 及 V40/V41 的资讯资料池与精选表等新表，V42 追加资讯可空列、带默认值的修订号和新表 | `#oldMigrationSetAcceptsFutureVersionsWithoutCertifyingArtifactSafety` |
 | history 里含本 jar 解析不了、且低于其已知最高版本的版本（如旧 release 线 V10–V14） | **不能**。Flyway 判 missing 并拒绝启动 | `#aJarRejectsAHistoryThatContainsVersionsItDoesNotResolve` |
 
 > 该用例的名字是刻意写成的：它只证明**迁移解析**对 future 版本放行，
@@ -175,14 +182,14 @@ JAVA_HOME=/c/Users/yuwen/.jdks/corretto-21.0.7 \
 mvn -o -B -Dtest=FlywayMySqlIntegrationTest test
 ```
 
-六个用例分别覆盖：master V17 → V39、空库 → V39、V23 → V24 历史行标注不改写冻结消息、V31 → V39 升级（V32–V39 八条建在已落到 V31 的库上）。
+正向覆盖 master V17 → V43、空库 → V43、V23 → V24 冻结历史行、V31 → V43 和当前 master V39 → V43。
 另有两个回滚方向用例（旧迁移集合能否接受 future 版本、history 含无法解析版本时是否拒绝启动，见 §2.1）。
 测试会为每次运行创建并删除独立 schema，不触碰现有库。
 
 ## 5. 约束
 
 - 已应用迁移的内容不得修改；只能追加更高版本。
-- 新迁移必须大于 V39；跨分支编号协调见 §1.1。
+- 新迁移必须大于 V43；跨分支编号协调见 §1.1。
 - 不得删除或手工编辑 `flyway_schema_history` 来绕过冲突。
 - **改过迁移文件名后必须 `mvn clean` 再跑门禁。** Maven 的 resources 插件只复制、不清除，
   `target/classes/db/migration/` 会留下改名前的旧脚本（例如改名前的

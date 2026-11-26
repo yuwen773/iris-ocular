@@ -69,6 +69,7 @@ git show <commit>:<path> > <file>
 | `patient-authorization.md` / `patient-authorization-clinical-semantics.md` | 患者授权与临床语义 |
 | `patient-explanation.md` / `patient-follow-up.md` | 分层解释与随访 |
 | `controlled-references.md` | 受控参考资料的治理与检索 |
+| `product/news/implementation.md` | 资讯采集 Worker 的实施边界及后续 Java 集成门槛 |
 | `collaboration-runs.md` / `collaboration-client.md` / `collaboration-release-runbook.md` | 多 Agent 协作运行的协议、客户端与发布手册 |
 | `graph-execution.md` / `subagent-delegation.md` | 图执行与子代理委派 |
 | `system-states-inventory.md` / `system-states-governance-report.md` | 状态清单与治理结论 |

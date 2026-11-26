@@ -66,13 +66,17 @@ class SurefireSkipGateTest(unittest.TestCase):
         self.write(P + "patientexplanation.PatientExplanationApiTest", cases=37, skipped=37)
         self.write(P + "patientauthorization.PatientAuthorizationApiTest", cases=37, skipped=37)
         self.write(P + "patientfollowup.PatientFollowUpApiTest", cases=37, skipped=37)
-        self.write(P + "migration.FlywayMySqlIntegrationTest", cases=6, skipped=6)
+        self.write(P + "migration.FlywayMySqlIntegrationTest", cases=7, skipped=7)
         self.write(P + "agent.service.ToolAuditMySqlIntegrationTest", cases=1, skipped=1)
         self.write(P + "agent.service.ToolTerminalPersistenceMySqlIntegrationTest", cases=1, skipped=1)
         self.write(P + "poc.CoordinationMySqlTest", cases=14, skipped=14)
         self.write(P + "upload.state.UploadTaskMapperMySqlIntegrationTest", cases=3, skipped=3)
         self.write(P + "service.DiagnosisRunMySqlIntegrationTest", cases=8, skipped=8)
         self.write(P + "integration.AdminAnalyticsMySqlIntegrationTest", cases=1, skipped=1)
+        self.write(P + "newsingestion.NewsIngestionMySqlIntegrationTest", cases=13, skipped=13)
+        self.write(P + "newscuration.NewsCurationMySqlIntegrationTest", cases=10, skipped=10)
+        self.write(P + "service.NewsEditorialPublishMySqlIntegrationTest", cases=8, skipped=8)
+        self.write(P + "newsworkbench.NewsWorkbenchMySqlIntegrationTest", cases=10, skipped=10)
         self.write(P + "diagnosistask.CosDiagnosisTaskStorageTest", cases=1)
 
     def test_backend_unit_contract_passes_on_real_skip_shape(self):
@@ -177,19 +181,23 @@ class SurefireSkipGateTest(unittest.TestCase):
 
     def test_flyway_contract_requires_full_runs(self):
         P = "com.csust.eyediagnosis."
-        self.write(P + "migration.FlywayMySqlIntegrationTest", cases=6)
+        self.write(P + "migration.FlywayMySqlIntegrationTest", cases=7)
         self.write(P + "upload.state.UploadTaskMapperMySqlIntegrationTest", cases=3)
         self.write(P + "agent.service.ToolAuditMySqlIntegrationTest", cases=1)
         self.write(P + "agent.service.ToolTerminalPersistenceMySqlIntegrationTest", cases=1)
         self.write(P + "service.DiagnosisRunMySqlIntegrationTest", cases=8)
         self.write(P + "integration.AdminAnalyticsMySqlIntegrationTest", cases=1)
+        self.write(P + "newsingestion.NewsIngestionMySqlIntegrationTest", cases=13)
+        self.write(P + "newscuration.NewsCurationMySqlIntegrationTest", cases=10)
+        self.write(P + "service.NewsEditorialPublishMySqlIntegrationTest", cases=8)
+        self.write(P + "newsworkbench.NewsWorkbenchMySqlIntegrationTest", cases=10)
         self.assertEqual(0, self.verdict(CONTRACTS["flyway"]))
 
-        self.write(P + "migration.FlywayMySqlIntegrationTest", cases=6, skipped=1)
+        self.write(P + "migration.FlywayMySqlIntegrationTest", cases=7, skipped=1)
         self.assertEqual(1, self.verdict(CONTRACTS["flyway"]))
 
         # 新增契约必须在被跳过时真的拦下来，而不是只作为一份“已登记”清单。
-        self.write(P + "migration.FlywayMySqlIntegrationTest", cases=6)
+        self.write(P + "migration.FlywayMySqlIntegrationTest", cases=7)
         self.write(P + "integration.AdminAnalyticsMySqlIntegrationTest", cases=1, skipped=1)
         self.assertEqual(1, self.verdict(CONTRACTS["flyway"]))
 

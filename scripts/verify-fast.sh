@@ -224,9 +224,10 @@ start_db() {
   done
   [[ $ready -eq 1 ]] || { echo "MySQL 未就绪" >&2; return 1; }
 
-  # 集成用例用 root 建库/查 information_schema；eyeuser 供 Spring 数据源使用
+  # 集成用例用 root 建库/查 information_schema；eyeuser 供 Spring 数据源使用；
+  # log_bin_trust_function_creators=1 供触发器故障注入（回滚原子性）验证使用。
   docker exec "$MYSQL_CID" mysql -uroot -proot-password \
-    -e "GRANT ALL PRIVILEGES ON *.* TO 'eyeuser'@'%'; FLUSH PRIVILEGES;" >/dev/null 2>&1
+    -e "GRANT ALL PRIVILEGES ON *.* TO 'eyeuser'@'%'; FLUSH PRIVILEGES; SET GLOBAL log_bin_trust_function_creators=1;" >/dev/null 2>&1
 
   # Spring 上下文测试要一个活着的 Chroma。:8000 上已经有（docker-compose 起的）就复用，
   # 没有才起一个——不重复占端口，也不去删别人起的服务。

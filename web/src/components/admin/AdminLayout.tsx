@@ -97,8 +97,10 @@ export function AdminLayout(): ReactElement {
     refetchInterval: 60_000,
   })
 
-  // 面包屑取当前路由，不写死页名：新增管理路由自动跟上。
-  const current = ADMIN_NAV.find((item) => location.pathname.startsWith(item.to))
+  // 面包屑按完整路径段匹配（避免 /admin/news 误命中 /admin/news-workbench）。
+  const current = ADMIN_NAV.find(
+    (item) => location.pathname === item.to || location.pathname.startsWith(`${item.to}/`),
+  )
   const currentLabel = current?.label ?? "系统管理"
 
   return (

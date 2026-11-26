@@ -12,6 +12,19 @@
 | 健康资讯（News） | 面向患者的文章；发布生命周期状态共用一个 `status` 列，不另设审核状态列 | `model/entity/News.java` |
 | 发布生命周期 | 0 草稿 → 3 待审核 / 1 已发布 / 2 下架；合法迁移见 `NewsLifecycleService` | `constant/NewsStatus.java` |
 | 资讯审计（NewsAudit） | 状态与内容变更留痕，payload 只记字段级 diff，不含富文本正文 | `model/entity/NewsAudit.java` |
+| 资讯原始资料（News Material） | 从指定信源采集的原始记录，同一信源内以稳定标识关联不可变内容修订 | `contracts/news/` / `newsingestion/` |
+| 资讯资料修订（News Material Revision） | 同一 `(source, sourceRecordId)` 在某个 `contentDigest` 下冻结的不可变原始记录快照，仅整窗原子完成后对编辑可见 | `V40` / `newsingestion/NewsIngestionService.java` |
+| 资讯采集窗口（Collection Window） | 为单个信源和采集条件版本指定的日期范围，全部批次确认后才推进游标 | `contracts/news/` / `newsingestion/` |
+| 采集游标（Collection Cursor） | 按 `(source, sourceConfigVersion)` 独立维护的已提交日期上界，只随连续已完成的窗口单调前进，回填不回退 | `t_news_source_cursor` / `NewsIngestionService.java` |
+| 资讯精选候选（News Curation Candidate） | 仅针对可见 `t_news_material_revision` 产出并绑定不可变证据快照的精选候选结果；需通过证据/许可/临床/防注入门禁，不自动写入 `t_news` | `V41` / `newscuration/` |
+| 资讯内容修订（News Revision） | 编辑建稿、审批、发布、封面更新与软删时产出的不可变内容快照与证据摘要绑定记录，按 `(newsId, revisionNo)` 顺序持久化 | `V42` / `NewsLifecycleService` |
+| 资讯刊物预览（News Issue Preview） | 管理员按资讯发布日期生成的只读报告，依据已发布修订的 PMID 或 DOI 聚合，保留各条发布修订的溯源 | `newsworkbench/NewsIssueService.java` |
+| 资讯列表缓存纪元（News List Cache Epoch） | 持久化单调递增的缓存失效纪元；写事务提交前推进并于 `afterCommit()` 同步 Redis 世代，若 Redis 失效失败则读侧凭数据库纪元降级穿透并自愈 | `V42` / `NewsListCacheService` |
+| 模型调用回执（Model Call Receipt） | 付费模型调用前写入的预扣预算与外部请求台账，用于区分预检中止与 `OUTCOME_UNKNOWN` 并支持人工对账，禁止未知付费状态下自动重发 | `V41` / `newscuration/NewsCurationService.java` |
+| 采集任务操作审计（Collection Task Event） | 管理员对采集任务的人工操作留痕（入队 `ENQUEUE` / 失败窗口重试 `RETRY`），含操作人、前后状态与备注；只记操作，不替代任务自身的状态列 | `V43` `t_news_collection_task_event` / `newsworkbench/NewsWorkbenchService.java` |
+| 失败窗口重试（Failed Window Retry） | 把 `FAILED` 采集任务重新打开为 `PENDING` 的**人工**动作：复用 `enqueueWindow` 已有的重开能力，不另建状态机；不自动跳过失败窗口，也不静默推进游标 | `newsworkbench/NewsWorkbenchService#retryFailedTask` → `newsingestion/NewsIngestionService#enqueueWindow` |
+| 可信代理声明（trusted-proxy-addresses） | 运维声明的「有权代表客户端说话」的反向代理地址（精确 IP 或 CIDR）；启动时与 Tomcat 的 `server.tomcat.remoteip.internal-proxies` 正则交叉核对，声明的每个地址都必须被信任，实际信任范围也不得明显更宽 | 声明 `eye-diagnosis.news-ingestion.trusted-proxy-addresses`；核对 `newsingestion/NewsProxyTrustRules.java`、`config/StartupSafetyGuard.java` |
+| NewsBench（资讯精选离线评测） | 基于冻结夹具集验证眼科相关性筛选、逐字引文地面校验、摘要许可遵守与提示词注入拦截的离线评测基线 | `contracts/news/newsbench/` / `newscuration/NewsBenchRunner.java` |
 | Agent 会话 | 一次智能对话的线程；消息写入由 `ChatMessageWriter` 承担事务 | `agent/service/` |
 | 流式故障（AgentStreamError） | Agent 流里失败时对外的机器可读码与人话；模型服务故障与「服务端自己坏了」分开 | `agent/AgentStreamError.java` |
 | MCP 服务 | 用户可启用的外部工具服务；解析优先级（会话覆盖 → 全局启用 → 禁用）在拦截器里，客户端与工具发现缓存在这里 | 优先级 `agent/interceptor/TextMcpModelInterceptor.java`；客户端 `agent/manager/MCPManager.java` |

@@ -17,6 +17,7 @@ import { useNavigate, useParams } from "react-router-dom"
 import {
   ArrowLeft,
   Check,
+  History,
   ImagePlus,
   Monitor,
   Save,
@@ -26,20 +27,25 @@ import {
 } from "lucide-react"
 
 import "@/styles/admin-news-preview.css"
+import "@/styles/admin-news-workbench.css"
 import "@/styles/admin-polish-cms.css"
 
 import { AdminPageHead } from "@/components/admin/AdminPageHead"
+import { Drawer } from "@/components/admin/Drawer"
 import { NewsArticleView } from "@/components/news/NewsArticleView"
+import { RiskTag } from "@/components/RiskTag"
 import { FaultNote } from "@/components/fault"
 import { useTheme } from "@/components/theme-provider"
 import {
   getNews,
+  listNewsRevisions,
   saveNews,
   uploadNewsCover,
   type AdminNews,
 } from "@/lib/adminApi"
-import { newsContentValid, newsStatusOptionsFor } from "@/lib/adminDomain"
+import { newsContentValid, newsStatusOptionsFor, newsStatusView } from "@/lib/adminDomain"
 import { describeError, type ErrorDetail } from "@/lib/api"
+import { formatTimestamp } from "@/lib/domain"
 import { queryKeys } from "@/lib/queryKeys"
 import { fault, infoFault, validationFault } from "@/lib/faults"
 import { renderNewsHtml } from "@/lib/markdown"
@@ -239,8 +245,15 @@ function NewsEditor(props: {
   })
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [revisionsOpen, setRevisionsOpen] = useState(false)
   const [formFault, setFormFault] = useState<ReturnType<typeof validationFault> | null>(null)
   const [actionError, setActionError] = useState<ErrorDetail | null>(null)
+
+  const revisionsQuery = useQuery({
+    queryKey: queryKeys.admin.newsRevisions(newsId ?? ""),
+    queryFn: () => listNewsRevisions(newsId!),
+    enabled: Boolean(newsId && revisionsOpen),
+  })
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   /** 画布元素：预览区里真正可用的宽度，缩放系数按它算。 */
   const stageRef = useRef<HTMLDivElement | null>(null)
@@ -453,6 +466,7 @@ function NewsEditor(props: {
   }
 
   return (
+    <>
     <form className="admin-newsedit__form" onSubmit={onSubmit}>
       <div
         className={`admin-newsedit__workspace${
@@ -825,10 +839,112 @@ function NewsEditor(props: {
             </div>
           </div>
 
+          {!isNew && newsId ? (
+            <section className="admin-newsedit__provenance" aria-label="证据溯源与修订">
+              <h2 className="admin-newsedit__rail-title">证据溯源与修订 · PROVENANCE</h2>
+              <div className="admin-newsedit__provrow">
+                <span className="admin-newsedit__provkey">候选绑定</span>
+                <span className="admin-newsedit__provval">
+                  {initial?.curationCandidateId ? `#${initial.curationCandidateId}` : "手工撰写"}
+                </span>
+              </div>
+              {initial?.materialRevisionId ? (
+                <div className="admin-newsedit__provrow">
+                  <span className="admin-newsedit__provkey">资料修订</span>
+                  <span className="admin-newsedit__provval">#{initial.materialRevisionId}</span>
+                </div>
+              ) : null}
+              {initial?.evidenceSnapshotSha256 ? (
+                <div className="admin-newsedit__provrow">
+                  <span className="admin-newsedit__provkey">快照摘要</span>
+                  <span
+                    className="admin-newsedit__provval"
+                    title={initial.evidenceSnapshotSha256}
+                  >
+                    {`${initial.evidenceSnapshotSha256.slice(0, 12)}…`}
+                  </span>
+                </div>
+              ) : null}
+              <div className="admin-newsedit__provrow">
+                <span className="admin-newsedit__provkey">当前 / 已发修订</span>
+                <span className="admin-newsedit__provval">
+                  {initial?.currentRevisionNo ?? "—"} / {initial?.publishedRevisionNo ?? "—"}
+                </span>
+              </div>
+              <button
+                type="button"
+                className="admin-btn admin-btn--ghost admin-btn--sm"
+                onClick={() => setRevisionsOpen(true)}
+              >
+                <History size={13} strokeWidth={2} aria-hidden="true" />
+                查看修订历史
+              </button>
+            </section>
+          ) : null}
+
           <p className="admin-newsedit__footer num">{SUMMARY_HINT}</p>
         </aside>
       </div>
     </form>
+
+    <Drawer
+      open={revisionsOpen}
+      title="内容修订历史"
+      size="workspace"
+      onClose={() => setRevisionsOpen(false)}
+    >
+      {revisionsQuery.isPending ? (
+        <p className="admin-workbench__note">正在读取修订历史…</p>
+      ) : revisionsQuery.error ? (
+        <FaultNote
+          fault={fault({
+            severity: "attention",
+            kind: "client",
+            title: describeError(revisionsQuery.error).text,
+            code: describeError(revisionsQuery.error).code,
+          })}
+        />
+      ) : (revisionsQuery.data ?? []).length === 0 ? (
+        <p className="admin-workbench__note">暂无不可变内容修订记录。</p>
+      ) : (
+        <ul className="admin-workbench__revlist">
+          {(revisionsQuery.data ?? []).map((rev) => {
+            const statusView = newsStatusView(rev.status)
+            return (
+              <li
+                key={rev.id ?? String(rev.revisionNo)}
+                className="admin-workbench__revcard"
+              >
+                <div className="admin-workbench__sourcehead">
+                  <span className="admin-workbench__mono">
+                    v{rev.revisionNo ?? "?"} · {rev.action || "UPDATE"}
+                  </span>
+                  <RiskTag risk={statusView.risk}>{statusView.label}</RiskTag>
+                </div>
+                <div className="admin-workbench__mono">
+                  {formatTimestamp(rev.createdAt ?? undefined)} · {rev.actorRole || "—"}
+                </div>
+                {rev.reviewNote ? (
+                  <p className="admin-workbench__note">变更/审核说明：{rev.reviewNote}</p>
+                ) : null}
+                {rev.contentSha256 ? (
+                  <div className="admin-workbench__mono" title={rev.contentSha256}>
+                    正文哈希：{rev.contentSha256.slice(0, 12)}…
+                  </div>
+                ) : null}
+                {rev.evidenceSnapshotJson ? (
+                  <details>
+                    <summary className="admin-workbench__mono">冻结证据快照</summary>
+                    <pre className="admin-workbench__pre">{rev.evidenceSnapshotJson}</pre>
+                  </details>
+                ) : null}
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </Drawer>
+    </>
   )
 }
 

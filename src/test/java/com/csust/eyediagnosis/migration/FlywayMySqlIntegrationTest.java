@@ -48,9 +48,8 @@ class FlywayMySqlIntegrationTest {
                 assertEquals(12, masterMigrations);
                 Flyway latest = Flyway.configure().dataSource(url, username, password).schemas(schema)
                         .locations("classpath:db/migration", "classpath:db/callback").load();
-                // V18–V39 共 22 条（含本分支的 V38 用户反馈 / V39 站内通知）；
-                // 数字写死是为了让「多出/少掉一条迁移」在评审时被看见。
-                assertEquals(22, latest.migrate().migrationsExecuted);
+                // V18–V43 共 26 条，固定断言防止意外漏掉迁移。
+                assertEquals(26, latest.migrate().migrationsExecuted);
                 try (var account = statement.executeQuery("SELECT userAccount,userPassword,userRole,legacyMarker FROM `"
                         + schema + "`.t_user WHERE id=7")) {
                     assertTrue(account.next());
@@ -88,7 +87,7 @@ class FlywayMySqlIntegrationTest {
 
                 int expectedMigrations = flyway.info().all().length;
                 assertEquals(expectedMigrations, flyway.migrate().migrationsExecuted);
-                assertEquals("39", flyway.info().current().getVersion().toString());
+                assertEquals("43", flyway.info().current().getVersion().toString());
 
                 // 空库 migrate 后必须拥有全部被实体使用的表，否则登录、资讯、
                 // Agent 会话、知识库会在启动时无表可写。
@@ -114,8 +113,28 @@ class FlywayMySqlIntegrationTest {
                         // V37：发布审批单
                         "t_config_publish_request",
                         // V38 / V39：本分支的用户反馈与站内通知
-                        "t_user_feedback", "t_user_notification"}) {
+                        "t_user_feedback", "t_user_notification",
+                        "t_news_source", "t_news_source_cursor", "t_news_collection_task",
+                        "t_news_collection_lease", "t_news_collection_batch", "t_news_batch_item",
+                        "t_news_worker_receipt", "t_news_material", "t_news_material_revision",
+                        "t_news_curation_budget", "t_news_model_call_receipt",
+                        "t_news_curation_candidate", "t_news_bench_run",
+                        "t_news_revision", "t_news_cache_epoch",
+                        // V43：失败窗口操作审计
+                        "t_news_collection_task_event"}) {
                     assertTrue(tables.contains(expected), "missing table after migrate: " + expected);
+                }
+
+                try (ResultSet epochRow = statement.executeQuery(
+                        "SELECT epoch FROM `" + schema + "`.t_news_cache_epoch WHERE scope = 'news_list'")) {
+                    assertTrue(epochRow.next(), "missing seeded news_list cache epoch row");
+                    assertEquals(0L, epochRow.getLong(1));
+                }
+
+                try (ResultSet seededSources = statement.executeQuery(
+                        "SELECT COUNT(*) FROM `" + schema + "`.t_news_source WHERE enabled = 1")) {
+                    assertTrue(seededSources.next());
+                    assertEquals(3, seededSources.getInt(1));
                 }
 
                 // V15 的 t_news 对 content/publishTime/coverImg 有 NOT NULL 且无默认值。
@@ -152,7 +171,7 @@ class FlywayMySqlIntegrationTest {
     }
 
     /**
-     * 既有 V31 库升级到当前头（V37）：V32–V34 是 master 已占用的迁移，
+     * 既有 V31 库升级到当前头（V43）：V32–V34 是 master 已占用的迁移，
      * V36、V37 是配置中心的两条；产物是配置中心五表 + 活跃指针单例行。
      *
      * <p>V35 不在本分支目录里——它由在途的小程序后端分支占用（PR #160），
@@ -182,12 +201,12 @@ class FlywayMySqlIntegrationTest {
                         .target("31").load().migrate().migrationsExecuted;
                 int allMigrations = Flyway.configure().dataSource(url, username, password).schemas(schema)
                         .locations("classpath:db/migration", "classpath:db/callback").load().info().all().length;
-                assertEquals(allMigrations - 8, toV31, "V32–V39 之前应只差八条迁移");
+                assertEquals(allMigrations - 12, toV31, "V32–V43 之前应只差十二条迁移");
 
                 Flyway upgrade = Flyway.configure().dataSource(url, username, password).schemas(schema)
                         .locations("classpath:db/migration", "classpath:db/callback").load();
-                assertEquals(8, upgrade.migrate().migrationsExecuted, "V31 库升级执行 V32–V39 八条");
-                assertEquals("39", upgrade.info().current().getVersion().toString());
+                assertEquals(12, upgrade.migrate().migrationsExecuted, "V31 库升级执行 V32–V43 十二条");
+                assertEquals("43", upgrade.info().current().getVersion().toString());
 
                 try (var pointer = statement.executeQuery(
                         "SELECT id, releaseId FROM `" + schema + "`.t_config_active_pointer")) {
@@ -203,6 +222,50 @@ class FlywayMySqlIntegrationTest {
                     assertTrue(approval.next());
                     assertEquals(0, approval.getInt(1), "V37 只建表，不预置审批数据");
                 }
+            } finally {
+                statement.executeUpdate("DROP DATABASE `" + schema + "`");
+            }
+        }
+    }
+
+    @Test
+    void upgradesCurrentMasterV39WithoutChangingExistingNotificationOrNews() throws Exception {
+        String url = System.getenv("FLYWAY_TEST_URL");
+        Assumptions.assumeTrue(url != null && !url.isBlank(), "Requires isolated MySQL Flyway gate");
+        String schema = "diagnosis_ci_empty_v39_" + UUID.randomUUID().toString().replace("-", "");
+        String username = System.getenv("FLYWAY_TEST_USERNAME");
+        String password = System.getenv("FLYWAY_TEST_PASSWORD");
+        try (var connection = DriverManager.getConnection(url, username, password);
+             var statement = connection.createStatement()) {
+            statement.executeUpdate("CREATE DATABASE `" + schema + "`");
+            try {
+                Flyway master = Flyway.configure().dataSource(url, username, password).schemas(schema)
+                        .locations("classpath:db/migration", "classpath:db/callback").target("39").load();
+                master.migrate();
+                assertEquals("39", master.info().current().getVersion().toString());
+                statement.executeUpdate("INSERT INTO `" + schema + "`.t_user_notification "
+                        + "(id,userId,type,title,body,refType,refId) "
+                        + "VALUES (73,7,'FEEDBACK_REPLIED','Existing notice','body','USER_FEEDBACK','5')");
+                statement.executeUpdate("INSERT INTO `" + schema + "`.t_news "
+                        + "(id,userId,title,content,coverImg,status,publishTime) "
+                        + "VALUES (74,7,'Existing news','body','',1,'2026-11-10 00:00:00')");
+                Flyway latest = Flyway.configure().dataSource(url, username, password).schemas(schema)
+                        .locations("classpath:db/migration", "classpath:db/callback").load();
+                assertEquals(4, latest.migrate().migrationsExecuted);
+                assertEquals("43", latest.info().current().getVersion().toString());
+                try (var notice = statement.executeQuery(
+                        "SELECT title FROM `" + schema + "`.t_user_notification WHERE id=73")) {
+                    assertTrue(notice.next());
+                    assertEquals("Existing notice", notice.getString(1));
+                }
+                try (var news = statement.executeQuery("SELECT title,currentRevisionNo,publishedRevisionNo FROM `"
+                        + schema + "`.t_news WHERE id=74")) {
+                    assertTrue(news.next());
+                    assertEquals("Existing news", news.getString(1));
+                    assertEquals(0, news.getInt(2));
+                    assertEquals(null, news.getObject(3));
+                }
+                assertEquals(0, latest.migrate().migrationsExecuted);
             } finally {
                 statement.executeUpdate("DROP DATABASE `" + schema + "`");
             }
@@ -230,8 +293,8 @@ class FlywayMySqlIntegrationTest {
                         "升级前：旧 jar 自己的迁移集合跑到 V17");
                 Flyway rc = Flyway.configure().dataSource(url, username, password).schemas(schema)
                         .locations("classpath:db/migration", "classpath:db/callback").load();
-                assertEquals(22, rc.migrate().migrationsExecuted);
-                assertEquals("39", rc.info().current().getVersion().toString());
+                assertEquals(26, rc.migrate().migrationsExecuted);
+                assertEquals("43", rc.info().current().getVersion().toString());
 
                 Flyway oldJar = jarFlyway(url, username, password, schema, oldHome);
                 assertEquals(0, oldJar.migrate().migrationsExecuted, "旧迁移集合不会执行 future 版本");

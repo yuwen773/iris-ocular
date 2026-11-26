@@ -70,6 +70,21 @@ public class NewsVO implements Serializable {
     /** 下架原因 */
     private String offlineReason;
 
+    /** WP-04 绑定的精选候选 id */
+    private Long curationCandidateId;
+
+    /** WP-04 绑定的可见原始资料修订 id */
+    private Long materialRevisionId;
+
+    /** WP-04 冻结原始证据快照 SHA-256 */
+    private String evidenceSnapshotSha256;
+
+    /** 当前内容修订序号 */
+    private Integer currentRevisionNo;
+
+    /** 当前已发布的内容修订序号 */
+    private Integer publishedRevisionNo;
+
     private static final long serialVersionUID = 1L;
 
 }

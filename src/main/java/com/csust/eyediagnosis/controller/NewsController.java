@@ -23,12 +23,15 @@ import com.csust.eyediagnosis.model.dto.news.NewsUpdateDTO;
 import com.csust.eyediagnosis.model.dto.news.NewsUploadDTO;
 import com.csust.eyediagnosis.model.entity.News;
 import com.csust.eyediagnosis.model.entity.User;
+import com.csust.eyediagnosis.model.vo.news.NewsRevisionVO;
 import com.csust.eyediagnosis.model.vo.news.NewsVO;
 import com.csust.eyediagnosis.service.NewsLifecycleService;
+import com.csust.eyediagnosis.service.NewsListCacheService;
 import com.csust.eyediagnosis.service.NewsService;
 import com.csust.eyediagnosis.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import org.springframework.beans.BeanUtils;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.util.DigestUtils;
 import org.springframework.web.bind.annotation.*;
@@ -60,6 +63,8 @@ public class NewsController {
     private FileManager fileManager;
     @Resource
     private StringRedisTemplate stringRedisTemplate;
+    @Autowired(required = false)
+    private NewsListCacheService newsListCacheService;
     /**
      * 获取新闻列表
      * @param newsQueryDTO
@@ -92,8 +97,23 @@ public class NewsController {
         long current = newsQueryDTO.getCurrent();
         long pageSize = newsQueryDTO.getPageSize();
 
-        //设置hashKey（含世代，写操作递增世代即可让旧 key 失效）
         String queryCondition = JSONUtil.toJsonStr(newsQueryDTO);
+        if (newsListCacheService != null) {
+            NewsListCacheService.CacheReadResult cached = newsListCacheService.getCachedPage(queryCondition);
+            if (cached.hit()) {
+                return ResultUtils.success(cached.page());
+            }
+            Page<News> newsPage = newsService.page(new Page<>(current, pageSize),
+                    newsService.getNewsQueryWrapper(newsQueryDTO));
+            Page<NewsVO> newsVOPage = new Page<>(current, pageSize, newsPage.getTotal());
+            newsVOPage.setRecords(newsService.getNewsVOList(newsPage.getRecords()));
+            if (cached.redisAvailable()) {
+                newsListCacheService.putCachedPage(cached.epoch(), queryCondition, newsVOPage);
+            }
+            return ResultUtils.success(newsVOPage);
+        }
+
+        // 兜底分支（仅供未注入 NewsListCacheService 的纯单测构造使用）
         String redisKey = newsListCacheKey(queryCondition);
         String cacheValue = stringRedisTemplate.opsForValue().get(redisKey);
         if(StrUtil.isNotBlank(cacheValue)){
@@ -117,14 +137,19 @@ public class NewsController {
     private static final String NEWS_LIST_CACHE_GENERATION = "diagnosis:newsListGeneration";
 
     /**
-     * 列表缓存失效：递增一个世代计数器，让所有旧 key 自然过期。
-     * 不用 KEYS/SCAN 全表扫描——生产 Redis 上对大键空间做模式匹配有阻塞风险。
+     * 列表缓存失效：当注入了 {@link NewsListCacheService} 时，写事务提交后（afterCommit）会自动递增世代；
+     * 仅在未装配该服务（如纯 Mockito 控制器单测）时走兼容直连递增。
      */
     private void evictNewsListCache() {
-        stringRedisTemplate.opsForValue().increment(NEWS_LIST_CACHE_GENERATION);
+        if (newsListCacheService == null && stringRedisTemplate != null) {
+            stringRedisTemplate.opsForValue().increment(NEWS_LIST_CACHE_GENERATION);
+        }
     }
 
     private String newsListCacheKey(String queryCondition) {
+        if (newsListCacheService != null) {
+            return newsListCacheService.buildCacheKey(queryCondition);
+        }
         String generation = stringRedisTemplate.opsForValue().get(NEWS_LIST_CACHE_GENERATION);
         String hashKey = DigestUtils.md5DigestAsHex(
                 ((generation == null ? "0" : generation) + ":" + queryCondition).getBytes());
@@ -353,5 +378,26 @@ public class NewsController {
         // 封面是列表 VO 的字段，改完必须让缓存版列表失效，否则旧封面会留到 TTL 到期
         evictNewsListCache();
         return ResultUtils.success(ImageUrl);
+    }
+
+    @PostMapping("/from-candidate/{candidateId}")
+    @AuthCheck(mustRole = AuthConstant.ADMIN_ROLE)
+    @Operation(summary ="基于精选候选创建资讯草稿/待审核条目")
+    public BaseResponse<Long> createFromCandidate(
+            @PathVariable("candidateId") Long candidateId,
+            @RequestParam(value = "submitForReview", defaultValue = "false") boolean submitForReview,
+            HttpServletRequest request) {
+        ThrowUtils.throwIf(candidateId == null || candidateId <= 0, ErrorCode.PARAMS_ERROR);
+        Long newsId = newsLifecycleService.createDraftFromCandidate(
+                candidateId, userService.getLoginUser(request), submitForReview);
+        return ResultUtils.success(newsId);
+    }
+
+    @GetMapping("/{id}/revisions")
+    @AuthCheck(mustRole = AuthConstant.ADMIN_ROLE)
+    @Operation(summary ="获取资讯不可变内容修订列表")
+    public BaseResponse<List<NewsRevisionVO>> listNewsRevisions(@PathVariable("id") Long id) {
+        ThrowUtils.throwIf(id == null || id <= 0, ErrorCode.PARAMS_ERROR);
+        return ResultUtils.success(newsLifecycleService.listRevisions(id));
     }
 }

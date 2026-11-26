@@ -61,5 +61,8 @@ public class NewsUpdateDTO implements Serializable {
      */
     private String note;
 
+    /** WP-04 精选候选 id（仅创建或核验候选来源资讯时使用，已绑定后不可篡改） */
+    private Long curationCandidateId;
+
     private static final long serialVersionUID = 1L;
 }

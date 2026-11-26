@@ -1,0 +1,33 @@
+name: news-worker
+
+on:
+  pull_request:
+    paths: ['news-worker/**', 'contracts/news/**', '.github/workflows/news-worker.yml']
+  push:
+    branches: [master]
+    paths: ['news-worker/**', 'contracts/news/**', '.github/workflows/news-worker.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    defaults:
+      run:
+        working-directory: news-worker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: '0.13.0'
+          python-version: '3.12'
+          enable-cache: true
+          cache-dependency-glob: news-worker/uv.lock
+      - run: uv sync --locked
+      - run: uv run --locked ruff check .
+      - run: uv run --locked ruff format --check .
+      - run: uv run --locked pytest -q
+      - run: uv run --locked iris-news-worker --help

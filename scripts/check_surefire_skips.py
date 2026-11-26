@@ -57,13 +57,17 @@ BACKEND_UNIT_CONTRACT = {
         P + "patientexplanation.PatientExplanationApiTest": {"env": "ISSUE21_TEST_URL", "cases": 37, "skipped": 37},
         P + "patientauthorization.PatientAuthorizationApiTest": {"env": "ISSUE22_TEST_URL", "cases": 37, "skipped": 37},
         P + "patientfollowup.PatientFollowUpApiTest": {"env": "ISSUE23_TEST_URL", "cases": 37, "skipped": 37},
-        P + "migration.FlywayMySqlIntegrationTest": {"env": "FLYWAY_TEST_URL", "cases": 6, "skipped": 6},
+        P + "migration.FlywayMySqlIntegrationTest": {"env": "FLYWAY_TEST_URL", "cases": 7, "skipped": 7},
         P + "agent.service.ToolAuditMySqlIntegrationTest": {"env": "FLYWAY_TEST_URL", "cases": 1, "skipped": 1},
         P + "agent.service.ToolTerminalPersistenceMySqlIntegrationTest": {"env": "FLYWAY_TEST_URL", "cases": 1, "skipped": 1},
         P + "poc.CoordinationMySqlTest": {"env": "COORDINATION_POC_URL", "cases": 14, "skipped": 14},
         P + "upload.state.UploadTaskMapperMySqlIntegrationTest": {"env": "FLYWAY_TEST_URL", "cases": 3, "skipped": 3},
         P + "service.DiagnosisRunMySqlIntegrationTest": {"env": "FLYWAY_TEST_URL", "cases": 8, "skipped": 8},
         P + "integration.AdminAnalyticsMySqlIntegrationTest": {"env": "FLYWAY_TEST_URL", "cases": 1, "skipped": 1},
+        P + "newsingestion.NewsIngestionMySqlIntegrationTest": {"env": "FLYWAY_TEST_URL", "cases": 13, "skipped": 13},
+        P + "newscuration.NewsCurationMySqlIntegrationTest": {"env": "FLYWAY_TEST_URL", "cases": 10, "skipped": 10},
+        P + "service.NewsEditorialPublishMySqlIntegrationTest": {"env": "FLYWAY_TEST_URL", "cases": 8, "skipped": 8},
+        P + "newsworkbench.NewsWorkbenchMySqlIntegrationTest": {"env": "FLYWAY_TEST_URL", "cases": 10, "skipped": 10},
     },
 }
 
@@ -83,12 +87,16 @@ ISSUE17_CONTRACT = {
 FLYWAY_CONTRACT = {
     "scope": "named",
     "expected": {
-        P + "migration.FlywayMySqlIntegrationTest": 6,
+        P + "migration.FlywayMySqlIntegrationTest": 7,
         P + "upload.state.UploadTaskMapperMySqlIntegrationTest": 3,
         P + "agent.service.ToolAuditMySqlIntegrationTest": 1,
         P + "agent.service.ToolTerminalPersistenceMySqlIntegrationTest": 1,
         P + "service.DiagnosisRunMySqlIntegrationTest": 8,
         P + "integration.AdminAnalyticsMySqlIntegrationTest": 1,
+        P + "newsingestion.NewsIngestionMySqlIntegrationTest": 13,
+        P + "newscuration.NewsCurationMySqlIntegrationTest": 10,
+        P + "service.NewsEditorialPublishMySqlIntegrationTest": 8,
+        P + "newsworkbench.NewsWorkbenchMySqlIntegrationTest": 10,
     },
     "opt_in": {},
 }

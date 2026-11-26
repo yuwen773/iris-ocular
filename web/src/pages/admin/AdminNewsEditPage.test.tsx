@@ -6,13 +6,14 @@ import { MemoryRouter, Route, Routes } from "react-router-dom"
 
 import { ThemeProvider } from "@/components/theme-provider"
 import { AdminNewsEditPage } from "./AdminNewsEditPage"
-import { getNews, saveNews, uploadNewsCover } from "@/lib/adminApi"
+import { getNews, listNewsRevisions, saveNews, uploadNewsCover } from "@/lib/adminApi"
 
 vi.mock("@/lib/adminApi", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/adminApi")>()
   return {
     ...actual,
     getNews: vi.fn(),
+    listNewsRevisions: vi.fn(),
     saveNews: vi.fn(),
     uploadNewsCover: vi.fn(),
   }
@@ -33,6 +34,7 @@ vi.mock("@uiw/react-md-editor", () => ({
 afterEach(() => {
   cleanup()
   vi.mocked(getNews).mockReset()
+  vi.mocked(listNewsRevisions).mockReset()
   vi.mocked(saveNews).mockReset()
   vi.mocked(uploadNewsCover).mockReset()
 })
@@ -363,5 +365,47 @@ describe("AdminNewsEditPage 预览设备框几何", () => {
     const stage = document.querySelector(".admin-newsedit__preview-stage")
     expect(stage).toBeTruthy()
     expect(stage?.contains(deviceElement())).toBe(true)
+  })
+})
+
+describe("AdminNewsEditPage WP-05 溯源与修订历史", () => {
+  it("展示候选证据溯源并在点击查看修订历史时懒加载修订抽屉", async () => {
+    vi.mocked(getNews).mockResolvedValue({
+      id: "9002",
+      title: "候选建稿文",
+      content: LEGACY_HTML,
+      status: 3,
+      curationCandidateId: "7001",
+      materialRevisionId: "201",
+      evidenceSnapshotSha256: "abcdef1234567890".repeat(4),
+      currentRevisionNo: 2,
+      publishedRevisionNo: null,
+    })
+    vi.mocked(listNewsRevisions).mockResolvedValue([
+      {
+        id: "501",
+        newsId: "9002",
+        revisionNo: 2,
+        action: "CREATE_FROM_CANDIDATE",
+        status: 3,
+        title: "候选建稿文",
+        contentSha256: "123456abcdef7890".repeat(4),
+        actorRole: "admin",
+        reviewNote: "提交复核",
+        evidenceSnapshotJson: '{"title":"Myopia Trial"}',
+        createdAt: "2026-10-22T10:00:00Z",
+      },
+    ])
+
+    renderPage("/admin/news/9002/edit")
+    await screen.findByText("#7001")
+    expect(screen.getByText("#201")).toBeTruthy()
+    expect(screen.getByText("abcdef123456…")).toBeTruthy()
+    expect(vi.mocked(listNewsRevisions)).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole("button", { name: "查看修订历史" }))
+    await waitFor(() => expect(vi.mocked(listNewsRevisions)).toHaveBeenCalledWith("9002"))
+    await screen.findByText(/v2 · CREATE_FROM_CANDIDATE/)
+    expect(screen.getByText(/变更\/审核说明：提交复核/)).toBeTruthy()
   })
 })

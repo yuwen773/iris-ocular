@@ -1,0 +1,70 @@
+{
+  "session": { "id": "9001", "userName": "验收管理员", "userRole": "admin" },
+  "failedTask": {
+    "taskId": "task-failed-1", "source": "pubmed", "sourceConfigVersion": "1", "queryText": "ophthalmology",
+    "windowStartOn": "2026-10-01", "windowEndBefore": "2026-10-02", "status": "FAILED",
+    "generation": 2, "attemptCount": 3, "maxAttempts": 3,
+    "leaseWorkerId": null, "leaseExpiresAt": null, "leaseExpired": false, "nextAttemptAt": null,
+    "lastFailureCode": "SOURCE_TIMEOUT",
+    "committedBatchCount": null, "committedRecordCount": null, "committedCursor": null, "completedAt": null,
+    "createdAt": "2026-10-01T09:50:00Z", "updatedAt": "2026-10-01T09:50:00Z",
+    "blockingReason": "本窗口已失败（SOURCE_TIMEOUT），需从失败窗口重试入口重新打开；系统不会自动跳过",
+    "blockedByTaskId": null, "retryable": true
+  },
+  "overview": {
+    "curationEnabled": false,
+    "sources": { "totalSources": 3, "enabledSources": 2 },
+    "tasks": { "pendingCount": 1, "completedCount": 4 },
+    "materials": { "visibleMaterialCount": 4, "visibleRevisionCount": 5 },
+    "candidates": { "acceptedCount": 2, "draftedNewsCount": 2 },
+    "receipts": { "succeededCount": 2 }
+  },
+  "candidate": {
+    "id": "7001",
+    "materialId": "110",
+    "materialRevisionId": "201",
+    "source": "pubmed",
+    "sourceRecordId": "10111",
+    "status": "CURATED_ACCEPTED",
+    "evidenceTier": "METADATA_ONLY",
+    "suggestedTitle": "眼科随访研究候选",
+    "suggestedSummary": "浏览器验收的合成记录。",
+    "linkedNewsId": "9501",
+    "linkedNewsStatus": 1,
+    "claimsCount": 1,
+    "claims": [{ "id": "c1", "field": "title", "statement": "眼科随访研究", "quote": "Ophthalmology follow-up study" }],
+    "evidenceSnapshotJson": "{\"title\":\"Ophthalmology follow-up study\"}"
+  },
+  "issue": {
+    "startOn": "2026-10-01",
+    "endOn": "2026-10-07",
+    "articleCount": 3,
+    "entries": [
+      {
+        "identifierConflict": false,
+        "articles": [
+          {
+            "newsId": "9501", "revisionNo": 2, "title": "眼科随访研究进展", "summary": "编辑已审阅的眼科随访研究摘要。",
+            "publishTime": "2026-10-07T09:00:00+08:00", "materialRevisionId": "201", "source": "pubmed",
+            "sourceRecordId": "10111", "pmid": "10111", "doi": "10.1234/ophthalmology.followup.synthetic.fixture.with.long.identifier"
+          },
+          {
+            "newsId": "9502", "revisionNo": 1, "title": "眼科随访研究来源补充", "summary": null,
+            "publishTime": "2026-10-06T10:00:00+08:00", "materialRevisionId": "202", "source": "europe-pmc",
+            "sourceRecordId": "MED:10111", "pmid": "10111", "doi": "10.1234/ophthalmology.followup.synthetic.fixture.with.long.identifier"
+          }
+        ]
+      },
+      {
+        "identifierConflict": true,
+        "articles": [
+          {
+            "newsId": "9503", "revisionNo": 1, "title": "标识待复核的临床研究", "summary": "保留原始来源，等待编辑核对标识。",
+            "publishTime": "2026-10-05T10:00:00+08:00", "materialRevisionId": "203", "source": "europe-pmc",
+            "sourceRecordId": "MED:10112", "pmid": "10112", "doi": "10.1234/fixture-conflict"
+          }
+        ]
+      }
+    ]
+  }
+}

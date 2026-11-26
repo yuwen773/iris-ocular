@@ -1,6 +1,7 @@
 import { NavLink } from "react-router-dom"
 import {
   ChartColumn,
+  Layers,
   LayoutDashboard,
   Library,
   MessageSquareText,
@@ -19,6 +20,7 @@ export const ADMIN_NAV = [
   { to: "/admin/knowledge", code: "05", label: "知识库", icon: Library },
   { to: "/admin/data-analysis", code: "06", label: "数据分析", icon: ChartColumn },
   { to: "/admin/feedback", code: "07", label: "意见反馈", icon: MessageSquareText },
+  { to: "/admin/news-workbench", code: "08", label: "资讯引擎", icon: Layers },
 ] as const satisfies ReadonlyArray<{ to: string; code: string; label: string; icon: LucideIcon }>
 
 /**
@@ -28,7 +30,7 @@ export const ADMIN_NAV = [
 const ADMIN_GROUPS = [
   { label: "概览", codes: ["01"] },
   { label: "业务管理", codes: ["02", "04", "07"] },
-  { label: "内容与知识", codes: ["03", "05"] },
+  { label: "内容与知识", codes: ["03", "08", "05"] },
   { label: "分析", codes: ["06"] },
 ] as const
 

@@ -172,3 +172,24 @@ Two consequences to know before writing the next migration:
    one arriving later.
 2. The next branch that needs a version takes V40: the news line's planned
    V39--V41 must shift to V40--V42 before it opens a PR.
+
+## V40 (2026-11-24)
+
+WP-02 News Engine scheduling, lease fencing, idempotency receipts, and material pool (`V40__news_ingestion_pool.sql`). Preserves the previously applied master migration scripts.
+
+- Creates nine additive tables: `t_news_source` (pre-seeded with `pubmed`, `europe-pmc`, `clinicaltrials-gov`), `t_news_source_cursor`, `t_news_collection_task`, `t_news_collection_lease`, `t_news_collection_batch`, `t_news_batch_item`, `t_news_worker_receipt`, `t_news_material`, and `t_news_material_revision`.
+- Existing `t_news` and `t_news_audit` tables are untouched; partial batches stay isolated in `t_news_batch_item` until `complete()` promotes materials and advances the cursor in a single MySQL transaction.
+
+## V41 (2026-11-24)
+
+WP-03 News Engine curation candidates, evidence snapshots, paid model call receipts, daily budget caps, and NewsBench evaluation reports (`V41__news_curation_and_receipts.sql`). Preserves the previously applied master migration scripts.
+
+- Creates four additive tables: `t_news_curation_budget`, `t_news_model_call_receipt`, `t_news_curation_candidate`, and `t_news_bench_run`.
+- Leaves `t_news` and `t_news_audit` untouched; publication and Redis cache invalidation stay isolated for WP-04.
+
+## V42 (2026-11-24)
+
+WP-04 News Engine editorial review, service-layer publish gate, evidence-bound immutable content revisions, and durable post-commit cache invalidation (`V42__news_editorial_publish_and_revisions.sql`). Preserves the previously applied master migration scripts.
+
+- Adds nullable/defaulted evidence-binding and revision-counter columns (`curationCandidateId`, `materialRevisionId`, `evidenceSnapshotSha256`, `currentRevisionNo`, `publishedRevisionNo`) plus two lookup indexes to `t_news` while preserving V15/V17 manual authoring compatibility.
+- Creates `t_news_revision` (immutable per-edit/publish/delete content & frozen evidence snapshots) and `t_news_cache_epoch` (seeded `news_list` monotonic epoch counter so `afterCommit()` Redis eviction failures never leak withdrawn articles).
