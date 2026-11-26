@@ -23,7 +23,7 @@
 
 WP-07 已通过 PR #168 集成并关闭。管理员默认可访问资讯工作台及管理 API。普通用户无权访问。工作台读取仅访问内部数据，采集和 AI 精选默认关闭。详见 [合并和治理记录](wp-07-canary.md#wp-07h-合并收口)。
 
-WP-08A 由 Java 规划增量窗口并提供 systemd Worker 定时执行示例。见 [调度设计与运维](wp-08a-scheduling.md)。真实模型 Provider 与 NewsBench 扩充留在 [WP-08 待办](wp-08-backlog.md)。
+WP-08A 已经由 PR #169 集成并关闭。Java 规划增量窗口并提供 systemd Worker 定时执行示例。见 [调度设计与运维](wp-08a-scheduling.md)。WP-08B.0 / B.1 的产品、证据、模型调用层和实验协议见 [资讯精选契约](wp-08b-model-curation.md)。
 
 离线验收和资源读数见 [首轮验收记录](../../archive/2026-12/news-worker-acceptance.md)。三个信源分别核验、分别启用。
 

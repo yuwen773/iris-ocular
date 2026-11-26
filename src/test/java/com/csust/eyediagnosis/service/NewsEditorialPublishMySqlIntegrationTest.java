@@ -455,10 +455,13 @@ class NewsEditorialPublishMySqlIntegrationTest {
 
         CuratedCandidateFixture wrongReceipt = createCuratedCandidate(
                 "PMID-GATE-RCT", "Retinal image quality repeatability", "ACCEPT", false);
-        Long wrongReceiptNews = controller.createFromCandidate(wrongReceipt.candidateId, true, req).getData();
-        Long invalidatedNews = reviewNewsId;
         String originalCallId = jdbc.queryForObject("SELECT callId FROM t_news_curation_candidate WHERE id = ?",
                 String.class, wrongReceipt.candidateId);
+        jdbc.update("UPDATE t_news_model_call_receipt SET logicalCallSha256 = REPEAT('a', 64) WHERE callId = ?", originalCallId);
+        assertThrows(BusinessException.class, () -> controller.createFromCandidate(wrongReceipt.candidateId, true, req));
+        jdbc.update("UPDATE t_news_model_call_receipt SET logicalCallSha256 = NULL WHERE callId = ?", originalCallId);
+        Long wrongReceiptNews = controller.createFromCandidate(wrongReceipt.candidateId, true, req).getData();
+        Long invalidatedNews = reviewNewsId;
         String otherCallId = jdbc.queryForObject("SELECT callId FROM t_news_curation_candidate WHERE id = ?",
                 String.class, tampered.candidateId);
         jdbc.update("UPDATE t_news_curation_candidate SET callId = ? WHERE id IN (?, ?)",
@@ -475,6 +478,21 @@ class NewsEditorialPublishMySqlIntegrationTest {
         batchTampered.setIds(List.of(wrongReceiptNews));
         assertEquals(0, controller.changeNewsStatusBatch(batchTampered, req).getData().getSucceeded());
         assertEquals(beforeReject, cacheService.readAuthoritativeDbEpoch());
+
+        long trialRev = ingestAndCompleteSingle("clinicaltrials-gov", "NCT41000042", "Glaucoma trial registry");
+        modelClient.enqueue(call -> new NewsCurationModels.Succeeded(
+                validCurationJson("ACCEPT", "Glaucoma trial registry").replace("\"field\": \"abstract\"", "\"field\": \"title\""),
+                400, 140, 2_500L, 200, "req-trial", 200));
+        curationService.curateRevision(trialRev, POLICY_V1, BUDGET_DATE, SCOPE_GLOBAL);
+        long trialCandidate = jdbc.queryForObject("SELECT id FROM t_news_curation_candidate WHERE materialRevisionId = ?",
+                Long.class, trialRev);
+        long trialDraft = controller.createFromCandidate(trialCandidate, true, req).getData();
+        publishTampered.setId(trialDraft);
+        publishTampered.setTitle("青光眼试验登记更新");
+        publishTampered.setContent("<p>" + SAFE_BODY_PREFIX + "试验已证实临床<strong>疗效</strong>。</p>");
+        publishTampered.setNote("审核试验登记证据");
+        BusinessException trialRejected = assertThrows(BusinessException.class, () -> controller.updateNews(publishTampered, req));
+        assertTrue(trialRejected.getMessage().contains("缺少支持疗效"), trialRejected::getMessage);
 
         jdbc.update("""
                 UPDATE t_news_curation_candidate target JOIN t_news_curation_candidate other ON other.id = ?
@@ -833,11 +851,17 @@ class NewsEditorialPublishMySqlIntegrationTest {
         Map<String, Object> record = new LinkedHashMap<>();
         record.put("source", source);
         record.put("sourceRecordId", recordId);
-        record.put("url", "https://pubmed.ncbi.nlm.nih.gov/49000001/");
         record.put("title", title);
         record.put("publishedOn", "2026-10-05");
-        record.put("abstract", "Peer-reviewed ophthalmic abstract evaluating " + title + " in clinical screening.");
-        record.put("abstractLicense", "CC-BY");
+        if ("clinicaltrials-gov".equals(source)) {
+            record.put("url", "https://clinicaltrials.gov/study/" + recordId);
+            record.put("trial", Map.of("studyType", "INTERVENTIONAL", "overallStatus", "COMPLETED",
+                    "phases", List.of("PHASE3"), "conditions", List.of("Glaucoma")));
+        } else {
+            record.put("url", "https://pubmed.ncbi.nlm.nih.gov/49000001/");
+            record.put("abstract", "Ophthalmic abstract evaluating " + title + " in clinical screening.");
+            record.put("abstractLicense", "CC-BY");
+        }
 
         Map<String, Object> batch = new LinkedHashMap<>();
         batch.put("generation", lease.generation());

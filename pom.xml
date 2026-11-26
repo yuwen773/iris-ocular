@@ -171,6 +171,12 @@
             <artifactId>spring-ai-alibaba-starter-dashscope</artifactId>
             <version>${spring-ai-alibaba.version}</version>
         </dependency>
+        <!-- Versioned schema validation for news curation -->
+        <dependency>
+            <groupId>com.networknt</groupId>
+            <artifactId>json-schema-validator</artifactId>
+            <version>1.5.7</version>
+        </dependency>
         <!-- Chroma Vector Store -->
         <dependency>
             <groupId>org.springframework.ai</groupId>

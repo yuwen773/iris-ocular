@@ -129,6 +129,7 @@ describe("newsWorkbenchApi", () => {
     expect(candidateStatusView("REJECTED_EVIDENCE_VIOLATION").risk).toBe("critical")
     expect(taskStatusView("LEASED").label).toBe("租约中")
     expect(receiptStateView("OUTCOME_UNKNOWN")).toEqual({ label: "结果未知", risk: "critical" })
-    expect(evidenceTierLabel("PEER_REVIEWED_ABSTRACT")).toBe("同行评议开放摘要")
+    expect(evidenceTierLabel("PEER_REVIEWED_ABSTRACT")).toBe("开放许可摘要（同行评审未验证）")
+    expect(evidenceTierLabel("LICENSED_ABSTRACT")).toBe("开放许可摘要（同行评审未验证）")
   })
 })

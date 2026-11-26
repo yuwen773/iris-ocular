@@ -21,6 +21,8 @@
 | 资讯刊物预览（News Issue Preview） | 管理员按资讯发布日期生成的只读报告，依据已发布修订的 PMID 或 DOI 聚合，保留各条发布修订的溯源 | `newsworkbench/NewsIssueService.java` |
 | 资讯列表缓存纪元（News List Cache Epoch） | 持久化单调递增的缓存失效纪元；写事务提交前推进并于 `afterCommit()` 同步 Redis 世代，若 Redis 失效失败则读侧凭数据库纪元降级穿透并自愈 | `V42` / `NewsListCacheService` |
 | 模型调用回执（Model Call Receipt） | 付费模型调用前写入的预扣预算与外部请求台账，用于区分预检中止与 `OUTCOME_UNKNOWN` 并支持人工对账，禁止未知付费状态下自动重发 | `V41` / `newscuration/NewsCurationService.java` |
+| 模型调用身份（Model Call Identity） | 绑定资料修订、命名空间、策略、阶段、模型、提示词及配置摘要的逻辑调用。实际尝试另带序号 | `newscuration/NewsModelProtocol.java` |
+| 资讯编辑路由（Editorial Router） | 根据可用证据和研究状态决定可用资讯类型。眼科相关性和研究价值分别记录，证据门禁单独判定 | `newscuration/NewsEditorialEvidence.java` |
 | 自动采集窗口（Automatic Collection Window） | 由 Java 根据已提交游标和信源策略创建，身份由信源、配置版本和日期范围确定。手动补采按独立任务追踪 | `newsingestion/NewsCollectionScheduler.java` |
 | 采集任务操作审计（Collection Task Event） | 同事务记录人工入队 `ENQUEUE`、人工重试 `RETRY` 和自动入队 `AUTO_ENQUEUE` 的操作方及状态 | `t_news_collection_task_event` |
 | 失败窗口重试（Failed Window Retry） | 管理员把 `FAILED` 窗口以原任务身份重新打开为 `PENDING`。游标保持原值，直到完整窗口提交 | `newsworkbench/NewsWorkbenchService#retryFailedTask` → `newsingestion/NewsIngestionService#reopenFailedWindow` |

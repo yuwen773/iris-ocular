@@ -16,6 +16,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 import java.nio.file.Path;
+import java.net.URI;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.util.ArrayDeque;
@@ -46,7 +47,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * daily budgets, unknown-paid-outcome reconciliation, auth circuit breaking, and NewsBench.
  *
  * <p>Keeps {@code Assumptions.assumeTrue} in {@code @BeforeEach} so Surefire records exact
- * case/skip counts matching {@code scripts/check_surefire_skips.py} (10 cases).
+ * case/skip counts matching {@code scripts/check_surefire_skips.py} (13 cases).
  */
 class NewsCurationMySqlIntegrationTest {
 
@@ -81,6 +82,7 @@ class NewsCurationMySqlIntegrationTest {
         jdbc.execute("DELETE FROM t_news_curation_candidate");
         jdbc.execute("DELETE FROM t_news_model_call_receipt");
         jdbc.execute("DELETE FROM t_news_curation_budget");
+        jdbc.execute("DELETE FROM t_news_curation_budget_guard");
         jdbc.execute("DELETE FROM t_news_curation_circuit");
         jdbc.execute("DELETE FROM t_news_material_revision");
         jdbc.execute("DELETE FROM t_news_material");
@@ -634,6 +636,128 @@ class NewsCurationMySqlIntegrationTest {
                 "SELECT COUNT(*) FROM t_news_bench_run WHERE gatePassed = 1", Integer.class));
         assertEquals(18, jdbc.queryForObject("SELECT COUNT(*) FROM t_news_curation_candidate", Integer.class));
         assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM t_news", Integer.class));
+    }
+
+    private static final String SCREENING_JSON = """
+            {"relevanceScore":90,"researchValueScore":null,"recommendedType":"RESEARCH_INSIGHT",
+             "rationale":"题录与青光眼研究相关，研究价值待核实。"}
+            """;
+
+    @Test
+    void modelIdentitySeparatesNamespacesModelsAndStagesWithoutWritingCandidates() throws Exception {
+        long revision = ingestAndCompleteSingle("pubmed", "PMID-STAGE-1", "Glaucoma outcomes metadata", 1L);
+        curationProperties.setModelProfiles(Map.of("a", stagedProfile("fixture-a"), "b", stagedProfile("fixture-b")));
+        var screening = new NewsModelProtocol.Selection("experiment.A", NewsModelProtocol.Prompt.P01, "a", null);
+        modelClient.enqueue(request -> new NewsCurationModels.Succeeded(SCREENING_JSON, 100, 20, 140, 200, "fixture-a", 1));
+        var first = curationService.runModel(revision, POLICY_V1, "screen-a", screening);
+        assertEquals(NewsCurationModels.CallState.SUCCEEDED, first.receipt().state());
+        assertEquals(NewsEditorialEvidence.ContentType.RESEARCH_RADAR, first.identity().eligibleType());
+        assertEquals(140, first.receipt().actualCostMicros());
+        assertEquals(NewsModelProtocol.Stage.SCREENING, first.identity().stage());
+        var replay = curationService.runModel(revision, POLICY_V1, "another-scope", screening);
+        assertTrue(replay.replayed());
+        assertEquals(first.receipt().idempotencyKey(), replay.receipt().idempotencyKey());
+        assertEquals(first.frozenOutput(), replay.frozenOutput());
+
+        modelClient.enqueue(request -> new NewsCurationModels.Succeeded(SCREENING_JSON, 100, 20, 140, 200, "fixture-b", 1));
+        var second = curationService.runModel(revision, POLICY_V1, "screen-b",
+                new NewsModelProtocol.Selection("experiment.A", NewsModelProtocol.Prompt.P01, "b", null));
+        assertFalse(first.receipt().logicalCallSha256().equals(second.receipt().logicalCallSha256()));
+        assertThrows(IllegalArgumentException.class, () -> curationService.runModel(revision, POLICY_V1, "foreign",
+                new NewsModelProtocol.Selection("production", NewsModelProtocol.Prompt.P03, "a", first.receipt().callId())));
+
+        modelClient.enqueue(request -> new NewsCurationModels.Succeeded("""
+                {"contentType":"RESEARCH_RADAR","sections":{"introduction":"青光眼研究题录","reasonToWatch":"用于后续追踪",
+                 "limitations":"仅题录可用"},"claims":[{"evidenceId":"title","statement":"题录涉及青光眼","quote":"Glaucoma"}]}
+                """, 100, 20, 140, 200, "fixture-gen", 1));
+        var generation = curationService.runModel(revision, POLICY_V1, "generation",
+                new NewsModelProtocol.Selection("experiment.A", NewsModelProtocol.Prompt.P03, "a", first.receipt().callId()));
+        assertEquals(NewsCurationModels.CallState.SUCCEEDED, generation.receipt().state());
+        assertEquals(first.receipt().responseSha256(), generation.identity().upstreamResponseSha256());
+        assertEquals(NewsModelProtocol.Stage.GENERATION, generation.identity().stage());
+        assertEquals(3, modelClient.invocations.get());
+        assertTrue(curationService.getCandidate(revision, POLICY_V1).isEmpty());
+    }
+
+    @Test
+    void globalCapHoldsAcrossConcurrentScopesAndUnknownOutcomeUntilReconciliation() throws Exception {
+        long revision = ingestAndCompleteSingle("pubmed", "PMID-STAGE-2", "Glaucoma registry metadata", 1L);
+        curationProperties.setModelProfiles(Map.of("a", stagedProfile("fixture-a")));
+        curationProperties.setDailyMaxCalls(1);
+        var first = new NewsModelProtocol.Selection("experiment.A", NewsModelProtocol.Prompt.P01, "a", null);
+        var second = new NewsModelProtocol.Selection("experiment.B", NewsModelProtocol.Prompt.P01, "a", null);
+        CountDownLatch dispatched = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        modelClient.enqueue(request -> {
+            dispatched.countDown();
+            try {
+                if (!release.await(10, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("test timed out");
+                }
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(ex);
+            }
+            return new NewsCurationModels.UnknownOutcome("MODEL_TRANSPORT_OUTCOME_UNKNOWN", null, null, 1);
+        });
+        NewsCurationService.ModelRun unknown;
+        try (ExecutorService executor = Executors.newSingleThreadExecutor()) {
+            Future<NewsCurationService.ModelRun> pending = executor.submit(
+                    () -> curationService.runModel(revision, POLICY_V1, "scope-a", first));
+            try {
+                assertTrue(dispatched.await(10, TimeUnit.SECONDS));
+                var blocked = assertThrows(IllegalStateException.class,
+                        () -> curationService.runModel(revision, POLICY_V1, "scope-b", second));
+                assertEquals("BUDGET_EXHAUSTED", blocked.getMessage());
+            } finally {
+                release.countDown();
+            }
+            unknown = pending.get(10, TimeUnit.SECONDS);
+        }
+        assertEquals(NewsCurationModels.CallState.OUTCOME_UNKNOWN, unknown.receipt().state());
+        assertThrows(IllegalStateException.class, () -> curationService.runModel(revision, POLICY_V1, "scope-b", second));
+        assertTrue(curationService.getCandidate(revision, POLICY_V1).isEmpty());
+        curationService.reconcileUnknownCall(unknown.receipt().callId(),
+                NewsCurationModels.ReconcileResolution.CONFIRMED_NOT_CHARGED, "reviewer", "no charge",
+                null, null, null, null, null);
+        modelClient.enqueue(request -> new NewsCurationModels.Succeeded(SCREENING_JSON, 100, 20, 140, 200, "fixture-b", 1));
+        var completed = curationService.runModel(revision, POLICY_V1, "scope-b", second);
+        assertEquals(NewsCurationModels.CallState.SUCCEEDED, completed.receipt().state());
+        assertFalse(unknown.receipt().logicalCallSha256().equals(completed.receipt().logicalCallSha256()));
+        assertEquals(2, modelClient.invocations.get());
+    }
+
+    private static NewsModelProfile stagedProfile(String model) {
+        return new NewsModelProfile(NewsModelProfile.Provider.QWEN, NewsModelProfile.Platform.BAILIAN,
+                URI.create("https://dashscope.aliyuncs.com"), "/compatible-mode/v1/chat/completions",
+                model, "FIXTURE_KEY", Duration.ofSeconds(2), Duration.ofSeconds(5), 8192, 512, 0,
+                NewsModelProfile.Format.JSON_OBJECT, new NewsModelProfile.Capabilities(
+                        true, false, NewsModelProfile.UsageFormat.STANDARD),
+                new NewsModelProfile.PricingVersion("fixture-v1", 1_000_000, 1_000_000, 2_000_000));
+    }
+
+    @Test
+    void aConfirmedFreeFailureRequiresAnExplicitRetryAfterTheCircuitIsReset() throws Exception {
+        long revision = ingestAndCompleteSingle("pubmed", "PMID-STAGE-3", "Glaucoma screening metadata", 1L);
+        curationProperties.setModelProfiles(Map.of("a", stagedProfile("fixture-a")));
+        var selection = new NewsModelProtocol.Selection("experiment.A", NewsModelProtocol.Prompt.P01, "a", null);
+        modelClient.enqueue(request -> new NewsCurationModels.DefinitiveFailure("MODEL_AUTH_REJECTED", 401, null, true, 1));
+        var failed = curationService.runModel(revision, POLICY_V1, "scope-a", selection);
+        assertEquals(NewsCurationModels.CallState.FAILED_DEFINITIVE, failed.receipt().state());
+        assertTrue(curationService.runModel(revision, POLICY_V1, "scope-a", selection).replayed());
+        assertThrows(IllegalStateException.class, () -> curationService.retryDefinitiveModel(revision, POLICY_V1,
+                "scope-a", selection, failed.receipt().callId()));
+
+        curationService.resetCircuitBreaker(failed.receipt().budgetDate(), "scope-a", "reviewer");
+        modelClient.enqueue(request -> new NewsCurationModels.Succeeded(SCREENING_JSON, 100, 20, 140, 200, "fixture-a", 1));
+        var retry = curationService.retryDefinitiveModel(revision, POLICY_V1, "scope-a", selection, failed.receipt().callId());
+        assertEquals(2, retry.receipt().attemptNo());
+        assertEquals(NewsCurationModels.CallState.SUCCEEDED, retry.receipt().state());
+        assertEquals(failed.receipt().logicalCallSha256(), retry.receipt().logicalCallSha256());
+        assertEquals(retry.receipt().callId(), curationService.runModel(revision, POLICY_V1, "scope-a", selection).receipt().callId());
+        assertThrows(IllegalArgumentException.class, () -> curationService.retryDefinitiveModel(revision, POLICY_V1,
+                "scope-a", selection, failed.receipt().callId()));
+        assertEquals(2, modelClient.invocations.get());
     }
 
     private long ingestAndCompleteSingle(String source, String recordId, String title, long configVersion)

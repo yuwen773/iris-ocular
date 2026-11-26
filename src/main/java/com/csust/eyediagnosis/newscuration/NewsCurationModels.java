@@ -20,7 +20,9 @@ public final class NewsCurationModels {
     }
 
     public enum EvidenceTier {
+        /** Historical codec value retained for frozen WP-03 snapshots. */
         PEER_REVIEWED_ABSTRACT,
+        LICENSED_ABSTRACT,
         CLINICAL_TRIAL_REGISTRY,
         METADATA_ONLY
     }
@@ -114,11 +116,19 @@ public final class NewsCurationModels {
             String userPrompt,
             String promptSha256,
             EvidenceSnapshot evidenceSnapshot,
-            Duration timeout
+            Duration timeout,
+            String profileKey,
+            String outputSchema
     ) {
+        public ModelCallRequest(String callId, String idempotencyKey, String provider, String modelName,
+                                String policyVersion, String systemPrompt, String userPrompt, String promptSha256,
+                                EvidenceSnapshot evidenceSnapshot, Duration timeout) {
+            this(callId, idempotencyKey, provider, modelName, policyVersion, systemPrompt, userPrompt,
+                    promptSha256, evidenceSnapshot, timeout, null, null);
+        }
     }
 
-    public sealed interface ModelCallOutcome permits Succeeded, DefinitiveFailure, UnknownOutcome {
+    public sealed interface ModelCallOutcome permits Succeeded, ChargedFailure, DefinitiveFailure, UnknownOutcome {
     }
 
     public record Succeeded(
@@ -128,8 +138,16 @@ public final class NewsCurationModels {
             long actualCostMicros,
             int httpStatus,
             String providerRequestId,
-            int latencyMs
+            int latencyMs,
+            Integer cachedPromptTokens
     ) implements ModelCallOutcome {
+        public Succeeded(String rawJson, int promptTokens, int completionTokens, long actualCostMicros,
+                         int httpStatus, String providerRequestId, int latencyMs) {
+            this(rawJson, promptTokens, completionTokens, actualCostMicros, httpStatus, providerRequestId, latencyMs, null);
+        }
+    }
+
+    public record ChargedFailure(String errorCode, Succeeded usage) implements ModelCallOutcome {
     }
 
     public record DefinitiveFailure(
@@ -195,7 +213,9 @@ public final class NewsCurationModels {
             Instant reservedAt,
             Instant dispatchedAt,
             Instant deadlineAt,
-            Instant completedAt
+            Instant completedAt,
+            String logicalCallSha256,
+            Integer cachedPromptTokens
     ) {
     }
 

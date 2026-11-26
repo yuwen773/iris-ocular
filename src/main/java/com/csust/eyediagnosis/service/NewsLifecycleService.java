@@ -481,6 +481,13 @@ public class NewsLifecycleService {
         ThrowUtils.throwIf(effectiveContent != null && effectiveContent.isBlank(),
                 ErrorCode.PARAMS_ERROR, "已发布资讯正文不能为空");
         validateClinicalAndInjectionSafety(effectiveTitle, effectiveSummary, effectiveContent);
+        if (boundCandidate != null && "clinicaltrials-gov".equals(boundCandidate.source)) {
+            String bodyText = effectiveContent == null ? null : HTML_BODY_BREAK.matcher(effectiveContent).replaceAll(" ");
+            ThrowUtils.throwIf(NewsEvidenceVerifier.findUnsupportedTrialOutcome(
+                            effectiveTitle, effectiveSummary, effectiveContent, normalizeBodyForSafetyCheck(effectiveContent),
+                            normalizeBodyForSafetyCheck(bodyText)).isPresent(),
+                    ErrorCode.PARAMS_ERROR, "试验登记快照缺少支持疗效或审批论断的结果证据");
+        }
 
         if (!hasAnyEvidence) {
             return null;
@@ -575,6 +582,7 @@ public class NewsLifecycleService {
         Integer matchingReceipt = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM t_news_model_call_receipt
                 WHERE callId = ? AND materialRevisionId = ? AND policyVersion = ? AND state = 'SUCCEEDED'
+                  AND logicalCallSha256 IS NULL
                 """, Integer.class, candidate.callId, candidate.materialRevisionId, candidate.policyVersion);
         if (!Integer.valueOf(1).equals(matchingReceipt)) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "模型调用回执未成功或与候选证据不匹配");

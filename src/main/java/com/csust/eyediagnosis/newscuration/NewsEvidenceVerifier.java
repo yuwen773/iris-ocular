@@ -48,10 +48,12 @@ public class NewsEvidenceVerifier {
     );
 
     private static final List<String> PROVEN_EFFICACY_MARKERS = List.of(
-            "已证实临床疗效", "证实有效", "获批临床治疗",
-            "proven effective", "established efficacy", "approved treatment",
-            "phase 3 completed", "phase iii completed", "三期临床已完成"
+            "证实临床疗效", "证实有效", "证明有效", "疗效已证实", "显著改善", "疗效确切", "获批临床治疗",
+            "proven effective", "established efficacy", "demonstrated efficacy", "significantly improved",
+            "approved treatment"
     );
+    private static final List<String> COMPLETION_MARKERS = List.of(
+            "phase 3 completed", "phase iii completed", "三期临床已完成");
 
     private static final Pattern PHASE3_MENTION_PATTERN = Pattern.compile(
             "(?i)(?:\\bphase\\s*(?:3|iii)\\b|三期临床|iii期)"
@@ -220,6 +222,14 @@ public class NewsEvidenceVerifier {
             }
         }
 
+        if ("clinicaltrials-gov".equals(snapshot.source())) {
+            findUnsupportedTrialOutcome(output.suggestedTitle(), output.suggestedSummary(),
+                    output.claims().stream().map(NewsCurationModels.CurationClaim::statement)
+                            .filter(java.util.Objects::nonNull).reduce("", (left, right) -> left + "\n" + right))
+                    .ifPresent(marker -> violations.add(new NewsCurationModels.EvidenceViolation(
+                            "TRIAL_STATUS_MISMATCH", "summary/claims",
+                            "Registry snapshot has no outcome data to support an efficacy or approval claim")));
+        }
         if ("clinicaltrials-gov".equals(snapshot.source()) && !isBlank(snapshot.trialJson())) {
             checkTrialStatusFidelity(violations, output, snapshot.trialJson());
         }
@@ -245,8 +255,7 @@ public class NewsEvidenceVerifier {
                 }
             }
         }
-        boolean completedPhase3Or4 = "COMPLETED".equalsIgnoreCase(overallStatus)
-                && (phases.contains("PHASE3") || phases.contains("PHASE4"));
+        boolean completedPhase3 = "COMPLETED".equalsIgnoreCase(overallStatus) && phases.contains("PHASE3");
 
         StringBuilder combined = new StringBuilder();
         if (output.suggestedTitle() != null) {
@@ -263,12 +272,12 @@ public class NewsEvidenceVerifier {
         String combinedText = combined.toString();
         String combinedLower = combinedText.toLowerCase(Locale.ROOT);
 
-        if (!completedPhase3Or4) {
-            for (String marker : PROVEN_EFFICACY_MARKERS) {
+        if (!completedPhase3) {
+            for (String marker : COMPLETION_MARKERS) {
                 if (combinedLower.contains(marker.toLowerCase(Locale.ROOT))) {
                     violations.add(new NewsCurationModels.EvidenceViolation(
                             "TRIAL_STATUS_MISMATCH", "summary/claims",
-                            "Claimed proven clinical efficacy or completed Phase 3 despite trial overallStatus="
+                            "Claimed completion despite trial overallStatus="
                                     + overallStatus + ", phases=" + phases));
                     return;
                 }
@@ -285,6 +294,16 @@ public class NewsEvidenceVerifier {
 
     public static Optional<String> findProhibitedClinicalMarker(String text) {
         return findFirstMarker(text, PROHIBITED_CLINICAL_MARKERS);
+    }
+
+    public static Optional<String> findUnsupportedTrialOutcome(String... fields) {
+        for (String field : fields) {
+            Optional<String> marker = findFirstMarker(field, PROVEN_EFFICACY_MARKERS);
+            if (marker.isPresent()) {
+                return marker;
+            }
+        }
+        return Optional.empty();
     }
 
     public static Optional<String> findPromptInjectionMarker(String text) {

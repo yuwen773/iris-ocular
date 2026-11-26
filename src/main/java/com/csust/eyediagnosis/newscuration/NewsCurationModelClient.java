@@ -1,7 +1,5 @@
 package com.csust.eyediagnosis.newscuration;
 
-import org.springframework.stereotype.Component;
-
 /**
  * Single-attempt SPI for invoking a curation model on a frozen {@link NewsCurationModels.EvidenceSnapshot}.
  *
@@ -17,7 +15,6 @@ public interface NewsCurationModelClient {
 /**
  * Default fail-closed model client when no authorized provider adapter is configured in Spring context.
  */
-@Component
 class DisabledNewsCurationModelClient implements NewsCurationModelClient {
 
     @Override

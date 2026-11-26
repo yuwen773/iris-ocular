@@ -323,6 +323,8 @@ class NewsEvidenceVerifierTest {
         NewsCurationModels.VerificationResult result = verifier.parseAndVerify(trialOutput, snapshot);
         assertTrue(result.valid(), () -> "Unexpected violations: " + result.violations());
         assertEquals(NewsCurationModels.CandidateStatus.CURATED_ACCEPTED, result.effectiveStatus());
+        assertViolation("TRIAL_STATUS_MISMATCH", verifier.parseAndVerify(
+                trialOutput.replace("临床试验注册状态为 COMPLETED。", "试验已证实临床疗效。"), snapshot));
     }
 
     private void assertSchemaFailure(String rawJson, NewsCurationModels.EvidenceSnapshot snapshot) {

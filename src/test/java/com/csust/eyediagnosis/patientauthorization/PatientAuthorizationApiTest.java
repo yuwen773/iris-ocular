@@ -165,14 +165,24 @@ class PatientAuthorizationApiTest {
         assertEquals("OFFERED", offer.path("status").asText());
         assertEquals("青光眼", offer.path("content").path("modelPrediction").asText());
         assertEquals(70, offer.path("content").path("modelProbability").asDouble());
-        assertTrue(java.time.Instant.parse(offer.path("expiresAt").asText()).isAfter(java.time.Instant.now()), "The displayed deadline must be in the future");
-        assertTrue(java.time.Instant.parse(offer.path("expiresAt").asText()).isBefore(java.time.Instant.now().plusSeconds(1860)));
+        // 截止时间由数据库时钟生成（UTC_TIMESTAMP + TTL），所以上下界也要用同一个时钟量：
+        // 拿 JVM 的 Instant.now() 比较，等于要求宿主机与数据库时钟一致，宿主时钟落后时
+        // 这条断言会稳定失败（2026-11-26 实测宿主慢约 19 分钟，15 分钟 TTL 被判成 34 分钟）。
+        java.time.Instant serverNow = java.time.Instant.parse(jdbc.queryForObject(
+                "SELECT DATE_FORMAT(UTC_TIMESTAMP(6), '%Y-%m-%dT%H:%i:%s.%fZ')", String.class));
+        assertTrue(java.time.Instant.parse(offer.path("expiresAt").asText()).isAfter(serverNow), "The displayed deadline must be in the future");
+        assertTrue(java.time.Instant.parse(offer.path("expiresAt").asText()).isBefore(serverNow.plusSeconds(1860)));
         assertTrue(offer.path("receipt").isNull());
         assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM t_diagnosis", Integer.class));
         JsonNode saved = approve(offer);
         assertEquals("APPROVED", saved.path("status").asText());
         assertFalse(saved.path("receipt").path("receiptId").asText().isBlank());
-        assertTrue(java.time.Duration.between(java.time.Instant.parse(saved.path("receipt").path("authorizedAt").asText()), java.time.Instant.now()).abs().getSeconds() < 60);
+        // 回执时间同样由 `authorizedAt=UTC_TIMESTAMP(6)` 写入，故与数据库当下比较；
+        // 跨到 JVM 时钟就等于要求宿主机与数据库时钟一致（2026-11-26 宿主慢约 19 分钟）。
+        java.time.Instant approvedAt = java.time.Instant.parse(saved.path("receipt").path("authorizedAt").asText());
+        java.time.Instant dbNow = java.time.Instant.parse(jdbc.queryForObject(
+                "SELECT DATE_FORMAT(UTC_TIMESTAMP(6), '%Y-%m-%dT%H:%i:%s.%fZ')", String.class));
+        assertTrue(java.time.Duration.between(approvedAt, dbNow).abs().getSeconds() < 60);
         assertEquals(saved.path("receipt"), offer().path("receipt"));
         assertEquals(saved.path("receipt"), approve(offer).path("receipt"));
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM t_diagnosis", Integer.class));

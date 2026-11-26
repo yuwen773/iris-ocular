@@ -6,6 +6,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
+import java.util.Map;
 
 /**
  * Deployment and policy settings for WP-03 News Engine curation, paid-model call budgets,
@@ -28,4 +29,5 @@ public class NewsCurationProperties {
     private long estimatedTokensPerCall = 4_000L;
     private long estimatedCostMicrosPerCall = 50_000L;
     private int maxResponseChars = 16_000;
+    private Map<String, NewsModelProfile> modelProfiles = Map.of();
 }

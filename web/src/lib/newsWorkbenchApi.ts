@@ -924,7 +924,8 @@ export function receiptStateView(state?: string | null): { label: string; risk: 
 export function evidenceTierLabel(tier?: string | null): string {
   switch (tier) {
     case "PEER_REVIEWED_ABSTRACT":
-      return "同行评议开放摘要"
+    case "LICENSED_ABSTRACT":
+      return "开放许可摘要（同行评审未验证）"
     case "CLINICAL_TRIAL_REGISTRY":
       return "临床试验注册库"
     case "METADATA_ONLY":
