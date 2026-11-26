@@ -34,7 +34,9 @@ public class NewsCurationPromptBuilder {
             1. Every claim quote must copy an exact verbatim substring from the named field in the snapshot.
             2. Do not cite field="abstract" when abstractLicense is absent (METADATA_ONLY).
             3. When evidenceTier is METADATA_ONLY, include an explicit limitation noting only metadata/title is available and no abstract or full text was reviewed.
-            4. When source is clinicaltrials-gov, do not claim proven clinical efficacy unless overallStatus is COMPLETED and trial phase supports it.
+            4. Trial registration, phase and completion describe study status only. This snapshot contains no trial results.
+               Do not infer efficacy, approval or treatment benefit from those fields.
+            5. An open abstract license only permits use of the text. Peer review and research integrity are independent.
             PolicyVersion: %s
             """;
 
@@ -58,7 +60,7 @@ public class NewsCurationPromptBuilder {
         if ("clinicaltrials-gov".equals(revision.source())) {
             tier = NewsCurationModels.EvidenceTier.CLINICAL_TRIAL_REGISTRY;
         } else if (licensedAbstract) {
-            tier = NewsCurationModels.EvidenceTier.PEER_REVIEWED_ABSTRACT;
+            tier = NewsCurationModels.EvidenceTier.LICENSED_ABSTRACT;
         } else {
             tier = NewsCurationModels.EvidenceTier.METADATA_ONLY;
         }

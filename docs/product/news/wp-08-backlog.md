@@ -4,22 +4,13 @@
 
 ## 1. 自动采集调度与生产定时部署
 
-WP-08A 在独立分支交付 Java 窗口规划、MySQL 互斥、自动任务审计及 systemd 定时配置示例。目标环境按单信源、小窗口灰度。见 [WP-08A 调度设计与运维](wp-08a-scheduling.md)。
+WP-08A 已合入主干并关闭。目标环境按单信源、小窗口灰度。见 [WP-08A 调度设计与运维](wp-08a-scheduling.md)。
 
 ## 2. 真实模型 Provider 适配
 
-**代码事实（当前）**
+WP-08B.0 / B.1 的统一 OpenAI Compatible 适配器、调用回执与模型实验协议见 [资讯精选契约](wp-08b-model-curation.md)。`eye-diagnosis.news-curation.enabled` 默认关闭。真实供应商联调、分层生成接入、人工标注与付费 A/B 留待后续授权。
 
-- 精选侧注入的默认实现是 `DisabledNewsCurationModelClient`：
-  任何调用都直接失败，**不会**发出任何 HTTP 请求，也不产生任何付费调用。
-- `eye-diagnosis.news-curation.enabled` 默认 `false`；`provider` / `model-name` / 预算上限
-  （`daily-max-calls`、`daily-max-tokens`、`daily-max-cost-micros`）只是**配置骨架**，
-  真实 Provider 适配器尚未接入。
-- 已经落地的是**围绕调用的一切外围机制**：预扣与结算、幂等回执、`OUTCOME_UNKNOWN` 的
-  人工对账、鉴权失败熔断与人工恢复、NewsBench 门禁。这些机制在真实适配器接入前不会被触发。
-- 因此「模型精选已上线」是不成立的说法；准确说法是「精选的预算与回执机制已就绪，模型调用本身未接入」。
-
-**进入 WP-08 的条件**
+**进入真实模型联调的条件**
 
 1. 明确 Provider、模型与数据出境边界（资讯摘要是否允许出境，摘要许可是否覆盖）。
 2. 预算熔断、幂等回执、对账流程在真实调用下重新验证一遍（当前只在夹具与离线回放下验证过）。

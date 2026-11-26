@@ -5,6 +5,7 @@ import com.csust.eyediagnosis.newsingestion.NewsMaterialCanonicalizer;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -13,6 +14,7 @@ import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.nio.charset.StandardCharsets;
 import java.sql.ResultSet;
@@ -57,6 +59,7 @@ public class NewsCurationService {
     private final NewsEvidenceVerifier verifier;
     private final NewsCurationPromptBuilder promptBuilder;
     private final ObjectMapper mapper;
+    private final NewsModelProtocol modelProtocol;
 
     @Autowired
     public NewsCurationService(JdbcTemplate jdbc,
@@ -73,6 +76,7 @@ public class NewsCurationService {
         this.verifier = verifier;
         this.promptBuilder = promptBuilder;
         this.mapper = mapper;
+        this.modelProtocol = new NewsModelProtocol(mapper);
     }
 
     public NewsCurationService(JdbcTemplate jdbc,
@@ -140,18 +144,46 @@ public class NewsCurationService {
                                                             String policyVersion,
                                                             LocalDate budgetDate,
                                                             String budgetScope) {
-        if (!properties.isEnabled()) {
-            throw new IllegalStateException("NEWS_CURATION_DISABLED");
-        }
-        String effectivePolicy = (policyVersion == null || policyVersion.isBlank())
-                ? properties.getPolicyVersion() : policyVersion.trim();
+        requireInvocationBoundary();
+        String effectivePolicy = effectivePolicy(policyVersion);
         LocalDate effectiveDate = budgetDate != null ? budgetDate : dbUtcDate();
         String effectiveScope = normalizeScope(budgetScope);
 
-        NewsIngestionService.VisibleRevision revision = loadVisibleRevision(materialRevisionId)
-                .orElseThrow(() -> new IllegalArgumentException("REVISION_NOT_VISIBLE"));
+        NewsIngestionService.VisibleRevision revision = requireVisibleRevision(materialRevisionId);
+        return executeCall(revision, promptBuilder.buildSnapshot(revision), effectivePolicy,
+                effectiveDate, effectiveScope, null).candidate();
+    }
 
+    public record ModelRun(NewsModelProtocol.Identity identity, NewsCurationModels.CallReceiptSnapshot receipt,
+                           JsonNode frozenOutput, boolean replayed) {
+    }
+
+    /** Runs one frozen public-literature stage. Results remain in the receipt ledger pending editorial workflow. */
+    public ModelRun runModel(long materialRevisionId, String policyVersion, String budgetScope,
+                             NewsModelProtocol.Selection selection) {
+        requireInvocationBoundary();
+        NewsModelProfile profile = properties.getModelProfiles().get(selection.profileKey());
+        if (profile == null) {
+            throw new IllegalStateException("MODEL_CLIENT_UNCONFIGURED");
+        }
+        String policy = effectivePolicy(policyVersion);
+        String scope = normalizeScope(budgetScope);
+        if (!NewsModelProfile.identifier(scope, 64)) {
+            throw new IllegalArgumentException("Invalid budget scope");
+        }
+        NewsIngestionService.VisibleRevision revision = requireVisibleRevision(materialRevisionId);
         NewsCurationModels.EvidenceSnapshot snapshot = promptBuilder.buildSnapshot(revision);
+        var prepared = modelProtocol.prepare(selection, profile, policy, snapshot, previousTrial(revision),
+                frozenUpstream(selection, revision.revisionId(), policy));
+        Execution execution = executeCall(revision, snapshot, policy, dbUtcDate(), scope, prepared);
+        var receipt = getCallReceipt(execution.callId()).orElseThrow();
+        return new ModelRun(prepared.identity(), receipt, readFrozenOutput(execution.callId()), execution.replayed());
+    }
+
+    private Execution executeCall(NewsIngestionService.VisibleRevision revision,
+                                  NewsCurationModels.EvidenceSnapshot snapshot, String effectivePolicy,
+                                  LocalDate effectiveDate, String effectiveScope, NewsModelProtocol.Prepared prepared) {
+
         String snapshotJson = promptBuilder.canonicalSnapshotJson(snapshot);
         String snapshotSha256 = NewsMaterialCanonicalizer.sha256Hex(snapshotJson.getBytes(StandardCharsets.UTF_8));
         String pendingCallId = UUID.randomUUID().toString();
@@ -162,10 +194,10 @@ public class NewsCurationService {
 
         ReservationOutcome reserved = transactions.execute(status -> reserveAttempt(
                 revision, snapshot, snapshotJson, snapshotSha256,
-                effectivePolicy, effectiveDate, effectiveScope, pendingCallId));
+                effectivePolicy, effectiveDate, effectiveScope, pendingCallId, prepared));
 
-        if (reserved.replayedResult != null) {
-            return reserved.replayedResult;
+        if (reserved.replayedCallId != null || reserved.replayedResult != null) {
+            return new Execution(reserved.replayedCallId, reserved.replayedResult, true);
         }
 
         String dispatchFailure = transactions.execute(status ->
@@ -193,14 +225,98 @@ public class NewsCurationService {
         SettlementResult settled = transactions.execute(status -> settleOutcome(
                 reserved.request, snapshot, snapshotJson, snapshotSha256,
                 reserved.reservedTokens, reserved.reservedCostMicros,
-                effectiveDate, effectiveScope, finalOutcome));
+                effectiveDate, effectiveScope, finalOutcome, prepared));
         if (settled == null) {
             throw new IllegalStateException("MODEL_CALL_SETTLEMENT_MISSING");
         }
         if (settled.definitiveFailureMessage() != null) {
             throw new IllegalStateException(settled.definitiveFailureMessage());
         }
-        return settled.result();
+        return new Execution(reserved.request.callId(), settled.result(), false);
+    }
+
+    private void requireInvocationBoundary() {
+        if (!properties.isEnabled()) {
+            throw new IllegalStateException("NEWS_CURATION_DISABLED");
+        }
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            throw new IllegalStateException("MODEL_CALL_REQUIRES_COMMITTED_RESERVATION");
+        }
+    }
+
+    private String effectivePolicy(String policyVersion) {
+        return (policyVersion == null || policyVersion.isBlank()) ? properties.getPolicyVersion() : policyVersion.trim();
+    }
+
+    private NewsIngestionService.VisibleRevision requireVisibleRevision(long id) {
+        return loadVisibleRevision(id).orElseThrow(() -> new IllegalArgumentException("REVISION_NOT_VISIBLE"));
+    }
+
+    private NewsEditorialEvidence previousTrial(NewsIngestionService.VisibleRevision revision) {
+        if (!"clinicaltrials-gov".equals(revision.source())) {
+            return null;
+        }
+        return jdbc.query("""
+                SELECT id FROM t_news_material_revision
+                WHERE materialId = ? AND id < ? AND visibleAt IS NOT NULL
+                ORDER BY id DESC LIMIT 1
+                """, (rs, row) -> rs.getLong(1), revision.materialId(), revision.revisionId())
+                .stream().findFirst().flatMap(this::loadVisibleRevision).map(promptBuilder::buildSnapshot)
+                .map(previous -> NewsEditorialEvidence.from(previous, mapper)).orElse(null);
+    }
+
+    private NewsModelProtocol.Upstream frozenUpstream(NewsModelProtocol.Selection selection, long revision, String policy) {
+        if (selection.upstreamCallId() == null) {
+            return null;
+        }
+        return jdbc.query("""
+                SELECT callIdentityJson, responseSha256, frozenResponseJson
+                FROM t_news_model_call_receipt
+                WHERE callId = ? AND materialRevisionId = ? AND state = 'SUCCEEDED'
+                    AND logicalCallSha256 IS NOT NULL
+                """, (rs, row) -> {
+            var identity = readIdentity(rs.getString("callIdentityJson"));
+            String output = rs.getString("frozenResponseJson");
+            String digest = rs.getString("responseSha256");
+            if (!selection.namespace().equals(identity.namespace()) || !policy.equals(identity.policyVersion())
+                    || identity.stage() != NewsModelProtocol.Stage.SCREENING
+                    || output == null || !NewsModelProtocol.sha256(output).equals(digest)) {
+                throw new IllegalArgumentException("UPSTREAM_MODEL_RESULT_UNAVAILABLE");
+            }
+            return new NewsModelProtocol.Upstream(digest, readTree(output));
+        }, selection.upstreamCallId(), revision).stream().findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("UPSTREAM_MODEL_RESULT_UNAVAILABLE"));
+    }
+
+    private JsonNode readFrozenOutput(String callId) {
+        return jdbc.queryForObject("""
+                SELECT frozenResponseJson, responseSha256 FROM t_news_model_call_receipt WHERE callId = ?
+                """, (rs, row) -> {
+            String raw = rs.getString("frozenResponseJson");
+            if (raw == null) {
+                return null;
+            }
+            if (!NewsModelProtocol.sha256(raw).equals(rs.getString("responseSha256"))) {
+                throw new IllegalStateException("Corrupt frozen model output digest");
+            }
+            return readTree(raw);
+        }, callId);
+    }
+
+    private NewsModelProtocol.Identity readIdentity(String raw) {
+        try {
+            return mapper.readValue(raw, NewsModelProtocol.Identity.class);
+        } catch (JsonProcessingException ex) {
+            throw new IllegalStateException("Corrupt stored model identity", ex);
+        }
+    }
+
+    private JsonNode readTree(String raw) {
+        try {
+            return mapper.readTree(raw);
+        } catch (JsonProcessingException ex) {
+            throw new IllegalStateException("Corrupt stored model output", ex);
+        }
     }
 
     private String dispatchReservedCall(String callId, LocalDate budgetDate, String budgetScope) {
@@ -291,7 +407,11 @@ public class NewsCurationService {
                     String snapshotJson = promptBuilder.canonicalSnapshotJson(snapshot);
                     String snapshotSha256 = NewsMaterialCanonicalizer.sha256Hex(
                             snapshotJson.getBytes(StandardCharsets.UTF_8));
-                    NewsCurationModels.VerificationResult verified = verifier.parseAndVerify(recoveredRawJson, snapshot);
+                    boolean staged = receipt.identityJson != null;
+                    if (staged && modelProtocol.validatedOutput(recoveredRawJson, readIdentity(receipt.identityJson),
+                            snapshot, properties.getMaxResponseChars()) == null) {
+                        throw new IllegalArgumentException("Recovered output violates frozen model contract");
+                    }
                     String responseSha = NewsMaterialCanonicalizer.sha256Hex(
                             recoveredRawJson.getBytes(StandardCharsets.UTF_8));
 
@@ -308,6 +428,7 @@ public class NewsCurationService {
                                 httpStatus = COALESCE(httpStatus, 200),
                                 providerRequestId = COALESCE(?, providerRequestId),
                                 responseSha256 = ?,
+                                frozenResponseJson = ?,
                                 errorCode = NULL,
                                 reconciledBy = ?,
                                 reconcileNote = ?,
@@ -315,10 +436,12 @@ public class NewsCurationService {
                                 completedAt = UTC_TIMESTAMP(6)
                             WHERE callId = ?
                             """, promptTokens, completionTokens, actualCostMicros, providerRequestId,
-                            responseSha, reconciledBy.trim(), note, callId);
+                            responseSha, staged ? recoveredRawJson : null, reconciledBy.trim(), note, callId);
 
-                    upsertVerifiedCandidate(snapshot, snapshotJson, snapshotSha256,
-                            receipt.policyVersion, callId, verified);
+                    if (!staged) {
+                        upsertVerifiedCandidate(snapshot, snapshotJson, snapshotSha256,
+                                receipt.policyVersion, callId, verifier.parseAndVerify(recoveredRawJson, snapshot));
+                    }
                 }
                 case CONFIRMED_CHARGED_NO_OUTPUT -> {
                     if (promptTokens == null || completionTokens == null || actualCostMicros == null
@@ -412,22 +535,24 @@ public class NewsCurationService {
                                               String policyVersion,
                                               LocalDate budgetDate,
                                               String budgetScope,
-                                              String callId) {
-        // Canonical lock order: circuit (when needed) -> budget -> receipts -> candidate
+                                              String callId, NewsModelProtocol.Prepared prepared) {
+        // Canonical lock order: circuit (when needed), global day guard, scope budget, receipts, candidate.
         String circuitReason = lockCircuit(budgetScope);
         NewsCurationModels.BudgetSnapshot budget = lockBudget(budgetDate, budgetScope);
+        String logical = prepared == null ? null : prepared.logicalCallSha256();
 
         List<ReceiptRow> existingReceipts = jdbc.query("""
                 SELECT callId, materialRevisionId, policyVersion, attemptNo,
                        DATE_FORMAT(budgetDate, '%Y-%m-%d') AS budgetDate, budgetScope,
-                       state, reservedTokens, reservedCostMicros
+                       state, reservedTokens, reservedCostMicros, callIdentityJson
                 FROM t_news_model_call_receipt
                 WHERE materialRevisionId = ? AND policyVersion = ?
+                   AND ((? IS NULL AND logicalCallSha256 IS NULL) OR logicalCallSha256 = ?)
                 ORDER BY attemptNo ASC
                 FOR UPDATE
-                """, (rs, rowNum) -> mapReceiptRow(rs), revision.revisionId(), policyVersion);
+                """, (rs, rowNum) -> mapReceiptRow(rs), revision.revisionId(), policyVersion, logical, logical);
 
-        Optional<NewsCurationModels.CurationResult> existingCandidate = jdbc.query("""
+        Optional<NewsCurationModels.CurationResult> existingCandidate = prepared != null ? Optional.empty() : jdbc.query("""
                 SELECT callId, status, decision, evidenceTier, relevanceScore,
                        suggestedTitle, suggestedSummary, category,
                        limitationsJson, claimsJson, violationsJson,
@@ -443,7 +568,7 @@ public class NewsCurationService {
             if (candidate.status() == NewsCurationModels.CandidateStatus.NEEDS_RECONCILIATION) {
                 throw new IllegalStateException("CURATION_AWAITING_RECONCILIATION");
             }
-            return new ReservationOutcome(candidate, null, 0L, 0L);
+            return new ReservationOutcome(candidate.callId(), candidate, null, 0L, 0L);
         }
 
         int maxAttempt = 0;
@@ -454,25 +579,33 @@ public class NewsCurationService {
                     || r.state == NewsCurationModels.CallState.OUTCOME_UNKNOWN) {
                 throw new IllegalStateException("CURATION_AWAITING_RECONCILIATION");
             }
+            if (prepared != null && (r.state == NewsCurationModels.CallState.SUCCEEDED
+                    || r.state == NewsCurationModels.CallState.FAILED_CHARGED
+                    || r.state == NewsCurationModels.CallState.FAILED_DEFINITIVE)) {
+                return new ReservationOutcome(r.callId, null, null, 0L, 0L);
+            }
         }
 
         if (circuitReason != null) {
             throw new IllegalStateException("CURATION_CIRCUIT_BROKEN:" + circuitReason);
         }
 
-        long estTokens = Math.max(1L, properties.getEstimatedTokensPerCall());
-        long estCost = Math.max(0L, properties.getEstimatedCostMicrosPerCall());
+        long estTokens = prepared == null ? Math.max(1L, properties.getEstimatedTokensPerCall()) : prepared.reservedTokens();
+        long estCost = prepared == null ? Math.max(0L, properties.getEstimatedCostMicrosPerCall()) : prepared.reservedCost();
 
         if (budget.usedCalls() + budget.reservedCalls() + 1 > budget.maxCalls()
                 || budget.usedTokens() + budget.reservedTokens() + estTokens > budget.maxTokens()
-                || budget.usedCostMicros() + budget.reservedCostMicros() + estCost > budget.maxCostMicros()) {
+                || budget.usedCostMicros() + budget.reservedCostMicros() + estCost > budget.maxCostMicros()
+                || !withinGlobalBudget(budgetDate, estTokens, estCost)) {
             throw new IllegalStateException("BUDGET_EXHAUSTED");
         }
 
         int nextAttempt = maxAttempt + 1;
-        String idempotencyKey = revision.revisionId() + ":" + policyVersion + ":" + nextAttempt;
-        NewsCurationModels.ModelCallRequest request = promptBuilder.buildRequest(
-                callId, idempotencyKey, policyVersion, snapshot);
+        String idempotencyKey = prepared == null ? revision.revisionId() + ":" + policyVersion + ":" + nextAttempt
+                : logical + ":" + nextAttempt;
+        NewsCurationModels.ModelCallRequest request = prepared == null
+                ? promptBuilder.buildRequest(callId, idempotencyKey, policyVersion, snapshot)
+                : prepared.request(callId, idempotencyKey, snapshot);
 
         jdbc.update("""
                 UPDATE t_news_curation_budget
@@ -482,20 +615,21 @@ public class NewsCurationService {
                 WHERE budgetDate = ? AND scope = ?
                 """, estTokens, estCost, budgetDate.toString(), budgetScope);
 
-        long timeoutMicros = Math.max(1_000L, properties.getCallTimeout().toNanos() / 1_000L);
+        long timeoutMicros = Math.max(1_000L, request.timeout().toNanos() / 1_000L);
         jdbc.update("""
                 INSERT INTO t_news_model_call_receipt
                     (callId, idempotencyKey, materialRevisionId, policyVersion, attemptNo,
                      budgetDate, budgetScope, provider, modelName, promptSha256, state,
-                     reservedTokens, reservedCostMicros, reservedAt, deadlineAt)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'RESERVED', ?, ?, UTC_TIMESTAMP(6),
+                     reservedTokens, reservedCostMicros, logicalCallSha256, callIdentityJson, reservedAt, deadlineAt)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'RESERVED', ?, ?, ?, ?, UTC_TIMESTAMP(6),
                         DATE_ADD(UTC_TIMESTAMP(6), INTERVAL ? MICROSECOND))
                 """,
                 callId, idempotencyKey, revision.revisionId(), policyVersion, nextAttempt,
                 budgetDate.toString(), budgetScope, request.provider(), request.modelName(),
-                request.promptSha256(), estTokens, estCost, timeoutMicros);
+                request.promptSha256(), estTokens, estCost, logical,
+                prepared == null ? null : prepared.identityJson(), timeoutMicros);
 
-        return new ReservationOutcome(null, request, estTokens, estCost);
+        return new ReservationOutcome(null, null, request, estTokens, estCost);
     }
 
     private SettlementResult settleOutcome(NewsCurationModels.ModelCallRequest request,
@@ -506,7 +640,8 @@ public class NewsCurationService {
                                            long reservedCostMicros,
                                            LocalDate budgetDate,
                                            String budgetScope,
-                                           NewsCurationModels.ModelCallOutcome outcome) {
+                                           NewsCurationModels.ModelCallOutcome outcome,
+                                           NewsModelProtocol.Prepared prepared) {
         if (outcome instanceof NewsCurationModels.DefinitiveFailure failure && failure.authFailure()) {
             lockCircuit(budgetScope);
         }
@@ -514,6 +649,26 @@ public class NewsCurationService {
         ReceiptRow receipt = lockReceipt(request.callId());
         if (receipt.state != NewsCurationModels.CallState.DISPATCHED) {
             throw new IllegalStateException("CALL_ALREADY_TRANSITIONED:" + receipt.state);
+        }
+
+        if (prepared != null) {
+            NewsCurationModels.ChargedFailure failure = outcome instanceof NewsCurationModels.ChargedFailure f ? f : null;
+            NewsCurationModels.Succeeded usage = outcome instanceof NewsCurationModels.Succeeded s
+                    ? s : failure == null ? null : failure.usage();
+            if (usage != null) {
+                if (usage.promptTokens() < 0 || usage.completionTokens() < 0 || usage.actualCostMicros() < 0
+                        || (long) usage.promptTokens() + usage.completionTokens() > reservedTokens
+                        || usage.actualCostMicros() > reservedCostMicros) {
+                    outcome = new NewsCurationModels.UnknownOutcome("USAGE_OUTSIDE_RESERVED_ENVELOPE", usage.httpStatus(),
+                            usage.providerRequestId(), usage.latencyMs());
+                } else {
+                    String output = failure == null && modelProtocol.validatedOutput(usage.rawJson(),
+                            prepared.identity(), snapshot, properties.getMaxResponseChars()) != null ? usage.rawJson() : null;
+                    String error = failure != null ? failure.errorCode() : output == null ? "INVALID_STRUCTURED_OUTPUT" : null;
+                    settleStagedCharge(receipt, usage, output, error);
+                    return new SettlementResult(null, null);
+                }
+            }
         }
 
         if (outcome instanceof NewsCurationModels.Succeeded s) {
@@ -580,7 +735,7 @@ public class NewsCurationService {
                         completedAt = UTC_TIMESTAMP(6)
                     WHERE callId = ?
                     """, f.httpStatus(), f.providerRequestId(), f.errorCode(), f.latencyMs(), request.callId());
-            return new SettlementResult(null, "MODEL_CALL_FAILED:" + f.errorCode());
+            return new SettlementResult(null, prepared == null ? "MODEL_CALL_FAILED:" + f.errorCode() : null);
         }
 
         NewsCurationModels.UnknownOutcome unknown = (NewsCurationModels.UnknownOutcome) outcome;
@@ -595,6 +750,10 @@ public class NewsCurationService {
                 WHERE callId = ?
                 """, unknown.httpStatus(), unknown.providerRequestId(), unknown.errorCode(),
                 unknown.latencyMs(), request.callId());
+
+        if (prepared != null) {
+            return new SettlementResult(null, null);
+        }
 
         upsertNeedsReconciliationCandidate(snapshot, snapshotJson, snapshotSha256,
                 request.policyVersion(), request.callId());
@@ -617,11 +776,25 @@ public class NewsCurationService {
         ), null);
     }
 
+    private void settleStagedCharge(ReceiptRow receipt, NewsCurationModels.Succeeded usage, String output, String error) {
+        settleChargedBudget(receipt.budgetDate, receipt.budgetScope, receipt.reservedTokens, receipt.reservedCostMicros,
+                (long) usage.promptTokens() + usage.completionTokens(), usage.actualCostMicros());
+        jdbc.update("""
+                UPDATE t_news_model_call_receipt
+                SET state = ?, promptTokens = ?, completionTokens = ?, cachedPromptTokens = ?,
+                    actualCostMicros = ?, providerRequestId = COALESCE(?, providerRequestId), httpStatus = ?,
+                    latencyMs = ?, responseSha256 = ?, frozenResponseJson = ?, errorCode = ?, completedAt = UTC_TIMESTAMP(6)
+                WHERE callId = ?
+                """, output == null ? "FAILED_CHARGED" : "SUCCEEDED", usage.promptTokens(), usage.completionTokens(),
+                usage.cachedPromptTokens(), usage.actualCostMicros(), usage.providerRequestId(), usage.httpStatus(),
+                usage.latencyMs(), output == null ? null : NewsModelProtocol.sha256(output), output, error, receipt.callId);
+    }
+
     private NewsCurationModels.CallState reclaimSingleStaleCall(String callId) {
         ReceiptRow header = jdbc.query("""
                 SELECT callId, materialRevisionId, policyVersion, attemptNo,
                        DATE_FORMAT(budgetDate, '%Y-%m-%d') AS budgetDate, budgetScope,
-                       state, reservedTokens, reservedCostMicros
+                       state, reservedTokens, reservedCostMicros, callIdentityJson
                 FROM t_news_model_call_receipt
                 WHERE callId = ?
                 """, (rs, rowNum) -> mapReceiptRow(rs), callId).stream().findFirst().orElse(null);
@@ -650,7 +823,7 @@ public class NewsCurationService {
                     WHERE callId = ?
                     """, callId);
             NewsIngestionService.VisibleRevision rev = loadVisibleRevision(locked.materialRevisionId).orElse(null);
-            if (rev != null) {
+            if (rev != null && locked.identityJson == null) {
                 NewsCurationModels.EvidenceSnapshot snapshot = promptBuilder.buildSnapshot(rev);
                 String snapshotJson = promptBuilder.canonicalSnapshotJson(snapshot);
                 String snapshotSha = NewsMaterialCanonicalizer.sha256Hex(
@@ -806,6 +979,14 @@ public class NewsCurationService {
     }
 
     private NewsCurationModels.BudgetSnapshot lockBudget(LocalDate budgetDate, String scope) {
+        jdbc.update("""
+                INSERT INTO t_news_curation_budget_guard (budgetDate, maxCalls, maxTokens, maxCostMicros)
+                VALUES (?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE maxCalls = LEAST(maxCalls, VALUES(maxCalls)),
+                    maxTokens = LEAST(maxTokens, VALUES(maxTokens)),
+                    maxCostMicros = LEAST(maxCostMicros, VALUES(maxCostMicros))
+                """, budgetDate, properties.getDailyMaxCalls(), properties.getDailyMaxTokens(),
+                properties.getDailyMaxCostMicros());
         return jdbc.queryForObject("""
                 SELECT DATE_FORMAT(budgetDate, '%Y-%m-%d') AS budgetDate, scope,
                        maxCalls, usedCalls, reservedCalls,
@@ -818,11 +999,21 @@ public class NewsCurationService {
                 """, (rs, rowNum) -> mapBudgetRow(rs), budgetDate.toString(), scope);
     }
 
+    private boolean withinGlobalBudget(LocalDate date, long tokens, long cost) {
+        return Boolean.TRUE.equals(jdbc.queryForObject("""
+                SELECT (1 + COALESCE(SUM(b.usedCalls + b.reservedCalls), 0) <= g.maxCalls
+                    AND ? + COALESCE(SUM(b.usedTokens + b.reservedTokens), 0) <= g.maxTokens
+                    AND ? + COALESCE(SUM(b.usedCostMicros + b.reservedCostMicros), 0) <= g.maxCostMicros)
+                FROM t_news_curation_budget_guard g LEFT JOIN t_news_curation_budget b ON b.budgetDate = g.budgetDate
+                WHERE g.budgetDate = ? GROUP BY g.budgetDate, g.maxCalls, g.maxTokens, g.maxCostMicros
+                """, Boolean.class, tokens, cost, date));
+    }
+
     private ReceiptRow lockReceipt(String callId) {
         List<ReceiptRow> rows = jdbc.query("""
                 SELECT callId, materialRevisionId, policyVersion, attemptNo,
                        DATE_FORMAT(budgetDate, '%Y-%m-%d') AS budgetDate, budgetScope,
-                       state, reservedTokens, reservedCostMicros
+                       state, reservedTokens, reservedCostMicros, callIdentityJson
                 FROM t_news_model_call_receipt
                 WHERE callId = ?
                 FOR UPDATE
@@ -921,7 +1112,8 @@ public class NewsCurationService {
                 rs.getString("budgetScope"),
                 NewsCurationModels.CallState.valueOf(rs.getString("state")),
                 rs.getLong("reservedTokens"),
-                rs.getLong("reservedCostMicros")
+                rs.getLong("reservedCostMicros"),
+                rs.getString("callIdentityJson")
         );
     }
 
@@ -954,7 +1146,9 @@ public class NewsCurationService {
                 parseUtcInstant(rs.getString("reservedAtUtc")),
                 parseUtcInstant(rs.getString("dispatchedAtUtc")),
                 parseUtcInstant(rs.getString("deadlineAtUtc")),
-                parseUtcInstant(rs.getString("completedAtUtc"))
+                parseUtcInstant(rs.getString("completedAtUtc")),
+                rs.getString("logicalCallSha256"),
+                (Integer) rs.getObject("cachedPromptTokens")
         );
     }
 
@@ -994,7 +1188,7 @@ public class NewsCurationService {
                    DATE_FORMAT(budgetDate, '%Y-%m-%d') AS budgetDate, budgetScope,
                    provider, modelName, promptSha256, state, reservedTokens, reservedCostMicros,
                    promptTokens, completionTokens, actualCostMicros, httpStatus, providerRequestId,
-                   responseSha256, errorCode, latencyMs, reconciledBy, reconcileNote,
+                   responseSha256, errorCode, latencyMs, reconciledBy, reconcileNote, logicalCallSha256, cachedPromptTokens,
                    DATE_FORMAT(reconciledAt, '%Y-%m-%dT%H:%i:%s.%fZ') AS reconciledAtUtc,
                    DATE_FORMAT(reservedAt, '%Y-%m-%dT%H:%i:%s.%fZ') AS reservedAtUtc,
                    DATE_FORMAT(dispatchedAt, '%Y-%m-%dT%H:%i:%s.%fZ') AS dispatchedAtUtc,
@@ -1004,11 +1198,15 @@ public class NewsCurationService {
             """;
 
     private record ReservationOutcome(
+            String replayedCallId,
             NewsCurationModels.CurationResult replayedResult,
             NewsCurationModels.ModelCallRequest request,
             long reservedTokens,
             long reservedCostMicros
     ) {
+    }
+
+    private record Execution(String callId, NewsCurationModels.CurationResult candidate, boolean replayed) {
     }
 
     private record ReceiptRow(
@@ -1020,7 +1218,8 @@ public class NewsCurationService {
             String budgetScope,
             NewsCurationModels.CallState state,
             long reservedTokens,
-            long reservedCostMicros
+            long reservedCostMicros,
+            String identityJson
     ) {
     }
 
