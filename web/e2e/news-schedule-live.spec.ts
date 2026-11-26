@@ -20,7 +20,7 @@ test("资讯工作台读取 Spring/MySQL 的自动窗口、游标和 Worker 领�
   expect(scheduling.ok()).toBe(true)
   expect(scheduling.headers()["cache-control"]).toContain("no-store")
   const panel = page.getByRole("region", { name: "自动采集调度" })
-  const sourceCard = panel.getByRole("article").filter({ has: panel.getByRole("heading", { name: source }) })
+  const sourceCard = panel.getByRole("article").filter({ has: page.getByRole("heading", { name: source }) })
   await expect(panel.getByText("调度已开启")).toBeVisible()
   await expect(sourceCard.getByText(/v1 · \d{4}-\d{2}-\d{2}/)).toBeVisible()
   await expect(sourceCard.getByText(/[1-9]\d* 条/)).toBeVisible()
