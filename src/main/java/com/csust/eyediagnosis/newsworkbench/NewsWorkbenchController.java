@@ -249,11 +249,14 @@ public class NewsWorkbenchController {
 
     @PostMapping("/receipts/{callId}/materialize")
     @AuthCheck(mustRole = AuthConstant.ADMIN_ROLE)
-    @Operation(summary = "把冻结的生产联合精选回执转成待人工审核候选（幂等）")
+    @Operation(summary = "把冻结的生产联合精选回执转成待人工审核候选（幂等；可显式替代一条失效旧候选）")
     public BaseResponse<NewsWorkbenchModels.MaterializedCandidateVO> materializeCandidate(
             @PathVariable("callId") String callId,
+            @RequestBody(required = false) NewsWorkbenchModels.MaterializeCandidateRequest body,
             HttpServletRequest request) {
         User operator = userService.getLoginUser(request);
-        return ResultUtils.success(workbenchService.materializeCandidate(callId, operator));
+        return ResultUtils.success(workbenchService.materializeCandidate(callId, operator,
+                body == null ? null : body.supersedesCandidateId(),
+                body == null ? null : body.reason()));
     }
 }

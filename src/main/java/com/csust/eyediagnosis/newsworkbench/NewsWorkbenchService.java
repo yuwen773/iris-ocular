@@ -1386,16 +1386,30 @@ public class NewsWorkbenchService {
 
     /** WP-08B.2：把一条冻结的生产联合精选回执转成待人工审核候选（幂等）。 */
     public NewsWorkbenchModels.MaterializedCandidateVO materializeCandidate(String callId, User operator) {
+        return materializeCandidate(callId, operator, null, null);
+    }
+
+    /**
+     * 同一入口的替代形态：点名一条已失效的旧候选并给出理由，才允许新的成功回执接管它。
+     * 未点名时保持旧行为——重复转换一律拒绝，绝不覆盖。
+     */
+    public NewsWorkbenchModels.MaterializedCandidateVO materializeCandidate(String callId, User operator,
+                                                                           Long supersedesCandidateId,
+                                                                           String supersedeReason) {
         if (callId == null || callId.isBlank()) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "callId 不能为空");
+        }
+        if (supersedesCandidateId != null && (supersedeReason == null || supersedeReason.isBlank())) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "替代旧候选必须写明理由");
         }
         String reviewer = requireOperator(operator);
         try {
             NewsCurationService.MaterializedCandidate materialized =
-                    curationService.materializeCandidate(callId.trim(), reviewer);
+                    curationService.materializeCandidate(callId.trim(), reviewer, supersedesCandidateId,
+                            supersedeReason);
             return new NewsWorkbenchModels.MaterializedCandidateVO(materialized.candidateId(),
                     materialized.status(), materialized.callId(), materialized.created(),
-                    materialized.evidenceVerificationSha256());
+                    materialized.evidenceVerificationSha256(), materialized.supersededCandidateId());
         } catch (IllegalStateException refused) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, materializeMessage(refused.getMessage()));
         } catch (IllegalArgumentException invalid) {
@@ -1403,15 +1417,25 @@ public class NewsWorkbenchService {
         }
     }
 
-    private static String materializeMessage(String code) {
-        return switch (String.valueOf(code)) {
+    private static String materializeMessage(String rawCode) {
+        String code = String.valueOf(rawCode);
+        int separator = code.indexOf(':');
+        if (separator > 0) {
+            code = code.substring(0, separator);
+        }
+        return switch (code) {
             case "MODEL_CALL_NOT_FOUND" -> "模型调用回执不存在";
             case "MODEL_CALL_NOT_MATERIALIZABLE" -> "只有已成功且冻结了响应的回执可以转为候选";
             case "MODEL_CALL_NOT_PRODUCTION_JOINT" -> "只有生产命名空间的联合精选结果可以转为候选";
             case "MODEL_CALL_IDENTITY_INVALID" -> "模型调用身份无法解析";
             case "EVIDENCE_VERIFICATION_STALE" -> "证据核验已撤回或变更，请重新核验后再转换";
             case "FROZEN_OUTPUT_INVALID" -> "冻结响应未通过当前契约校验";
-            case "CANDIDATE_ALREADY_MATERIALIZED" -> "该资料修订与策略版本已有候选，禁止覆盖";
+            case "CANDIDATE_ALREADY_MATERIALIZED" -> "该资料修订与策略版本已有候选，禁止覆盖；确需替代请点名旧候选并写明理由";
+            case "CANDIDATE_POLICY_CONFLICT" -> "同一资料修订已存在其他策略版本的候选，禁止通过改策略版本绕开冲突";
+            case "CANDIDATE_SUPERSEDE_TARGET_MISSING" -> "没有可替代的生效候选";
+            case "CANDIDATE_SUPERSEDE_TARGET_MISMATCH" -> "指定的替代对象不是当前生效候选";
+            case "CANDIDATE_NOT_SUPERSEDABLE" -> "当前候选状态不允许被替代，请先处理对账或状态问题";
+            case "CANDIDATE_ALREADY_DRAFTED" -> "旧候选已关联未删除的资讯，请先处置该草稿后再替代";
             default -> "模型结果无法转为候选: " + code;
         };
     }

@@ -15,6 +15,7 @@ import com.csust.eyediagnosis.model.entity.NewsAudit;
 import com.csust.eyediagnosis.model.entity.User;
 import com.csust.eyediagnosis.model.vo.news.NewsRevisionVO;
 import com.csust.eyediagnosis.newscuration.NewsCurationModels;
+import com.csust.eyediagnosis.newscuration.NewsEditorialDraft;
 import com.csust.eyediagnosis.newscuration.NewsEvidenceLedgerStore;
 import com.csust.eyediagnosis.newscuration.NewsEvidenceVerifier;
 import com.csust.eyediagnosis.newsingestion.NewsMaterialCanonicalizer;
@@ -103,9 +104,10 @@ public class NewsLifecycleService {
         ensureNoActiveNewsForCandidate(candidateId);
 
         int initialStatus = submitForReview ? NewsStatus.PENDING_REVIEW : NewsStatus.DRAFT;
-        String title = resolveCandidateTitle(candidate);
-        String content = buildCandidateEditorialContent(candidate);
-        String summary = resolveCandidateSummary(candidate, content);
+        NewsEditorialDraft.Draft structured = structuredDraft(candidate);
+        String title = structured != null ? structured.title() : resolveCandidateTitle(candidate);
+        String content = structured != null ? structured.html() : buildCandidateEditorialContent(candidate);
+        String summary = structured != null ? structured.summary() : resolveCandidateSummary(candidate, content);
         String category = truncate(candidate.category, 32);
         String sourceLabel = truncate(candidate.source + ":" + candidate.sourceRecordId, 255);
 
@@ -541,7 +543,8 @@ public class NewsLifecycleService {
                 SELECT id, materialId, materialRevisionId, source, sourceRecordId, contentDigest,
                        policyVersion, callId, status, decision, evidenceTier, relevanceScore,
                        suggestedTitle, suggestedSummary, category, limitationsJson, claimsJson,
-                       violationsJson, evidenceSnapshotJson, evidenceSnapshotSha256, evidenceVerificationSha256
+                       violationsJson, evidenceSnapshotJson, evidenceSnapshotSha256, evidenceVerificationSha256,
+                       contentType, draftTemplateVersion, structuredContentJson, researchValueScore
                 FROM t_news_curation_candidate
                 WHERE id = ?
                 FOR UPDATE
@@ -625,7 +628,10 @@ public class NewsLifecycleService {
                 || !candidate.evidenceVerificationSha256.equals(frozenOverlay)) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "候选未绑定本次调用冻结的证据核验结果");
         }
-        String activeOverlay = new NewsEvidenceLedgerStore(jdbc).overlay(candidate.materialRevisionId).sha256();
+        // Lock the active verification rows for the rest of this transaction: a revocation racing this
+        // publish either commits first (mismatch refuses the draft) or waits for the commit.
+        String activeOverlay = new NewsEvidenceLedgerStore(jdbc)
+                .overlayForUpdate(candidate.materialRevisionId).sha256();
         if (!activeOverlay.equals(frozenOverlay)) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "证据核验已撤回或变更，需重新核验后才能建稿");
         }
@@ -811,6 +817,46 @@ public class NewsLifecycleService {
         }
     }
 
+    /**
+     * WP-08B.2：{@code draftTemplateVersion=deterministic-v1} 的候选按冻结的结构化内容确定性建稿——
+     * Insight / Radar / Trial Watch 各自的章节模板、中文标题与摘要都只依赖那一次付费调用冻结的 content，
+     * 不额外调用模型；同一份回执任何时候算出的标题、正文与摘要都相同。该列为 NULL 的旧候选返回
+     * {@code null}，继续走旧版拼接，行为不变。
+     */
+    private NewsEditorialDraft.Draft structuredDraft(CandidateRow c) {
+        if (!NewsEditorialDraft.TEMPLATE_VERSION.equals(c.draftTemplateVersion)
+                || isBlank(c.structuredContentJson) || isBlank(c.contentType)) {
+            return null;
+        }
+        JsonNode content;
+        try {
+            content = protocolMapper.readTree(c.structuredContentJson);
+        } catch (JsonProcessingException ex) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "候选结构化内容无法解析");
+        }
+        if (content == null || !content.isObject()) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "候选结构化内容缺失");
+        }
+        try {
+            return NewsEditorialDraft.render(new NewsEditorialDraft.Input(
+                    c.contentType,
+                    content.path("sections"),
+                    readJsonList(c.claimsJson, CLAIM_LIST_TYPE),
+                    readJsonList(c.limitationsJson, STRING_LIST_TYPE),
+                    c.source,
+                    c.sourceRecordId,
+                    extractSnapshotUrl(c.evidenceSnapshotJson),
+                    extractSnapshotTitle(c.evidenceSnapshotJson),
+                    c.relevanceScore,
+                    c.researchValueScore,
+                    c.callId,
+                    c.evidenceVerificationSha256));
+        } catch (IllegalArgumentException invalid) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR,
+                    "候选结构化内容无法建稿: " + invalid.getMessage());
+        }
+    }
+
     private String resolveCandidateTitle(CandidateRow c) {
         if (!isBlank(c.suggestedTitle)) {
             return truncate(c.suggestedTitle.trim(), 255);
@@ -885,6 +931,18 @@ public class NewsLifecycleService {
         }
     }
 
+    private String extractSnapshotTitle(String snapshotJson) {
+        if (isBlank(snapshotJson)) {
+            return null;
+        }
+        try {
+            JsonNode root = protocolMapper.readTree(snapshotJson);
+            return root.hasNonNull("title") ? root.get("title").asText() : null;
+        } catch (JsonProcessingException ignored) {
+            return null;
+        }
+    }
+
     private <T> List<T> readJsonList(String json, TypeReference<List<T>> type) {
         if (isBlank(json)) {
             return List.of();
@@ -919,7 +977,11 @@ public class NewsLifecycleService {
                 rs.getString("violationsJson"),
                 rs.getString("evidenceSnapshotJson"),
                 rs.getString("evidenceSnapshotSha256"),
-                rs.getString("evidenceVerificationSha256")
+                rs.getString("evidenceVerificationSha256"),
+                rs.getString("contentType"),
+                rs.getString("draftTemplateVersion"),
+                rs.getString("structuredContentJson"),
+                getOptionalInt(rs, "researchValueScore")
         );
     }
 
@@ -1106,7 +1168,11 @@ public class NewsLifecycleService {
             String violationsJson,
             String evidenceSnapshotJson,
             String evidenceSnapshotSha256,
-            String evidenceVerificationSha256
+            String evidenceVerificationSha256,
+            String contentType,
+            String draftTemplateVersion,
+            String structuredContentJson,
+            Integer researchValueScore
     ) {
     }
 }

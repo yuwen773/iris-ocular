@@ -381,7 +381,12 @@ public final class NewsWorkbenchModels {
             String status,
             String callId,
             boolean created,
-            String evidenceVerificationSha256
+            String evidenceVerificationSha256,
+            Long supersededCandidateId
     ) {
+    }
+
+    /** Optional body for materializing a candidate that explicitly replaces a named, now-stale one. */
+    public record MaterializeCandidateRequest(Long supersedesCandidateId, String reason) {
     }
 }

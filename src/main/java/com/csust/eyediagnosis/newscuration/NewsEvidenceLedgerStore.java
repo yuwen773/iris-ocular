@@ -58,6 +58,30 @@ public class NewsEvidenceLedgerStore {
         return Overlay.of(materialRevisionId, active);
     }
 
+    /**
+     * Same overlay, but with the active rows locked for the rest of the caller's transaction.
+     *
+     * <p>Publish-time use only: a concurrent revocation either commits before this read (the caller then sees
+     * the post-revocation overlay and refuses) or blocks until the caller's transaction ends. Without the
+     * lock, {@code REPEATABLE READ} would let a revocation that commits mid-transaction stay invisible, and
+     * a draft could be published on evidence that no longer exists.</p>
+     */
+    public Overlay overlayForUpdate(long materialRevisionId) {
+        List<Active> active = jdbc.query("""
+                        SELECT attribute, value, method, evidenceUrl, sourceVersion, verifiedBy, verifiedAt
+                        FROM t_news_evidence_verification
+                        WHERE materialRevisionId = ? AND revokedAt IS NULL
+                        ORDER BY attribute
+                        FOR UPDATE
+                        """,
+                (rs, rowNum) -> new Active(Attribute.valueOf(rs.getString("attribute")),
+                        rs.getString("value"), Method.valueOf(rs.getString("method")),
+                        rs.getString("evidenceUrl"), rs.getString("sourceVersion"),
+                        rs.getString("verifiedBy"), toInstant(rs, "verifiedAt")),
+                materialRevisionId);
+        return Overlay.of(materialRevisionId, active);
+    }
+
     /** Rebuilds the overlay frozen into a model call identity; replay never re-reads mutable state. */
     public static Overlay frozen(long materialRevisionId, List<Active> attributes) {
         return Overlay.of(materialRevisionId, attributes == null ? List.of() : attributes);

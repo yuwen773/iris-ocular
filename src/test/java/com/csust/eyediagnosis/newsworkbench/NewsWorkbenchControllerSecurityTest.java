@@ -41,6 +41,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -182,9 +183,9 @@ class NewsWorkbenchControllerSecurityTest {
                 .andExpect(jsonPath("$.data.active").value(false))
                 .andExpect(jsonPath("$.data.revokeNote").value("记录失效"));
 
-        when(workbenchService.materializeCandidate(eq("call-1"), any())).thenReturn(
+        when(workbenchService.materializeCandidate(eq("call-1"), any(), isNull(), isNull())).thenReturn(
                 new NewsWorkbenchModels.MaterializedCandidateVO(21L, "CURATED_NEEDS_REVIEW", "call-1", true,
-                        "d".repeat(64)));
+                        "d".repeat(64), null));
         mockMvc.perform(post("/api/admin/news-workbench/receipts/call-1/materialize")
                         .contextPath("/api")
                         .header("Origin", "http://localhost"))
@@ -192,7 +193,7 @@ class NewsWorkbenchControllerSecurityTest {
                 .andExpect(jsonPath("$.data.status").value("CURATED_NEEDS_REVIEW"))
                 .andExpect(jsonPath("$.data.created").value(true));
 
-        when(workbenchService.materializeCandidate(eq("call-2"), any())).thenThrow(
+        when(workbenchService.materializeCandidate(eq("call-2"), any(), isNull(), isNull())).thenThrow(
                 new BusinessException(ErrorCode.PARAMS_ERROR, "证据核验已撤回或变更，请重新核验后再转换"));
         mockMvc.perform(post("/api/admin/news-workbench/receipts/call-2/materialize")
                         .contextPath("/api")

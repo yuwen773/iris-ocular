@@ -48,8 +48,8 @@ class FlywayMySqlIntegrationTest {
                 assertEquals(12, masterMigrations);
                 Flyway latest = Flyway.configure().dataSource(url, username, password).schemas(schema)
                         .locations("classpath:db/migration", "classpath:db/callback").load();
-                // V18–V46 共 29 条，固定断言防止意外漏掉迁移。
-                assertEquals(29, latest.migrate().migrationsExecuted);
+                // V18–V47 共 30 条，固定断言防止意外漏掉迁移。
+                assertEquals(30, latest.migrate().migrationsExecuted);
                 try (var account = statement.executeQuery("SELECT userAccount,userPassword,userRole,legacyMarker FROM `"
                         + schema + "`.t_user WHERE id=7")) {
                     assertTrue(account.next());
@@ -87,7 +87,7 @@ class FlywayMySqlIntegrationTest {
 
                 int expectedMigrations = flyway.info().all().length;
                 assertEquals(expectedMigrations, flyway.migrate().migrationsExecuted);
-                assertEquals("46", flyway.info().current().getVersion().toString());
+                assertEquals("47", flyway.info().current().getVersion().toString());
 
                 // 空库 migrate 后必须拥有全部被实体使用的表，否则登录、资讯、
                 // Agent 会话、知识库会在启动时无表可写。
@@ -172,7 +172,7 @@ class FlywayMySqlIntegrationTest {
     }
 
     /**
-     * 既有 V31 库升级到当前头（V46）：V32–V34 是 master 已占用的迁移，
+     * 既有 V31 库升级到当前头（V47）：V32–V34 是 master 已占用的迁移，
      * V36、V37 是配置中心的两条；产物是配置中心五表 + 活跃指针单例行。
      *
      * <p>V35 不在本分支目录里——它由在途的小程序后端分支占用（PR #160），
@@ -202,12 +202,12 @@ class FlywayMySqlIntegrationTest {
                         .target("31").load().migrate().migrationsExecuted;
                 int allMigrations = Flyway.configure().dataSource(url, username, password).schemas(schema)
                         .locations("classpath:db/migration", "classpath:db/callback").load().info().all().length;
-                assertEquals(allMigrations - 15, toV31, "V32–V46 之前应只差十五条迁移");
+                assertEquals(allMigrations - 16, toV31, "V32–V47 之前应只差十六条迁移");
 
                 Flyway upgrade = Flyway.configure().dataSource(url, username, password).schemas(schema)
                         .locations("classpath:db/migration", "classpath:db/callback").load();
-                assertEquals(15, upgrade.migrate().migrationsExecuted, "V31 库升级执行 V32–V46 十五条");
-                assertEquals("46", upgrade.info().current().getVersion().toString());
+                assertEquals(16, upgrade.migrate().migrationsExecuted, "V31 库升级执行 V32–V47 十六条");
+                assertEquals("47", upgrade.info().current().getVersion().toString());
 
                 try (var pointer = statement.executeQuery(
                         "SELECT id, releaseId FROM `" + schema + "`.t_config_active_pointer")) {
@@ -266,8 +266,8 @@ class FlywayMySqlIntegrationTest {
                         + "provider,modelName,promptSha256,state,reservedTokens,reservedCostMicros,reservedAt,deadlineAt)"
                         + " VALUES ('legacy-call','legacy-key',1,'v1',1,UTC_DATE(),'GLOBAL','fixture','fixture',"
                         + "REPEAT('a',64),'OUTCOME_UNKNOWN',100,37,UTC_TIMESTAMP(),UTC_TIMESTAMP())");
-                assertEquals(2, latest.migrate().migrationsExecuted);
-                assertEquals("46", latest.info().current().getVersion().toString());
+                assertEquals(3, latest.migrate().migrationsExecuted);
+                assertEquals("47", latest.info().current().getVersion().toString());
                 try (var receipt = statement.executeQuery("SELECT logicalCallSha256, state, reservedCostMicros FROM `"
                         + schema + "`.t_news_model_call_receipt WHERE callId = 'legacy-call'")) {
                     assertTrue(receipt.next());
@@ -321,8 +321,8 @@ class FlywayMySqlIntegrationTest {
                         "升级前：旧 jar 自己的迁移集合跑到 V17");
                 Flyway rc = Flyway.configure().dataSource(url, username, password).schemas(schema)
                         .locations("classpath:db/migration", "classpath:db/callback").load();
-                assertEquals(29, rc.migrate().migrationsExecuted);
-                assertEquals("46", rc.info().current().getVersion().toString());
+                assertEquals(30, rc.migrate().migrationsExecuted);
+                assertEquals("47", rc.info().current().getVersion().toString());
 
                 Flyway oldJar = jarFlyway(url, username, password, schema, oldHome);
                 assertEquals(0, oldJar.migrate().migrationsExecuted, "旧迁移集合不会执行 future 版本");

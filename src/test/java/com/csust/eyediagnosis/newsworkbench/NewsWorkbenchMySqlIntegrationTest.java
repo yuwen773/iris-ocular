@@ -13,6 +13,7 @@ import com.csust.eyediagnosis.exception.BusinessException;
 import com.csust.eyediagnosis.exception.ErrorCode;
 import com.csust.eyediagnosis.mapper.NewsAuditMapper;
 import com.csust.eyediagnosis.mapper.NewsMapper;
+import com.csust.eyediagnosis.model.entity.News;
 import com.csust.eyediagnosis.model.entity.User;
 import com.csust.eyediagnosis.newscuration.NewsBenchRunner;
 import com.csust.eyediagnosis.newscuration.NewsCurationModelClient;
@@ -42,6 +43,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.IllegalTransactionStateException;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.net.URI;
 import java.nio.file.Path;
@@ -58,6 +60,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
 
@@ -96,6 +99,7 @@ class NewsWorkbenchMySqlIntegrationTest {
     private NewsEvidenceVerifier verifier;
     private ScriptedModelClient modelClient;
     private NewsCurationService curationService;
+    private DataSourceTransactionManager txManager;
     private NewsLifecycleService lifecycleService;
     private NewsWorkbenchService workbenchService;
     private User adminActor;
@@ -114,6 +118,8 @@ class NewsWorkbenchMySqlIntegrationTest {
         jdbc.execute("DELETE FROM t_news_cache_epoch");
         jdbc.execute("INSERT INTO t_news_cache_epoch (scope, epoch) VALUES ('news_list', 0)");
         jdbc.execute("DELETE FROM t_news_bench_run");
+        jdbc.execute("DELETE FROM t_news_curation_candidate_event");
+        jdbc.execute("DELETE FROM t_news_curation_lifetime_budget");
         jdbc.execute("DELETE FROM t_news_curation_candidate");
         jdbc.execute("DELETE FROM t_news_evidence_verification");
         jdbc.execute("DELETE FROM t_news_model_call_receipt");
@@ -140,7 +146,7 @@ class NewsWorkbenchMySqlIntegrationTest {
 
         mapper = JsonConfig.createNewsProtocolObjectMapper();
         wireCodec = new NewsWireCodec(mapper);
-        DataSourceTransactionManager txManager = new DataSourceTransactionManager(dataSource);
+        txManager = new DataSourceTransactionManager(dataSource);
 
         NewsIngestionProperties ingProps = new NewsIngestionProperties();
         ingProps.setEnabled(true);
@@ -662,6 +668,141 @@ class NewsWorkbenchMySqlIntegrationTest {
                 () -> curationService.materializeCandidate(renewed.receipt().callId(), "admin:1001")).getMessage());
     }
 
+    @Test
+    void deterministicDraftCarriesFrozenSectionsThroughReviewPublishAndRetract() throws Exception {
+        long revision = ingestSingleMaterial("wb-b2-draft", "pubmed", "PMID-DRAFT-1",
+                "Glaucoma OCT Screening Validation", "CC-BY",
+                "Open-access multicenter ophthalmic abstract validating OCT deep learning screening.");
+        curationProperties.setModelProfiles(Map.of("prod", stagedProfile("fixture-prod")));
+        fullyVerifyThroughWorkbench(revision);
+
+        NewsCurationService.ModelRun frozen = runProductionJoint(revision,
+                "Open-access multicenter ophthalmic abstract");
+        NewsWorkbenchModels.MaterializedCandidateVO candidate =
+                workbenchService.materializeCandidate(frozen.receipt().callId(), adminActor);
+        assertTrue(candidate.created());
+        assertEquals(1, modelClient.invocations.get());
+
+        Map<String, Object> stored = jdbc.queryForMap("""
+                SELECT draftTemplateVersion, contentType, researchValueScore, structuredContentJson
+                FROM t_news_curation_candidate WHERE id = ?
+                """, candidate.candidateId());
+        assertEquals("deterministic-v1", stored.get("draftTemplateVersion"));
+        assertEquals("RESEARCH_INSIGHT", stored.get("contentType"));
+        assertEquals(71, ((Number) stored.get("researchValueScore")).intValue());
+        String structured = String.valueOf(stored.get("structuredContentJson"));
+        assertTrue(structured.contains("多中心前瞻性观察研究"), structured);
+        assertTrue(structured.contains("为基层筛查评估提供了可复用的路径"), structured);
+
+        Long newsId = lifecycleService.createDraftFromCandidate(candidate.candidateId(), adminActor, true);
+        Map<String, Object> draft = jdbc.queryForMap(
+                "SELECT title, summary, content, status + 0 AS status FROM t_news WHERE id = ?", newsId);
+        String title = String.valueOf(draft.get("title"));
+        String content = String.valueOf(draft.get("content"));
+        assertTrue(title.startsWith("研究解析："), title);
+        assertTrue(title.contains("深度学习筛查"), title);
+        assertTrue(content.contains("<h2>研究设计</h2>"), content);
+        assertTrue(content.contains("<h2>主要发现</h2>"), content);
+        assertTrue(content.contains("<h2>临床意义</h2>"), content);
+        assertTrue(content.contains("<h2>局限与边界</h2>"), content);
+        assertTrue(content.contains("<h2>证据要点</h2>"), content);
+        assertTrue(content.contains("研究价值评分：</strong>71/100"), content);
+        assertEquals("研究报告了较高的筛查敏感度，仍需外部验证。", draft.get("summary"));
+        assertEquals(NewsStatus.PENDING_REVIEW, ((Number) draft.get("status")).intValue());
+        assertEquals(1, modelClient.invocations.get(), "建稿只排版冻结内容，不额外调用模型");
+
+        News publish = new News();
+        publish.setId(newsId);
+        publish.setStatus(NewsStatus.PUBLISHED);
+        assertEquals(newsId, lifecycleService.applyEdit(publish, adminActor, "人工复核通过"));
+        assertEquals(Integer.valueOf(NewsStatus.PUBLISHED), jdbc.queryForObject(
+                "SELECT status + 0 FROM t_news WHERE id = ?", Integer.class, newsId));
+
+        News retract = new News();
+        retract.setId(newsId);
+        retract.setStatus(NewsStatus.OFFLINE);
+        assertEquals(newsId, lifecycleService.applyEdit(retract, adminActor, "证据范围复核后暂时下架"));
+        assertEquals(Integer.valueOf(NewsStatus.OFFLINE), jdbc.queryForObject(
+                "SELECT status + 0 FROM t_news WHERE id = ?", Integer.class, newsId));
+        assertEquals(3, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM t_news_revision WHERE newsId = ?", Integer.class, newsId));
+    }
+
+    @Test
+    void publishingRacesEvidenceRevocationOnTheLockedVerificationRows() throws Exception {
+        long revision = ingestSingleMaterial("wb-race", "pubmed", "PMID-RACE-1",
+                "Retinal Screening Evidence Race", "CC-BY",
+                "Open-access multicenter ophthalmic abstract used for the publish race.");
+        curationProperties.setModelProfiles(Map.of("prod", stagedProfile("fixture-prod")));
+        fullyVerifyThroughWorkbench(revision);
+
+        NewsCurationService.ModelRun frozen = runProductionJoint(revision,
+                "Open-access multicenter ophthalmic abstract");
+        NewsWorkbenchModels.MaterializedCandidateVO candidate =
+                workbenchService.materializeCandidate(frozen.receipt().callId(), adminActor);
+        Long newsId = lifecycleService.createDraftFromCandidate(candidate.candidateId(), adminActor, true);
+        long peerId = workbenchService.listEvidenceVerifications(revision).stream()
+                .filter(row -> row.active() && "PEER_REVIEW".equals(row.attribute()))
+                .findFirst().orElseThrow().id();
+
+        // 撤回事务先拿住核验行但不提交；发布必须在这一行上等它，而不是读到撤回前的旧快照。
+        CountDownLatch revokedButUncommitted = new CountDownLatch(1);
+        CountDownLatch releaseRevoker = new CountDownLatch(1);
+        List<Throwable> revokerFailures = Collections.synchronizedList(new ArrayList<>());
+        Thread revoker = new Thread(() -> {
+            try {
+                new TransactionTemplate(txManager).execute(status -> {
+                    curationService.revokeEvidence(peerId, "admin:1002", "并发撤回核验");
+                    revokedButUncommitted.countDown();
+                    try {
+                        releaseRevoker.await(10, TimeUnit.SECONDS);
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                    }
+                    return null;
+                });
+            } catch (Throwable failure) {
+                revokerFailures.add(failure);
+            }
+        });
+        revoker.start();
+        assertTrue(revokedButUncommitted.await(10, TimeUnit.SECONDS), "撤回必须先在核验行上落笔");
+
+        News publish = new News();
+        publish.setId(newsId);
+        publish.setStatus(NewsStatus.PUBLISHED);
+        List<Throwable> publishOutcome = Collections.synchronizedList(new ArrayList<>());
+        Thread publisher = new Thread(() -> {
+            try {
+                new TransactionTemplate(txManager).execute(
+                        status -> lifecycleService.applyEdit(publish, adminActor, "并发发布"));
+            } catch (Throwable failure) {
+                publishOutcome.add(failure);
+            }
+        });
+        publisher.start();
+        Thread.sleep(300);
+        releaseRevoker.countDown();
+        publisher.join(15_000);
+        revoker.join(15_000);
+        assertFalse(publisher.isAlive());
+        assertFalse(revoker.isAlive());
+        assertTrue(revokerFailures.isEmpty(), String.valueOf(revokerFailures));
+
+        assertEquals(1, publishOutcome.size(), "发布必须被拒绝，而不是带着撤回前的证据发布成功");
+        Throwable refusal = publishOutcome.getFirst();
+        assertTrue(refusal instanceof BusinessException, String.valueOf(refusal));
+        assertTrue(refusal.getMessage().contains("证据核验已撤回或变更"), refusal.getMessage());
+        assertEquals(Integer.valueOf(NewsStatus.PENDING_REVIEW), jdbc.queryForObject(
+                "SELECT status FROM t_news WHERE id = ?", Integer.class, newsId));
+        assertEquals(0, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM t_news_evidence_verification WHERE id = ? AND revokedAt IS NULL",
+                Integer.class, peerId));
+        assertEquals(1, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM t_news_revision WHERE newsId = ?", Integer.class, newsId),
+                "被拒绝的发布不得写修订行");
+    }
+
     private void fullyVerifyThroughWorkbench(long revision) {
         workbenchService.verifyEvidence(revision, new NewsWorkbenchModels.SubmitEvidenceVerificationRequest(
                 "PEER_REVIEW", "VERIFIED", "PUBMED_RECORD", "https://pubmed.ncbi.nlm.nih.gov/42000001/",
@@ -1017,6 +1158,8 @@ class NewsWorkbenchMySqlIntegrationTest {
 
     private static final class ScriptedModelClient implements NewsCurationModelClient {
         private final Deque<NewsCurationModelClient> queue = new ArrayDeque<>();
+        private final java.util.concurrent.atomic.AtomicInteger invocations =
+                new java.util.concurrent.atomic.AtomicInteger();
 
         synchronized void enqueue(NewsCurationModelClient handler) {
             queue.addLast(handler);
@@ -1024,6 +1167,7 @@ class NewsWorkbenchMySqlIntegrationTest {
 
         @Override
         public NewsCurationModels.ModelCallOutcome invoke(NewsCurationModels.ModelCallRequest request) {
+            invocations.incrementAndGet();
             NewsCurationModelClient handler;
             synchronized (this) {
                 handler = queue.pollFirst();

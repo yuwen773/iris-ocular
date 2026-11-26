@@ -68,6 +68,60 @@ P05 输出里出现与研究无关的类型、改写登记事实、或包含临�
 幂等与防覆盖：同一 `callId` 重复转换返回同一候选（`created=false`），不再请求模型；同一资料修订与策略版本
 已经有另一条调用生成的候选时返回 `CANDIDATE_ALREADY_MATERIALIZED`，避免覆盖已进入人工编辑的内容。
 
+### 4.1 结构化内容的完整保留与确定性建稿
+
+候选行现在同时保存一份**契约校验通过后的完整结构化内容**（`structuredContentJson`，即冻结回执 `content`
+节点的副本）与它的建稿模板版本（`draftTemplateVersion = deterministic-v1`），以及 P05 的
+`researchValueScore`。旧候选这两列为 `NULL`，行为不变。
+
+建稿走 `NewsEditorialDraft`：只排版，不判断。三种体裁各有固定章节：
+
+| 体裁 | 正文结构 | 标题 |
+| --- | --- | --- |
+| Research Insight | 研究问题段落 → 研究设计 / 主要发现 / 临床意义 → 局限与边界 → 证据要点 → 溯源与元数据 | `研究解析：` + 研究问题首句 |
+| Research Radar | 简介段落 → 值得关注的地方 → 局限与边界 → 证据要点 → 溯源与元数据 | `研究雷达：` + 简介首句 |
+| Trial Watch | 登记状态（状态 / 试验阶段 / 研究设计 / 本次变化）→ 局限与边界 → 证据要点 → 溯源与元数据 | `试验观察：状态｜阶段｜研究设计` |
+
+硬规则：
+
+- 试验状态、阶段、研究设计与「本次变化」只从冻结的登记枚举映射成中文，模型散文不参与；
+- 所有模型文本逐段转义后进入 `<p>` / `<li>`，模型永远不能产出可执行标记；
+- 标题有独立校验：非空、≤120 字符、无标记、无控制字符、必须含中文；不合格时回退到
+  「中文框 + 冻结资料标题」，再不合格回退到中文框，草稿永远可建、可被人工改标题；
+- 摘要取对应体裁的关键句并保留句号，≤512 字符；
+- 溯源与元数据列出内容类型、相关性评分、研究价值评分、`callId`（生产命名空间 · 联合精选 P05）、
+  证据核验摘要、来源与原文 URL——界面上每个数字都能追回冻结回执；
+- 同一份冻结回执任何时候渲染出的标题、正文、摘要都相同；**建稿不产生任何模型调用**。
+
+### 4.2 证据撤回后的候选替代（审计链）
+
+证据核验被撤回、重新核验、重新付费调用之后，旧候选不能建稿也不能发布，但**多条候选不能靠覆盖收敛**：
+
+- 未点名的重复转换仍然拒绝（`CANDIDATE_ALREADY_MATERIALIZED`）；
+- 只有显式点名旧候选并给出理由（`materializeCandidate(callId, actor, supersedesCandidateId, reason)`）
+  才允许新的成功结果接管：旧行内容列一个都不改，只写 `status = SUPERSEDED` 与
+  `supersededByCandidateId` / `supersededAt` / `supersedeReason`；
+- 两边各写一条只追加的 `t_news_curation_candidate_event`（`superseded` / `materialized`），
+  记录双方 id、`fromStatus` / `toStatus`、actor、理由与 `callId`；
+- 旧候选已经关联未删除的资讯时拒绝（`CANDIDATE_ALREADY_DRAFTED`）：先人工处置草稿；
+- 旧候选处于 `NEEDS_RECONCILIATION` 时拒绝：先完成对账；
+- 同一资料修订上出现不同 `policyVersion` 的候选一律 `CANDIDATE_POLICY_CONFLICT`——**改策略版本绕不过候选冲突**；
+- 唯一性从 `(materialRevisionId, policyVersion)` 改成「仅活跃行唯一」的生成列 `activeKey`，
+  已替代的行保留全部历史，每个修订 + 策略版本最多一条活跃候选。
+
+并发一致性：发布路径在建稿/发布事务内用 `SELECT … FOR UPDATE` 锁住生效核验行，撤回路径的
+`UPDATE` 在同一批行上串行化。撤回先提交则发布读到撤回后的账本并拒绝；发布先持锁则撤回等它提交。
+集成用例 `publishingRacesEvidenceRevocationOnTheLockedVerificationRows` 让撤回保持未提交、同时发起发布，
+断言发布被拒绝且不写修订行——把锁去掉后同一用例会变成「带着撤回前的证据发布成功」，可用作反向验证。
+
+### 4.3 整次实验的总上限
+
+按日、按 scope 的预算挡不住「换一天再来」「拆 scope」「重启」，因此新增单例表
+`t_news_curation_lifetime_budget`：整次实验的调用数、token、费用三个上限，计数直接来自
+`t_news_model_call_receipt` 全表，与 UTC 日期、scope、进程都无关。配置只能收紧：
+更大的配置值不会抬高已记录的非零上限，`0` 也不会把已有上限抹掉。触达时返回 `LIFETIME_BUDGET_EXHAUSTED`
+且**不发请求**。锁顺序固定为 circuit → 日守卫 → scope 预算 → 整次实验上限 → 回执 → 候选。
+
 ## 5. 人工编辑与发布前的复核
 
 候选可以随时进入草稿（`createDraftFromCandidate`），但**建稿与发布都要过同一道闸门**
@@ -90,7 +144,7 @@ P05 输出里出现与研究无关的类型、改写登记事实、或包含临�
 | GET | `/api/admin/news-workbench/materials/{materialRevisionId}/evidence-verifications` | 查看核验历史（含已撤回行） |
 | POST | `/api/admin/news-workbench/materials/{materialRevisionId}/evidence-verifications` | 登记一条核验 |
 | POST | `/api/admin/news-workbench/evidence-verifications/{verificationId}/revoke` | 撤回一条核验 |
-| POST | `/api/admin/news-workbench/receipts/{callId}/materialize` | 冻结回执转待审候选（幂等） |
+| POST | `/api/admin/news-workbench/receipts/{callId}/materialize` | 冻结回执转待审候选（幂等；可选请求体 `supersedesCandidateId` + `reason` 显式替代旧候选） |
 
 四个端点都在控制器安全测试里覆盖：非管理员得到 `NO_AUTH_ERROR` 且不触达服务层，读接口带 `no-store`，
 写接口需要同源 `Origin`，服务层业务拒绝原样映射为统一响应体。候选列表与详情新增 `contentType` 字段。
@@ -121,8 +175,9 @@ P05 输出里出现与研究无关的类型、改写登记事实、或包含临�
 | 层 | 内容 | 结果 |
 | --- | --- | --- |
 | L1 | `NewsEvidenceLedgerTest`（4 例）、`NewsWorkbenchControllerSecurityTest`（7 例）、`NewsRealMaterialsOfflineE2ETest`（2 例） | 通过 |
-| L2 | 真实 MySQL 8：`NewsCurationMySqlIntegrationTest` 16 例、`NewsWorkbenchMySqlIntegrationTest` 11 例、`NewsEditorialPublishMySqlIntegrationTest` 8 例 + L1 用例（7 类 53 例全部实跑，`verify-fast.sh --db`，`RESULT: PASS — L2`） | 通过 |
-| 迁移 | V46 在一次性 schema 上完整迁移（V1→V46，`flyway_schema_history` 最新版本 46、success=1） | 通过 |
+| L1 | `NewsEditorialDraftTest`（7 例：三种体裁完整保留、转义、标题契约、长度截断） | 通过 |
+| L2 | 真实 MySQL 8：`NewsCurationMySqlIntegrationTest` 18 例（含候选替代与总上限）、`NewsWorkbenchMySqlIntegrationTest` 13 例（含确定性建稿全链与发布 × 撤回并发）、`NewsEditorialPublishMySqlIntegrationTest` 8 例（`verify-fast.sh --db`，`RESULT: PASS — L2`） | 通过 |
+| 迁移 | V47 在一次性 schema 上完整迁移（`FlywayMySqlIntegrationTest` 7 例，`RESULT: PASS — L2`） | 通过 |
 | HTTP 回环 | 真实 Spring Boot 进程（一次性 MySQL 8 + Redis + 真实 Tomcat，`:18111`）上用 curl 走完四个端点：管理员会话登录、读接口 `Cache-Control: no-store`、登记五类核验、重复登记与越权 URL 被拒、撤回后 `active=false` 且历史保留、二次撤回报错、未知回执转换返回「模型调用回执不存在」、匿名请求 `40100 未登录`、跨源 POST `40300 CROSS_ORIGIN_BLOCKED` | 通过 |
 | 浏览器 E2E | 本切片无任何前端文件改动，四个端点暂无 UI 消费者（`web/` 中无引用），因此不新增浏览器用例；端点行为以上述 HTTP 回环与控制器安全测试覆盖 | 不适用 |
 

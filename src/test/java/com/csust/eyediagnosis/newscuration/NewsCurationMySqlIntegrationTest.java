@@ -80,6 +80,8 @@ class NewsCurationMySqlIntegrationTest {
         ensureDatabase();
 
         jdbc.execute("DELETE FROM t_news_bench_run");
+        jdbc.execute("DELETE FROM t_news_curation_candidate_event");
+        jdbc.execute("DELETE FROM t_news_curation_lifetime_budget");
         jdbc.execute("DELETE FROM t_news_curation_candidate");
         jdbc.execute("DELETE FROM t_news_evidence_verification");
         jdbc.execute("DELETE FROM t_news_model_call_receipt");
@@ -935,6 +937,182 @@ class NewsCurationMySqlIntegrationTest {
                 () -> curationService.materializeCandidate("missing-call", "admin:1001")).getMessage());
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM t_news_curation_candidate", Integer.class));
         assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM t_news", Integer.class));
+    }
+
+    @Test
+    void explicitSupersedeRetiresTheStaleCandidateAndKeepsEveryHistoricalRow() throws Exception {
+        long revision = ingestAndCompleteSingle("pubmed", "PMID-SUP-1", "Glaucoma supersede trail", 1L);
+        curationProperties.setModelProfiles(Map.of("fixture-a", stagedProfile("fixture-a"),
+                "fixture-b", stagedProfile("fixture-b")));
+        fullyVerify(revision);
+
+        modelClient.enqueue(request -> success(JOINT_INSIGHT_JSON, 400, 160, 900, "fixture-a"));
+        var first = curationService.runModel(revision, POLICY_V1, "joint",
+                new NewsModelProtocol.Selection("production", NewsModelProtocol.Prompt.P05, "fixture-a", null));
+        NewsCurationService.MaterializedCandidate original =
+                curationService.materializeCandidate(first.receipt().callId(), "admin:1001");
+        assertTrue(original.created());
+        assertNull(original.supersededCandidateId());
+        Map<String, Object> frozenBefore = jdbc.queryForMap("""
+                SELECT callId, claimsJson, suggestedSummary, evidenceSnapshotSha256, evidenceVerificationSha256
+                FROM t_news_curation_candidate WHERE id = ?
+                """, original.candidateId());
+
+        // 替代必须点名旧候选并给出理由；空白理由、无目标理由、带标记的理由都拒绝。
+        assertEquals("SUPERSEDE_REASON_REQUIRED", assertThrows(IllegalArgumentException.class,
+                () -> curationService.materializeCandidate(first.receipt().callId(), "admin:1001",
+                        original.candidateId(), "   ")).getMessage());
+        assertEquals("SUPERSEDE_REASON_WITHOUT_TARGET", assertThrows(IllegalArgumentException.class,
+                () -> curationService.materializeCandidate(first.receipt().callId(), "admin:1001",
+                        null, "没有目标")).getMessage());
+        assertEquals("SUPERSEDE_REASON_INVALID", assertThrows(IllegalArgumentException.class,
+                () -> curationService.materializeCandidate(first.receipt().callId(), "admin:1001",
+                        original.candidateId(), "<script>")).getMessage());
+
+        // 撤回核验后旧冻结结果不可用；重新核验不会复活旧回执，必须重新付费调用。
+        NewsEvidenceLedger.Verification peer = curationService.listEvidenceVerifications(revision).stream()
+                .filter(row -> row.active() && row.attribute() == NewsEvidenceLedger.Attribute.PEER_REVIEW)
+                .findFirst().orElseThrow();
+        curationService.revokeEvidence(peer.id(), "admin:1002", "同行评审记录失效");
+        assertEquals("EVIDENCE_VERIFICATION_STALE", assertThrows(IllegalStateException.class,
+                () -> curationService.materializeCandidate(first.receipt().callId(), "admin:1001")).getMessage());
+        curationService.verifyEvidence(revision,
+                evidence(NewsEvidenceLedger.Attribute.PEER_REVIEW, "VERIFIED", NewsEvidenceLedger.Method.PUBMED_RECORD),
+                "admin:1002");
+
+        modelClient.enqueue(request -> success(JOINT_INSIGHT_JSON, 400, 160, 900, "fixture-b"));
+        var renewed = curationService.runModel(revision, POLICY_V1, "joint",
+                new NewsModelProtocol.Selection("production", NewsModelProtocol.Prompt.P05, "fixture-b", null));
+
+        // 不点名的重复转换仍然拒绝：替代只能显式发生。
+        assertEquals("CANDIDATE_ALREADY_MATERIALIZED", assertThrows(IllegalStateException.class,
+                () -> curationService.materializeCandidate(renewed.receipt().callId(), "admin:1001")).getMessage());
+        // 点错对象也拒绝。
+        assertEquals("CANDIDATE_SUPERSEDE_TARGET_MISMATCH", assertThrows(IllegalStateException.class,
+                () -> curationService.materializeCandidate(renewed.receipt().callId(), "admin:1001",
+                        original.candidateId() + 999, "证据核验已撤回并重新核验")).getMessage());
+
+        NewsCurationService.MaterializedCandidate replacement = curationService.materializeCandidate(
+                renewed.receipt().callId(), "admin:1001", original.candidateId(), "证据核验已撤回并重新核验");
+        assertTrue(replacement.created());
+        assertEquals(original.candidateId(), replacement.supersededCandidateId());
+        assertNotEquals(original.candidateId(), replacement.candidateId());
+
+        Map<String, Object> retired = jdbc.queryForMap("""
+                SELECT status, callId, claimsJson, suggestedSummary, evidenceSnapshotSha256,
+                       evidenceVerificationSha256, supersededByCandidateId, supersedeReason, supersededAt
+                FROM t_news_curation_candidate WHERE id = ?
+                """, original.candidateId());
+        assertEquals("SUPERSEDED", retired.get("status"));
+        assertEquals(replacement.candidateId(), ((Number) retired.get("supersededByCandidateId")).longValue());
+        assertEquals("证据核验已撤回并重新核验", retired.get("supersedeReason"));
+        assertNotNull(retired.get("supersededAt"));
+        // 替代不是覆盖：旧候选的内容列一个都没变，只有状态与三个替代指针动了。
+        for (String column : List.of("callId", "claimsJson", "suggestedSummary", "evidenceSnapshotSha256",
+                "evidenceVerificationSha256")) {
+            assertEquals(frozenBefore.get(column), retired.get(column), column);
+        }
+
+        List<Map<String, Object>> events = jdbc.queryForList("""
+                SELECT candidateId, eventType, fromStatus, toStatus, relatedCandidateId, actor, note
+                FROM t_news_curation_candidate_event ORDER BY id ASC
+                """);
+        assertEquals(3, events.size());
+        assertEquals("materialized", events.get(0).get("eventType"));
+        assertEquals(original.candidateId(), ((Number) events.get(0).get("candidateId")).longValue());
+        assertEquals("superseded", events.get(1).get("eventType"));
+        assertEquals(original.candidateId(), ((Number) events.get(1).get("candidateId")).longValue());
+        assertEquals("CURATED_NEEDS_REVIEW", events.get(1).get("fromStatus"));
+        assertEquals("SUPERSEDED", events.get(1).get("toStatus"));
+        assertEquals(replacement.candidateId(), ((Number) events.get(1).get("relatedCandidateId")).longValue());
+        assertEquals("admin:1001", events.get(1).get("actor"));
+        assertEquals("证据核验已撤回并重新核验", events.get(1).get("note"));
+        assertEquals("materialized", events.get(2).get("eventType"));
+        assertEquals(replacement.candidateId(), ((Number) events.get(2).get("candidateId")).longValue());
+        assertEquals(original.candidateId(), ((Number) events.get(2).get("relatedCandidateId")).longValue());
+
+        assertEquals(1, jdbc.queryForObject("""
+                SELECT COUNT(*) FROM t_news_curation_candidate
+                WHERE materialRevisionId = ? AND supersededAt IS NULL
+                """, Integer.class, revision), "每个资料修订 + 策略版本只保留一条活跃候选");
+        assertEquals(2, jdbc.queryForObject("SELECT COUNT(*) FROM t_news_curation_candidate", Integer.class));
+
+        // 幂等重放返回替代后的候选，不再写事件。
+        NewsCurationService.MaterializedCandidate replay =
+                curationService.materializeCandidate(renewed.receipt().callId(), "admin:1001");
+        assertFalse(replay.created());
+        assertEquals(replacement.candidateId(), replay.candidateId());
+        assertEquals(3, jdbc.queryForObject("SELECT COUNT(*) FROM t_news_curation_candidate_event", Integer.class));
+
+        // 换一个 policyVersion 不能用「新政策」绕开候选冲突。
+        jdbc.update("""
+                INSERT INTO t_news_curation_candidate
+                    (materialId, materialRevisionId, source, sourceRecordId, contentDigest, policyVersion,
+                     status, evidenceSnapshotJson, evidenceSnapshotSha256)
+                SELECT materialId, materialRevisionId, source, sourceRecordId, contentDigest, 'news-curation-v2',
+                       'CURATED_NEEDS_REVIEW', evidenceSnapshotJson, evidenceSnapshotSha256
+                FROM t_news_curation_candidate WHERE id = ?
+                """, replacement.candidateId());
+        assertEquals("CANDIDATE_POLICY_CONFLICT", assertThrows(IllegalStateException.class,
+                () -> curationService.materializeCandidate(renewed.receipt().callId(), "admin:1001")).getMessage());
+    }
+
+    @Test
+    void lifetimeCeilingSurvivesNewDaysScopesAndServiceRestarts() throws Exception {
+        curationProperties.setModelProfiles(Map.of("prod", stagedProfile("fixture-prod")));
+        curationProperties.setLifetimeMaxCalls(2);
+        long revisionA = ingestAndCompleteSingle("pubmed", "PMID-LIFE-1", "Lifetime ceiling A", 1L);
+        long revisionB = ingestAndCompleteSingle("pubmed", "PMID-LIFE-2", "Lifetime ceiling B", 1L);
+        fullyVerify(revisionA);
+        fullyVerify(revisionB);
+
+        modelClient.enqueue(request -> success(JOINT_INSIGHT_JSON, 400, 160, 900, "fixture-prod"));
+        var first = curationService.runModel(revisionA, POLICY_V1, "joint",
+                new NewsModelProtocol.Selection("production", NewsModelProtocol.Prompt.P05, "prod", null));
+        assertEquals(NewsCurationModels.CallState.SUCCEEDED, first.receipt().state());
+        NewsCurationModels.LifetimeBudget seeded = curationService.lifetimeBudget();
+        assertNotNull(seeded);
+        assertEquals(2, seeded.maxCalls());
+        assertEquals(1, seeded.usedCalls());
+        assertEquals(560L, seeded.usedTokens());
+
+        // 只收紧不放宽：更大的配置值不会生效，0 也不会把已有上限抹掉。
+        curationProperties.setLifetimeMaxCalls(1);
+        curationProperties.setLifetimeMaxTokens(50_000L);
+        modelClient.enqueue(request -> success(JOINT_INSIGHT_JSON, 400, 160, 900, "fixture-prod"));
+        assertEquals("LIFETIME_BUDGET_EXHAUSTED", assertThrows(IllegalStateException.class,
+                () -> curationService.runModel(revisionB, POLICY_V1, "SCOPE-B",
+                        new NewsModelProtocol.Selection("production", NewsModelProtocol.Prompt.P05, "prod", null)))
+                .getMessage());
+        assertEquals(1, modelClient.invocations.get(), "被拒绝的预留不得发出请求");
+
+        curationProperties.setLifetimeMaxCalls(9);
+        curationProperties.setLifetimeMaxTokens(0L);
+        NewsCurationModels.LifetimeBudget tightened = curationService.lifetimeBudget();
+        assertEquals(1, tightened.maxCalls(), "更大的配置值不得放宽已记录的上限");
+        assertEquals(50_000L, tightened.maxTokens(), "0 表示未设置，不得抹掉已有上限");
+
+        // 跨 UTC 日期的旧回执同样计入总上限：上限与 budgetDate、scope 都无关。
+        jdbc.update("""
+                INSERT INTO t_news_model_call_receipt
+                    (callId, idempotencyKey, materialRevisionId, policyVersion, attemptNo, budgetDate,
+                     budgetScope, provider, modelName, promptSha256, state, reservedTokens, reservedCostMicros,
+                     promptTokens, completionTokens, actualCostMicros, reservedAt, deadlineAt, completedAt)
+                VALUES ('archived-call', 'archived-key', ?, ?, 1, DATE_SUB(UTC_DATE(), INTERVAL 9 DAY),
+                        'ARCHIVE', 'dashscope', 'qwen-flash', REPEAT('b', 64), 'SUCCEEDED', 100, 10,
+                        60, 40, 10, UTC_TIMESTAMP(6), UTC_TIMESTAMP(6), UTC_TIMESTAMP(6))
+                """, revisionA, POLICY_V1);
+        assertEquals(2, curationService.lifetimeBudget().usedCalls());
+        assertEquals(660L, curationService.lifetimeBudget().usedTokens());
+
+        // 重启（新实例）之后上限仍然有效：计数在库里，不在进程内存里。
+        NewsCurationService restarted = new NewsCurationService(
+                jdbc, curationProperties, modelClient, verifier, promptBuilder, mapper);
+        assertEquals("LIFETIME_BUDGET_EXHAUSTED", assertThrows(IllegalStateException.class,
+                () -> restarted.runModel(revisionB, POLICY_V1, "SCOPE-C",
+                        new NewsModelProtocol.Selection("production", NewsModelProtocol.Prompt.P05, "prod", null)))
+                .getMessage());
+        assertEquals(1, modelClient.invocations.get());
     }
 
     private String fullyVerify(long revision) {
