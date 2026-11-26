@@ -489,9 +489,10 @@ class NewsEditorialPublishMySqlIntegrationTest {
         long trialDraft = controller.createFromCandidate(trialCandidate, true, req).getData();
         publishTampered.setId(trialDraft);
         publishTampered.setTitle("青光眼试验登记更新");
-        publishTampered.setContent("<p>试验已证实临床疗效。</p>");
+        publishTampered.setContent("<p>" + SAFE_BODY_PREFIX + "试验已证实临床<strong>疗效</strong>。</p>");
+        publishTampered.setNote("审核试验登记证据");
         BusinessException trialRejected = assertThrows(BusinessException.class, () -> controller.updateNews(publishTampered, req));
-        assertTrue(trialRejected.getMessage().contains("缺少支持疗效"));
+        assertTrue(trialRejected.getMessage().contains("缺少支持疗效"), trialRejected::getMessage);
 
         jdbc.update("""
                 UPDATE t_news_curation_candidate target JOIN t_news_curation_candidate other ON other.id = ?

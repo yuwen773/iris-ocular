@@ -484,7 +484,8 @@ public class NewsLifecycleService {
         if (boundCandidate != null && "clinicaltrials-gov".equals(boundCandidate.source)) {
             String bodyText = effectiveContent == null ? null : HTML_BODY_BREAK.matcher(effectiveContent).replaceAll(" ");
             ThrowUtils.throwIf(NewsEvidenceVerifier.findUnsupportedTrialOutcome(
-                            effectiveTitle, effectiveSummary, effectiveContent, bodyText).isPresent(),
+                            effectiveTitle, effectiveSummary, effectiveContent, normalizeBodyForSafetyCheck(effectiveContent),
+                            normalizeBodyForSafetyCheck(bodyText)).isPresent(),
                     ErrorCode.PARAMS_ERROR, "试验登记快照缺少支持疗效或审批论断的结果证据");
         }
 

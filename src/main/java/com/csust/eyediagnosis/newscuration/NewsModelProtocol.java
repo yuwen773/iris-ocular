@@ -202,10 +202,17 @@ public final class NewsModelProtocol {
             if (registry && !validTrialSections(content.path("sections"), identity, snapshot)) {
                 return null;
             }
+            NewsEditorialEvidence trialEvidence = registry ? NewsEditorialEvidence.from(snapshot, mapper) : null;
             for (JsonNode claim : content.path("claims")) {
-                if (registry && (!"trial".equals(claim.path("evidenceId").asText())
-                        || !claim.path("quote").asText().equals(claim.path("statement").asText()))) {
-                    return null;
+                if (trialEvidence != null) {
+                    String value = claim.path("quote").asText();
+                    if (!"trial".equals(claim.path("evidenceId").asText())
+                            || !value.equals(claim.path("statement").asText())
+                            || !(value.equals(trialEvidence.trial().status())
+                            || value.equals(trialEvidence.studyDesign().name())
+                            || trialEvidence.trial().phases().contains(value))) {
+                        return null;
+                    }
                 }
                 String evidence = switch (claim.path("evidenceId").textValue()) {
                     case "title" -> snapshot.title();
