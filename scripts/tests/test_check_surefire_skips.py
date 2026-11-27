@@ -54,7 +54,6 @@ class SurefireSkipGateTest(unittest.TestCase):
         """Reproduce the explicit no-env opt-in shape without hiding new skips."""
         P = "com.csust.eyediagnosis."
         self.write(P + "collaboration.ProductSchemaTest", cases=1, skipped=1)
-        self.write(P + "agent.config.VectorStoreConfigTest", cases=1, skipped=1)
         self.write(P + "agent.rag.RAGEvaluationTest", cases=2, skipped=2)
         self.write(P + "diagnosistask.DiagnosisTaskApiTest", cases=7, skipped=4)
         self.write(P + "diagnosistask.DiagnosisTaskRecoveryTest", cases=10, skipped=10)

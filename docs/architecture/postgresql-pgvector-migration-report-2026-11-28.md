@@ -136,6 +136,19 @@ exit=0
 
 384 条跳过全部是契约声明的 opt-in 套件（MySQL-only、协作、评测等），逐条列在门禁输出里。
 
+### 5.7 CI（远端）
+
+首轮（`25eabef9`）24 个检查：20 绿，3 红：
+
+| 检查 | 红因 | 修复 |
+|---|---|---|
+| `docs-contract` | `CLAUDE.md` 缺 steering 门禁要求的 `Current head is V<n>` | 恢复声明（MySQL 历史 V47 / PG 线当前版本） |
+| `product-contract` | `ProductSchemaTest` 仍连 MySQL，而 MySQL 驱动已移除 | 迁移到真实 PG（pgvector service + PG Flyway），断言同一组表列；21/21 + skip 门禁 exit 0 |
+| `docker-lifecycle` | compose 新增 postgres 后，镜像钉版检查仍假设只有一个 image 行 | 按服务解析，并新增 pgvector 钉版断言；22/22 |
+
+第二轮（`41f8cb4e`）后三个 job 转绿的结论以最终 HEAD 的 Actions 结果为准（见 PR #176 检查页）；
+`vector-migration-drill` 与 `postgres-integration` 在首轮即已实际执行并通过（非 NOT_RUN）。
+
 ### 5.6 本轮修复后重点复跑
 
 | 套件 | 结果 |
@@ -187,7 +200,7 @@ collaboration empty object -> '{}'                          OK (rolestates={})
 |---|---|
 | 10 个 MySQL-only CI job（issue17–24、collaboration、graph-execution、news MySQL 集成、Flyway MySQL） | 断言 MySQL URL、重放 MySQL 专用 SQL；在 CI 用 `if: ${{ false }}` 显式停用并注明。PG 等价门禁在 `postgres-*` 四个 job |
 | 协作 / 患者草稿 / 受控参考资料 / 医生复核 / 患者解释 / 授权 / 随访（opt-in） | 需要 MySQL 夹具或外部服务；其中 SQL 级缺陷已按 §6 修复并在 PG 上验证语句形状，但**完整业务验收未在 PG 上跑** |
-| 远端 CI 执行 | 推送后才有 run；本报告在推送前写出，见 PR 检查 |
+| 远端 CI 执行 | 首轮 run `46042136133`（HEAD `25eabef9`）：24 检查中 20 绿、3 红（docs-contract / product-contract / docker-lifecycle，均为契约脚本未随迁移更新），已在 `41f8cb4e` 修复；最终 HEAD 的 run 见 §5.7 |
 | 真实知识库向量导入 | 需授权；演练只覆盖合成数据 |
 | Chroma 从生产依赖彻底移除后的 RAG 端到端 | 需真实语料；`VectorStoreConfigTest` 的 Chroma 分支仍是 opt-in |
 
