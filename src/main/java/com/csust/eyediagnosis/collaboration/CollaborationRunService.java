@@ -80,7 +80,7 @@ public class CollaborationRunService implements AutoCloseable {
                 if (tasks.size() != 1) throw denied();
                 var task = tasks.getFirst();
                 String taskId = task.get("taskId").toString();
-                var threads = jdbc.queryForList("SELECT sessionId FROM t_agent_session WHERE BINARY sessionId=BINARY ? AND userId=? AND isDelete=0 AND status=1 AND (expiredTime IS NULL OR expiredTime>CURRENT_TIMESTAMP) FOR UPDATE", request.threadId(), userId);
+                var threads = jdbc.queryForList("SELECT sessionId FROM t_agent_session WHERE sessionId= ? AND userId=? AND isDelete=0 AND status=1 AND (expiredTime IS NULL OR expiredTime>CURRENT_TIMESTAMP) FOR UPDATE", request.threadId(), userId);
                 if (threads.size() != 1) throw denied();
                 var keyed = jdbc.queryForList("SELECT * FROM t_agent_collab_run WHERE ownerUserId=? AND idempotencyKey=? FOR UPDATE", userId, request.idempotencyKey());
                 if (!keyed.isEmpty()) {
@@ -96,7 +96,7 @@ public class CollaborationRunService implements AutoCloseable {
                 int active = jdbc.queryForObject("SELECT COUNT(*) FROM t_agent_collab_run WHERE ownerUserId=? AND status IN ('ACCEPTED','RUNNING','CANCEL_REQUESTED')", Integer.class, userId);
                 if (active >= 2) throw new Fault(429, "RUN_LIMIT");
                 String created = UUID.randomUUID().toString();
-                jdbc.update("INSERT INTO t_agent_collab_run (runId,taskId,threadId,ownerUserId,idempotencyKey,inferenceDigest,runtimeKind,workflowVersion,status,roleStates) VALUES (?,?,?,?,?,?,?,?,'ACCEPTED',JSON_OBJECT())",
+                jdbc.update("INSERT INTO t_agent_collab_run (runId,taskId,threadId,ownerUserId,idempotencyKey,inferenceDigest,runtimeKind,workflowVersion,status,roleStates) VALUES (?,?,?,?,?,?,?,?,'ACCEPTED','{}')",
                         created, taskId, request.threadId(), userId, request.idempotencyKey(), digest(task.get("inferenceSnapshot").toString()),
                         graphEnabled ? "GRAPH" : "COORDINATOR", graphEnabled ? "GRAPH_V1" : "AUTONOMOUS_V2");
                 events.append(taskId, "run.accepted", "COORDINATOR", "PATIENT", Map.of("status", "ACCEPTED"));
@@ -170,7 +170,7 @@ public class CollaborationRunService implements AutoCloseable {
     // Chat visibility gates streaming only. Historical snapshots and medical
     // background work retain their independent task authorization/lifecycle.
     private void requireLiveThread(Access access) {
-        var threads = jdbc.queryForList("SELECT sessionId FROM t_agent_session WHERE BINARY sessionId=BINARY ? AND userId=? AND isDelete=0 AND status=1 AND (expiredTime IS NULL OR expiredTime>CURRENT_TIMESTAMP)",
+        var threads = jdbc.queryForList("SELECT sessionId FROM t_agent_session WHERE sessionId= ? AND userId=? AND isDelete=0 AND status=1 AND (expiredTime IS NULL OR expiredTime>CURRENT_TIMESTAMP)",
                 access.row().get("threadId"), access.row().get("ownerUserId"));
         if (threads.size() != 1) throw denied();
     }
@@ -261,7 +261,7 @@ public class CollaborationRunService implements AutoCloseable {
 
     @Scheduled(fixedDelay = 250)
     public void recoverPending() {
-        for (var row : jdbc.queryForList("SELECT r.runId,r.status FROM t_agent_collab_run r LEFT JOIN t_patient_graph_execution g ON r.taskId=g.taskId WHERE r.status IN ('ACCEPTED','CANCEL_REQUESTED') OR (r.status='RUNNING' AND ((r.runtimeKind='GRAPH' AND (g.leaseUntil IS NULL OR g.leaseUntil<=CURRENT_TIMESTAMP(6))) OR (r.runtimeKind='COORDINATOR' AND r.createdAt<CURRENT_TIMESTAMP-INTERVAL 90 SECOND))) ORDER BY r.createdAt LIMIT 16")) {
+        for (var row : jdbc.queryForList("SELECT r.runId,r.status FROM t_agent_collab_run r LEFT JOIN t_patient_graph_execution g ON r.taskId=g.taskId WHERE r.status IN ('ACCEPTED','CANCEL_REQUESTED') OR (r.status='RUNNING' AND ((r.runtimeKind='GRAPH' AND (g.leaseUntil IS NULL OR g.leaseUntil<=CURRENT_TIMESTAMP(6))) OR (r.runtimeKind='COORDINATOR' AND r.createdAt<CURRENT_TIMESTAMP - interval '90 seconds'))) ORDER BY r.createdAt LIMIT 16")) {
             String id = row.get("runId").toString();
             if ("CANCEL_REQUESTED".equals(row.get("status"))) finishCancellation(id); else kick(id);
         }

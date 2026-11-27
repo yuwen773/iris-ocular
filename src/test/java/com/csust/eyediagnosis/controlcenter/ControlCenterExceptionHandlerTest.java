@@ -16,7 +16,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>锁等待超时与死锁必须变成可重试的 40906，而不是 50000「系统错误」。这一层
  * 只看「异常类型 → 错误码」，真正的触发证据在
  * {@code ControlCenterMultiProcessTest#aLockWaitTimeoutLeavesNoPartialPublish}
- * （子进程会话把 {@code innodb_lock_wait_timeout} 压到 2 秒，父进程持锁）。
+ * （子进程会话把 {@code lock_timeout} 压到 2 秒，父进程持锁）。
  */
 class ControlCenterExceptionHandlerTest {
 

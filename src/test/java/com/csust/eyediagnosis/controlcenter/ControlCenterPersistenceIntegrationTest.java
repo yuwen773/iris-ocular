@@ -129,7 +129,7 @@ class ControlCenterPersistenceIntegrationTest {
     @Test
     void migrationCreatesEveryConfigTableAndSeedsThePointer() {
         List<String> tables = jdbc.queryForList(
-                "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE() "
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() "
                         + "AND table_name LIKE 't_config_%' ORDER BY table_name", String.class);
         assertEquals(List.of("t_config_active_pointer", "t_config_audit_event", "t_config_draft",
                 "t_config_publish_request", "t_config_release", "t_config_request"), tables);

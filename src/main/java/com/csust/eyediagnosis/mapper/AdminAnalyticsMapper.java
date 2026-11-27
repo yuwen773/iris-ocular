@@ -73,7 +73,7 @@ public interface AdminAnalyticsMapper {
     @Select("SELECT d.humanReviewerId AS reviewerId, u.userName AS reviewerName, "
             + "COUNT(*) AS reviewed, "
             + "SUM(CASE WHEN d.humanReviewStatus = 'OVERRIDDEN' THEN 1 ELSE 0 END) AS overridden, "
-            + "AVG(TIMESTAMPDIFF(MINUTE, d.createTime, d.humanReviewedAt)) AS avgMinutes "
+            + "AVG(FLOOR(EXTRACT(EPOCH FROM (d.humanReviewedAt - d.createTime)) / 60)) AS avgMinutes "
             + "FROM t_diagnosis d "
             + "LEFT JOIN t_user u ON u.id = d.humanReviewerId AND u.isDelete = 0 "
             + "WHERE d.isDelete = 0 "
@@ -92,8 +92,8 @@ public interface AdminAnalyticsMapper {
      * 不是复核处理时长。
      */
     @Select("WITH latency AS ("
-            + "  SELECT TIMESTAMPDIFF(MINUTE, createTime, humanReviewedAt) AS m, "
-            + "         ROW_NUMBER() OVER (ORDER BY TIMESTAMPDIFF(MINUTE, createTime, humanReviewedAt)) AS rn, "
+            + "  SELECT FLOOR(EXTRACT(EPOCH FROM (humanReviewedAt - createTime)) / 60) AS m, "
+            + "         ROW_NUMBER() OVER (ORDER BY FLOOR(EXTRACT(EPOCH FROM (humanReviewedAt - createTime)) / 60)) AS rn, "
             + "         COUNT(*) OVER () AS total "
             + "  FROM t_diagnosis "
             + "  WHERE isDelete = 0 AND humanReviewStatus IN ('REVIEWED','OVERRIDDEN') "
@@ -174,7 +174,7 @@ public interface AdminAnalyticsMapper {
     /** 置信度汇总与量纲自检（一次查询返回全部计数）。 */
     @Select("SELECT "
             + "COALESCE(SUM(CASE WHEN confidence > 1 AND confidence <= 100 THEN 1 ELSE 0 END), 0) AS samples, "
-            + "AVG(CASE WHEN confidence > 1 AND confidence <= 100 THEN confidence END) AS `avg`, "
+            + "AVG(CASE WHEN confidence > 1 AND confidence <= 100 THEN confidence END) AS avg, "
             + "COALESCE(SUM(CASE WHEN confidence > 0 AND confidence <= 1 THEN 1 ELSE 0 END), 0) AS ambiguous, "
             + "COALESCE(SUM(CASE WHEN confidence <= 0 OR confidence > 100 THEN 1 ELSE 0 END), 0) AS outOfRange, "
             + "COALESCE(SUM(CASE WHEN confidence IS NULL THEN 1 ELSE 0 END), 0) AS missing "

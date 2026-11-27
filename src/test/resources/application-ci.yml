@@ -1,9 +1,11 @@
 spring:
+  # PostgreSQL 18 + pgvector。关系数据在 diagnosis schema，向量在 rag schema。
+  # 一个数据库承载两种数据，逻辑隔离靠 schema + 角色权限，不靠实例。
   datasource:
-    url: jdbc:mysql://127.0.0.1:3306/diagnosis_ci?serverTimezone=UTC
-    driver-class-name: com.mysql.cj.jdbc.Driver
-    username: eyeuser
-    password: ci-password
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://127.0.0.1:5432/iris_ci?currentSchema=diagnosis,rag,public&stringtype=unspecified}
+    driver-class-name: org.postgresql.Driver
+    username: ${SPRING_DATASOURCE_USERNAME:iris_app}
+    password: ${SPRING_DATASOURCE_PASSWORD:ci-app-password}
   session:
     store-type: none
   data:
@@ -11,7 +13,15 @@ spring:
       host: 127.0.0.1
       port: 6379
   flyway:
-    schemas: diagnosis_ci
+    # PostgreSQL 线是独立历史（db/postgresql）；MySQL 线（db/migration）保留为历史记录。
+    locations: classpath:db/postgresql
+    schemas: diagnosis
+    default-schema: diagnosis
+    create-schemas: true
+    validate-on-migrate: true
+    # 迁移账号拥有 DDL；应用账号只有 DML（见 scripts/postgresql/bootstrap-roles.sql）。
+    user: ${IRIS_FLYWAY_USER:iris_migrator}
+    password: ${IRIS_FLYWAY_PASSWORD:ci-migrator-password}
   ai:
     openai:
       api-key: ci-placeholder-openai-api-key
@@ -32,3 +42,11 @@ spring.autoconfigure.exclude: com.alibaba.cloud.ai.agent.studio.SaaStudioWebModu
 eye-diagnosis:
   vision-recognition:
     api-key: ci-placeholder-dashscope-api-key
+  database:
+    require-postgresql: true
+    min-major-version: 18
+  rag:
+    vector-store:
+      schema: rag
+      table: iris_knowledge_vectors
+      dimensions: 1024

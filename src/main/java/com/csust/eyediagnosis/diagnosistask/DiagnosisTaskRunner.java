@@ -73,12 +73,12 @@ public class DiagnosisTaskRunner {
 
     private void processOne() throws Exception {
         Timestamp now = now();
-        var candidates = jdbc.query("SELECT taskId,version FROM t_diagnosis_task WHERE BINARY status=BINARY 'PENDING' OR (BINARY status=BINARY 'RUNNING' AND leaseUntil<=COALESCE(?,CURRENT_TIMESTAMP(6))) ORDER BY createdAt LIMIT 1",
+        var candidates = jdbc.query("SELECT taskId,version FROM t_diagnosis_task WHERE status= 'PENDING' OR (status= 'RUNNING' AND leaseUntil<=COALESCE(?,CURRENT_TIMESTAMP(6))) ORDER BY createdAt LIMIT 1",
                 (rs, n) -> new Candidate(rs.getString(1), rs.getLong(2)), now);
         if (candidates.isEmpty()) return;
         var candidate = candidates.getFirst();
         String owner = UUID.randomUUID().toString();
-        int claimed = fencedUpdate(candidate.id(), () -> jdbc.update("UPDATE t_diagnosis_task SET status='RUNNING', leaseOwner=?, leaseUntil=TIMESTAMPADD(SECOND,120,COALESCE(?,CURRENT_TIMESTAMP(6))), leaseToken=leaseToken+1, version=version+1, updatedAt=COALESCE(?,CURRENT_TIMESTAMP(6)) WHERE taskId=? AND version=? AND (BINARY status=BINARY 'PENDING' OR (BINARY status=BINARY 'RUNNING' AND leaseUntil<=COALESCE(?,CURRENT_TIMESTAMP(6))))",
+        int claimed = fencedUpdate(candidate.id(), () -> jdbc.update("UPDATE t_diagnosis_task SET status='RUNNING', leaseOwner=?, leaseUntil=COALESCE(?,CURRENT_TIMESTAMP(6)) + interval '120 seconds', leaseToken=leaseToken+1, version=version+1, updatedAt=COALESCE(?,CURRENT_TIMESTAMP(6)) WHERE taskId=? AND version=? AND (status='PENDING' OR (status='RUNNING' AND leaseUntil<=COALESCE(?,CURRENT_TIMESTAMP(6))))",
                 owner, now(), now(), candidate.id(), candidate.version(), now()));
         if (claimed != 1) return;
         var rows = jdbc.query("SELECT userId,objectKey,objectVersion,imageDigest,imageFormat,attemptCount,leaseToken,version FROM t_diagnosis_task WHERE taskId=? AND leaseOwner=?",
@@ -92,7 +92,7 @@ public class DiagnosisTaskRunner {
             if (bytes == null || !task.imageDigest().equals(DiagnosisTaskService.digest(bytes))) throw new IllegalStateException("Input digest mismatch");
         } catch (Exception e) { finish(task, "RESTRICTED", "IMAGE_UNREADABLE", null); return; }
         var toReserve = task;
-        int reserved = fencedUpdate(task.id(), () -> jdbc.update("UPDATE t_diagnosis_task SET attemptCount=attemptCount+1, version=version+1, updatedAt=COALESCE(?,CURRENT_TIMESTAMP(6)) WHERE taskId=? AND BINARY status=BINARY 'RUNNING' AND leaseOwner=? AND leaseToken=? AND version=? AND leaseUntil>COALESCE(?,CURRENT_TIMESTAMP(6)) AND attemptCount<2",
+        int reserved = fencedUpdate(task.id(), () -> jdbc.update("UPDATE t_diagnosis_task SET attemptCount=attemptCount+1, version=version+1, updatedAt=COALESCE(?,CURRENT_TIMESTAMP(6)) WHERE taskId=? AND status= 'RUNNING' AND leaseOwner=? AND leaseToken=? AND version=? AND leaseUntil>COALESCE(?,CURRENT_TIMESTAMP(6)) AND attemptCount<2",
                 now(), toReserve.id(), toReserve.owner(), toReserve.token(), toReserve.version(), now()));
         if (reserved != 1) return;
         task = task.reserved();
@@ -140,7 +140,7 @@ public class DiagnosisTaskRunner {
     }
 
     private void finish(Claimed task, String status, String restrictReason, String snapshot) {
-        int rows = fencedUpdate(task.id(), () -> jdbc.update("UPDATE t_diagnosis_task SET status=?, restrictReason=?, inferenceSnapshot=?, leaseOwner=NULL, leaseUntil=NULL, version=version+1, updatedAt=COALESCE(?,CURRENT_TIMESTAMP(6)) WHERE taskId=? AND BINARY status=BINARY 'RUNNING' AND leaseOwner=? AND leaseToken=? AND version=? AND leaseUntil>COALESCE(?,CURRENT_TIMESTAMP(6)) AND inferenceSnapshot IS NULL",
+        int rows = fencedUpdate(task.id(), () -> jdbc.update("UPDATE t_diagnosis_task SET status=?, restrictReason=?, inferenceSnapshot=?, leaseOwner=NULL, leaseUntil=NULL, version=version+1, updatedAt=COALESCE(?,CURRENT_TIMESTAMP(6)) WHERE taskId=? AND status= 'RUNNING' AND leaseOwner=? AND leaseToken=? AND version=? AND leaseUntil>COALESCE(?,CURRENT_TIMESTAMP(6)) AND inferenceSnapshot IS NULL",
                 status, restrictReason, snapshot, now(), task.id(), task.owner(), task.token(), task.version(), now()));
         // fencedUpdate 自带事务，返回时已提交，所以这里就是「提交后发送」。
         // 只有落到两个对外可见的终态才通知：PENDING（重试）用户看不到变化。

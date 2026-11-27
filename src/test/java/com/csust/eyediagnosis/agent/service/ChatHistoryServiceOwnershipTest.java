@@ -90,7 +90,8 @@ class ChatHistoryServiceOwnershipTest {
 
     private ChatHistoryService service() {
         ChatMessageWriter messageWriter = new ChatMessageWriter(
-                agentSessionMapper, agentMessageMapper, new com.csust.eyediagnosis.agent.config.AgentConstants());
+                agentSessionMapper, agentMessageMapper, new com.csust.eyediagnosis.agent.config.AgentConstants(),
+                new com.csust.eyediagnosis.common.InsertRaceGuard(null));
         ChatHistoryService service = new ChatHistoryService(
                 agentSessionMapper, agentMessageMapper, new ObjectMapper(),
                 sessionMessageQueue, messageWriter);

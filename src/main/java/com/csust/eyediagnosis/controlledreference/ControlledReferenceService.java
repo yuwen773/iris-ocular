@@ -67,7 +67,7 @@ public class ControlledReferenceService {
             var chunks = chunker.chunk(content, Map.of());
             String id = UUID.randomUUID().toString();
             return transactions.execute(status -> {
-                jdbc.update("INSERT INTO t_controlled_reference (id,title,source,fileName,documentVersion,fileContent,isTest,diseaseCodes,topicCodes,uploadedBy) VALUES (?,?,?,?,?,?,?,JSON_ARRAY(),JSON_ARRAY(),?)",
+                jdbc.update("INSERT INTO t_controlled_reference (id,title,source,fileName,documentVersion,fileContent,isTest,diseaseCodes,topicCodes,uploadedBy) VALUES (?,?,?,?,?,?,?,'[]','[]',?)",
                         id, title.trim(), source.trim(), name, digest(bytes), bytes, isTest, actor.getId());
                 for (int i = 0; i < chunks.size(); i++) {
                     String text = chunks.get(i).getText();

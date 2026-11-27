@@ -57,7 +57,8 @@ class MiniAppAuthServiceTest {
         when(bindingMapper.insert(any(UserWechat.class))).thenReturn(1);
 
         authService = new MiniAppAuthService(properties, weChatClient, bindingMapper, userMapper,
-                passwordService, tokenService, noOpTransactions());
+                passwordService, tokenService, noOpTransactions(),
+                new com.csust.eyediagnosis.common.InsertRaceGuard(null));
     }
 
     /** 不连数据库：只让 TransactionTemplate 的 execute 跑通回调，事务语义由 L2 门禁覆盖。 */

@@ -56,7 +56,7 @@ class AgentControllerHistoryTest {
         when(sessionMapper.selectBySessionId("thread-a")).thenReturn(session);
         messageMapper = mock(AgentMessageMapper.class);
         ChatMessageWriter messageWriter = new ChatMessageWriter(sessionMapper, messageMapper,
-                new AgentConstants());
+                new AgentConstants(), new com.csust.eyediagnosis.common.InsertRaceGuard(null));
         ChatHistoryService historyService = new ChatHistoryService(sessionMapper, messageMapper,
                 new ObjectMapper(), mock(SessionMessageQueue.class), messageWriter);
 

@@ -66,7 +66,7 @@ class ToolTerminalPersistenceMySqlIntegrationTest {
             SqlSessionTemplate mappers = new SqlSessionTemplate(factory.getObject());
             var sessions = mappers.getMapper(AgentSessionMapper.class);
             var messages = mappers.getMapper(AgentMessageMapper.class);
-            ChatMessageWriter target = new ChatMessageWriter(sessions, messages, new AgentConstants());
+            ChatMessageWriter target = new ChatMessageWriter(sessions, messages, new AgentConstants(), new com.csust.eyediagnosis.common.InsertRaceGuard(null));
             ProxyFactory proxy = new ProxyFactory(target);
             proxy.setProxyTargetClass(true);
             proxy.addAdvice(new TransactionInterceptor(new DataSourceTransactionManager(dataSource),

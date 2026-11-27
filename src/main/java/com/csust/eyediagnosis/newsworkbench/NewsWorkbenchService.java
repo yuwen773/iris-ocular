@@ -1,6 +1,7 @@
 package com.csust.eyediagnosis.newsworkbench;
 
 import com.csust.eyediagnosis.exception.BusinessException;
+import com.csust.eyediagnosis.common.InsertRaceGuard;
 import com.csust.eyediagnosis.exception.ErrorCode;
 import com.csust.eyediagnosis.model.entity.User;
 import com.csust.eyediagnosis.newscuration.NewsCurationModels;
@@ -15,7 +16,6 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -130,6 +130,7 @@ public class NewsWorkbenchService {
 
     private final JdbcTemplate jdbc;
     private final TransactionTemplate taskTransactions;
+    private final InsertRaceGuard insertRaceGuard;
     private final NewsIngestionService ingestionService;
     private final NewsCurationService curationService;
     private final NewsCurationProperties curationProperties;
@@ -144,6 +145,8 @@ public class NewsWorkbenchService {
                                 @Qualifier("newsProtocolObjectMapper") ObjectMapper mapper) {
         this.jdbc = jdbc;
         this.taskTransactions = new TransactionTemplate(transactionManager);
+        // 复用同一个事务管理器：入队撞键后的状态回读必须活下来（PostgreSQL 事务会中止）。
+        this.insertRaceGuard = new InsertRaceGuard(transactionManager);
         this.ingestionService = ingestionService;
         this.curationService = curationService;
         this.curationProperties = curationProperties;
@@ -371,17 +374,19 @@ public class NewsWorkbenchService {
         }
 
         return taskTransactions.execute(transaction -> {
-            try {
-                ingestionService.enqueueWindow(
-                        taskId, normalizedSource, req.sourceConfigVersion(), req.query(), start, end, maxAttempts);
-            } catch (DuplicateKeyException ex) {
+            if (!insertRaceGuard.tryInsert(() -> {
+                try {
+                    ingestionService.enqueueWindow(
+                            taskId, normalizedSource, req.sourceConfigVersion(), req.query(), start, end, maxAttempts);
+                } catch (IllegalArgumentException ex) {
+                    throw new BusinessException(ErrorCode.PARAMS_ERROR, ex.getMessage());
+                }
+            })) {
                 String status = ingestionService.getTask(taskId)
                         .map(NewsIngestionService.TaskSnapshot::status)
                         .orElse("UNKNOWN");
                 throw new BusinessException(ErrorCode.PARAMS_ERROR,
                         "任务 ID " + taskId + " 已存在且当前状态为 " + status + "，本次入队未生效");
-            } catch (IllegalArgumentException ex) {
-                throw new BusinessException(ErrorCode.PARAMS_ERROR, ex.getMessage());
             }
             recordTaskEvent(taskId, TASK_EVENT_ACTION_ENQUEUE, null, "PENDING", operator, null);
             return loadTaskView(taskId);

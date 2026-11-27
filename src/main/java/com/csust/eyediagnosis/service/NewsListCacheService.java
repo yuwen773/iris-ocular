@@ -76,8 +76,8 @@ public class NewsListCacheService {
             jdbc.update("""
                     INSERT INTO t_news_cache_epoch (scope, epoch, updatedAt)
                     VALUES (?, 1, UTC_TIMESTAMP(6))
-                    ON DUPLICATE KEY UPDATE
-                        epoch = epoch + 1,
+                    ON CONFLICT (scope) DO UPDATE SET
+                        epoch = t_news_cache_epoch.epoch + 1,
                         updatedAt = UTC_TIMESTAMP(6)
                     """, NEWS_LIST_SCOPE);
             Long stored = jdbc.queryForObject(

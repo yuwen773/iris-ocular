@@ -1,5 +1,6 @@
 package com.csust.eyediagnosis.controlcenter.service;
 
+import com.csust.eyediagnosis.common.InsertRaceGuard;
 import com.csust.eyediagnosis.controlcenter.model.dto.DraftSaveRequest;
 import com.csust.eyediagnosis.controlcenter.model.entity.ConfigAuditEvent;
 import com.csust.eyediagnosis.controlcenter.model.entity.ConfigDraft;
@@ -13,7 +14,6 @@ import com.csust.eyediagnosis.exception.BusinessException;
 import com.csust.eyediagnosis.exception.ErrorCode;
 import com.csust.eyediagnosis.mapper.ConfigDraftMapper;
 import com.csust.eyediagnosis.model.entity.User;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -43,19 +43,22 @@ public class ControlCenterDraftService {
     private final ConfigPayloadCodec codec;
     private final ControlCenterAuditService audit;
     private final ControlCenterIdempotencyService idempotency;
+    private final InsertRaceGuard insertRaceGuard;
 
     public ControlCenterDraftService(ConfigDraftMapper draftMapper,
                                      ConfigRegistry registry,
                                      ConfigValueValidator validator,
                                      ConfigPayloadCodec codec,
                                      ControlCenterAuditService audit,
-                                     ControlCenterIdempotencyService idempotency) {
+                                     ControlCenterIdempotencyService idempotency,
+                                     InsertRaceGuard insertRaceGuard) {
         this.draftMapper = draftMapper;
         this.registry = registry;
         this.validator = validator;
         this.codec = codec;
         this.audit = audit;
         this.idempotency = idempotency;
+        this.insertRaceGuard = insertRaceGuard;
     }
 
     /** 读取当前草稿；不存在时返回 revision=0 的空草稿（不是 404：前端首屏需要它）。 */
@@ -80,9 +83,9 @@ public class ControlCenterDraftService {
         draft.setStatus(ConfigDraft.STATUS_DRAFT);
         draft.setPayload(codec.canonical(values));
         draft.setUpdatedBy(actor.getId());
-        try {
-            draftMapper.insert(draft);
-        } catch (DuplicateKeyException duplicate) {
+        // 撞键后还要写失败审计并抛 40900；PostgreSQL 上事务已被中止，必须先回滚到
+        // savepoint，失败审计才能落库、40900 才不会被 25P02 顶掉。
+        if (!insertRaceGuard.tryInsert(() -> draftMapper.insert(draft))) {
             audit.recordFailure("DRAFT_CREATE", actor.getId(), "1", request.getRequestId(),
                     null, ConfigErrorReason.VERSION_CONFLICT.name(), null);
             throw new BusinessException(ErrorCode.CONFIG_VERSION_CONFLICT, "草稿已存在，请改为更新");

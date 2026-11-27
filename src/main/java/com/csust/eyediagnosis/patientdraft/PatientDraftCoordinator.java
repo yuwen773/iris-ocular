@@ -152,7 +152,7 @@ public class PatientDraftCoordinator implements AutoCloseable {
                 if (ready) {
                     retriever.withValidatedEvidence(disease, TOPIC, frozen.citations(), () -> guarded(taskId, lease, () -> {
                         jdbc.update("UPDATE t_patient_draft_run SET status='REVIEW_READY' WHERE taskId=?", taskId);
-                        jdbc.update("UPDATE t_diagnosis_task SET status='WAITING_REVIEW',version=version+1,updatedAt=CURRENT_TIMESTAMP(6) WHERE taskId=? AND BINARY status=BINARY 'DRAFTING'", taskId);
+                        jdbc.update("UPDATE t_diagnosis_task SET status='WAITING_REVIEW',version=version+1,updatedAt=CURRENT_TIMESTAMP(6) WHERE taskId=? AND status= 'DRAFTING'", taskId);
                         if (collaboration != null) collaboration.succeeded(taskId, draftVersion);
                         return null;
                     }));
@@ -272,7 +272,7 @@ public class PatientDraftCoordinator implements AutoCloseable {
                     guarded(taskId, lease, () -> null);
                     if (clock.millis() >= renewAt) {
                         guarded(taskId, lease, () -> {
-                            jdbc.update("UPDATE t_patient_graph_execution SET leaseUntil=TIMESTAMPADD(SECOND,10,CURRENT_TIMESTAMP(6)) WHERE taskId=?", taskId);
+                            jdbc.update("UPDATE t_patient_graph_execution SET leaseUntil=CURRENT_TIMESTAMP(6) + interval '10 seconds' WHERE taskId=?", taskId);
                             return null;
                         });
                         renewAt = clock.millis() + 1000;
@@ -425,7 +425,7 @@ public class PatientDraftCoordinator implements AutoCloseable {
         if (Boolean.TRUE.equals(jdbc.queryForObject("SELECT leaseUntil>CURRENT_TIMESTAMP(6) FROM t_patient_graph_execution WHERE taskId=?", Boolean.class, taskId))) return null;
         var row = rows.getFirst();
         var lease = new Lease(UUID.randomUUID().toString(), ((Number) row.get("fencingToken")).longValue() + 1, ((Number) row.get("checkpointVersion")).longValue());
-        jdbc.update("UPDATE t_patient_graph_execution SET leaseOwner=?,fencingToken=?,leaseUntil=TIMESTAMPADD(SECOND,10,CURRENT_TIMESTAMP(6)) WHERE taskId=?", lease.owner, lease.token, taskId);
+        jdbc.update("UPDATE t_patient_graph_execution SET leaseOwner=?,fencingToken=?,leaseUntil=CURRENT_TIMESTAMP(6) + interval '10 seconds' WHERE taskId=?", lease.owner, lease.token, taskId);
         return lease;
     }
 
@@ -438,8 +438,8 @@ public class PatientDraftCoordinator implements AutoCloseable {
     /** Selects only unstarted work or expired, interrupted work; completed/restricted runs never replay calls. */
     public void runPendingOnce() {
         var candidates = jdbc.query("SELECT t.taskId FROM t_diagnosis_task t LEFT JOIN t_patient_draft_run r ON t.taskId=r.taskId "
-                        + "WHERE (BINARY t.status=BINARY 'WAITING_REVIEW' AND r.taskId IS NULL) "
-                        + "OR (BINARY t.status=BINARY 'DRAFTING' AND BINARY r.status=BINARY 'RUNNING' AND r.deadlineAt<=?) "
+                        + "WHERE (t.status= 'WAITING_REVIEW' AND r.taskId IS NULL) "
+                        + "OR (t.status= 'DRAFTING' AND r.status= 'RUNNING' AND r.deadlineAt<=?) "
                         + "ORDER BY t.createdAt,t.taskId LIMIT 1", (rs, n) -> rs.getString(1), now());
         if (!candidates.isEmpty()) run(candidates.getFirst());
     }
@@ -747,10 +747,10 @@ public class PatientDraftCoordinator implements AutoCloseable {
                     ? jdbc.query("SELECT deadlineAt FROM t_patient_draft_run WHERE taskId=?", (rs, n) -> rs.getTimestamp(1), taskId)
                             .stream().filter(Objects::nonNull).findFirst().orElse(now())
                     : now();
-            int changed = jdbc.update("UPDATE t_patient_draft_run SET status='RESTRICTED',stopReason=? WHERE taskId=? AND BINARY status=BINARY 'RUNNING'", reason, taskId);
+            int changed = jdbc.update("UPDATE t_patient_draft_run SET status='RESTRICTED',stopReason=? WHERE taskId=? AND status= 'RUNNING'", reason, taskId);
             if (changed == 1) {
                 jdbc.update("UPDATE t_patient_draft_message SET state='STOPPED',completedAt=? WHERE taskId=? AND state='STARTED'", stoppedAt, taskId);
-                jdbc.update("UPDATE t_diagnosis_task SET status='RESTRICTED',version=version+1,updatedAt=CURRENT_TIMESTAMP(6) WHERE taskId=? AND BINARY status=BINARY 'DRAFTING'", taskId);
+                jdbc.update("UPDATE t_diagnosis_task SET status='RESTRICTED',version=version+1,updatedAt=CURRENT_TIMESTAMP(6) WHERE taskId=? AND status= 'DRAFTING'", taskId);
                 if (collaboration != null) collaboration.stopped(taskId, reason);
             }
         });

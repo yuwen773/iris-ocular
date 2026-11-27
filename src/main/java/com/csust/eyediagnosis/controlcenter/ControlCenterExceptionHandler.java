@@ -14,7 +14,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  * 配置中心的并发失败语义（WP-01D）。
  *
  * <p>为什么需要这一层：发布事务靠 {@code SELECT … FOR UPDATE} 串行化，竞争一旦超过
- * {@code innodb_lock_wait_timeout}（默认 50s）或 InnoDB 判定死锁，Spring 抛出的是
+ * {@code lock_timeout}（未设置时 PostgreSQL 默认无限等待）或 PostgreSQL 判定死锁
+ * （{@code 40P01}），Spring 抛出的是
  * {@link PessimisticLockingFailureException} 的子类（{@code CannotAcquireLockException} /
  * {@code DeadlockLoserDataAccessException}）。它会一路落到全局兜底处理器，变成
  * {@code 50000 系统错误}——客户端拿到这个码只能当作「服务坏了」，实际上事务已经

@@ -27,7 +27,8 @@ class ControlCenterIdempotencyServiceTest {
 
     private final ConfigRequestMapper mapper = mock(ConfigRequestMapper.class);
 
-    private final ControlCenterIdempotencyService service = new ControlCenterIdempotencyService(mapper);
+    private final ControlCenterIdempotencyService service = new ControlCenterIdempotencyService(mapper,
+            new com.csust.eyediagnosis.common.InsertRaceGuard(null));
 
     @Test
     void blankRequestIdTurnsIdempotencyOffWithoutTouchingTheDatabase() {

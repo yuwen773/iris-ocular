@@ -8,8 +8,8 @@ import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.ai.document.Document;
-import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
@@ -22,8 +22,11 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -54,8 +57,6 @@ class BuiltinCorpusSeederTest {
 
     @Test
     void seedsEveryBuiltinDocumentWithSystemOwner() {
-        when(vectorStore.similaritySearch(any(SearchRequest.class))).thenReturn(List.of());
-
         int chunks = seeder.seed();
 
         assertTrue(chunks > 0, "内置语料应当产生分块");
@@ -86,8 +87,6 @@ class BuiltinCorpusSeederTest {
 
     @Test
     void chunkIdsAreStableAcrossSeeds() {
-        when(vectorStore.similaritySearch(any(SearchRequest.class))).thenReturn(List.of());
-
         ArgumentCaptor<List<Document>> firstCaptor = ArgumentCaptor.forClass(List.class);
         seeder.seed();
         verify(vectorStore, atLeastOnce()).add(firstCaptor.capture());
@@ -111,9 +110,12 @@ class BuiltinCorpusSeederTest {
 
     @Test
     void removesChunksThatNoLongerExistInTheCorpus() {
-        // 语料变短后多出来的旧分块：id 不在本次写入的集合里，应当被清掉
-        when(vectorStore.similaritySearch(any(SearchRequest.class))).thenReturn(List.of(
-                new Document("builtin_01-normal_chunk_9999", "旧内容", Map.of("corpus", "builtin"))));
+        // 语料变短后多出来的旧分块：id 不在本次写入的集合里，应当被清掉。
+        // PG 线的既有 id 直接按 metadata 列举（不再靠一次 ANN 检索"尽量找全"）。
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        when(jdbc.queryForList(anyString(), eq(String.class), any(Object[].class)))
+                .thenReturn(List.of("builtin_01-normal_chunk_9999"));
+        ReflectionTestUtils.setField(seeder, "jdbcTemplate", jdbc);
 
         seeder.seed();
 
@@ -122,8 +124,10 @@ class BuiltinCorpusSeederTest {
 
     @Test
     void keepsChunksWhoseIdIsStillInUse() {
-        when(vectorStore.similaritySearch(any(SearchRequest.class))).thenReturn(List.of(
-                new Document("builtin_01-normal_chunk_0", "旧内容", Map.of("corpus", "builtin"))));
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        when(jdbc.queryForList(anyString(), eq(String.class), any(Object[].class)))
+                .thenReturn(List.of("builtin_01-normal_chunk_0"));
+        ReflectionTestUtils.setField(seeder, "jdbcTemplate", jdbc);
 
         seeder.seed();
 

@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.stereotype.Component;
@@ -28,7 +29,7 @@ import java.util.stream.Collectors;
  * 内置眼科知识语料播种器。
  *
  * <p>{@code src/main/resources/rag/*.md} 里的内容原本没有任何代码读取，
- * 只静静躺在 classpath 里。这个播种器把它们切分、向量化后写入 ChromaDB，
+ * 只静静躺在 classpath 里。这个播种器把它们切分、向量化后写入 pgvector，
  * 并打上 {@code ownerUserId = 0} 的公共标记，使所有登录用户都能检索到，
  * 同时不影响用户私有文档的隔离。
  *
@@ -45,6 +46,15 @@ public class BuiltinCorpusSeeder implements ApplicationRunner {
 
     @Autowired(required = false)
     private VectorStore vectorStore;
+
+    @Autowired(required = false)
+    private JdbcTemplate jdbcTemplate;
+
+    @Value("${eye-diagnosis.rag.vector-store.schema:rag}")
+    private String vectorSchema = "rag";
+
+    @Value("${eye-diagnosis.rag.vector-store.table:iris_knowledge_vectors}")
+    private String vectorTable = "iris_knowledge_vectors";
 
     @Autowired
     private TextChunkerService textChunkerService;
@@ -91,8 +101,9 @@ public class BuiltinCorpusSeeder implements ApplicationRunner {
             return 0;
         }
 
-        // 先写入再清理：分块 id 稳定，Chroma 侧走 upsert 覆盖同名分块，
-        // 因此只需要删掉"语料变短后多出来的"旧分块。这样重播期间语料不会断档。
+        // 先写入再清理：分块 id 稳定，pgvector 侧走 ON CONFLICT (id) DO UPDATE
+        // 覆盖同名分块，因此只需要删掉"语料变短后多出来的"旧分块。这样重播期间
+        // 语料不会断档。
         Set<String> currentIds = documents.stream().map(Document::getId).collect(Collectors.toSet());
         List<String> staleIds = findExistingBuiltinIds().stream()
                 .filter(id -> !currentIds.contains(id))
@@ -135,7 +146,7 @@ public class BuiltinCorpusSeeder implements ApplicationRunner {
         List<Document> result = new ArrayList<>(chunks.size());
         for (int i = 0; i < chunks.size(); i++) {
             // 分块 id 必须稳定：重复播种时靠它覆盖旧向量，而不是不断追加。
-            // 稳定 id 依赖 ChromaVectorStore.doAdd 走 upsert（同名即覆盖）。
+            // 稳定 id 依赖 PgVectorStore.doAdd 的 INSERT ... ON CONFLICT (id) DO UPDATE。
             String chunkId = BuiltinCorpus.CORPUS_TAG + "_" + slug + "_chunk_" + i;
             // 与用户上传文档同口径：片段序号显式入元数据，正文引用按 documentId#chunkIndex 校验。
             Map<String, Object> chunkMetadata = new HashMap<>(chunks.get(i).getMetadata());
@@ -148,20 +159,19 @@ public class BuiltinCorpusSeeder implements ApplicationRunner {
     /**
      * 列出向量库里已有的内置语料分块 id。
      *
-     * <p>用于识别语料变短后多出来的旧分块。注意 Chroma 没有按 metadata 全量列举的
-     * 向量库接口：这里的查询文本会被嵌入模型编码后做 ANN 检索，即使 topK 足够大、
-     * 相似度阈值降到 0，也只是近似"尽量找全"，不保证穷尽。因此清理是尽力而为——
-     * 漏掉的旧分块不会让检索出错，只是留在库里占位。
+     * <p>用于识别语料变短后多出来的旧分块。PostgreSQL 线可以直接按 metadata 全量
+     * 列举（旧 Chroma 实现只能靠一次近似 ANN 检索"尽量找全"），清理因此是穷尽的。
      */
     private List<String> findExistingBuiltinIds() {
+        if (jdbcTemplate == null) {
+            return List.of();
+        }
         try {
-            List<Document> existing = vectorStore.similaritySearch(SearchRequest.builder()
-                    .query(BuiltinCorpus.CORPUS_TAG)
-                    .topK(1000)
-                    .similarityThreshold(0.0)
-                    .filterExpression("corpus == '" + BuiltinCorpus.CORPUS_TAG + "'")
-                    .build());
-            return existing.stream().map(Document::getId).toList();
+            return jdbcTemplate.queryForList(
+                    "SELECT id FROM " + vectorSchema + "." + vectorTable
+                            + " WHERE metadata::jsonb @> ?",
+                    String.class,
+                    "{\"corpus\":\"" + BuiltinCorpus.CORPUS_TAG + "\"}");
         } catch (Exception e) {
             log.warn("查询既有内置语料失败，跳过清理: {}", e.getMessage());
             return List.of();

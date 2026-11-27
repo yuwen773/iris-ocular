@@ -45,7 +45,8 @@ class SessionPinExposureTest {
 
     private ChatHistoryService newService() {
         ChatMessageWriter messageWriter = new ChatMessageWriter(
-                agentSessionMapper, agentMessageMapper, new AgentConstants());
+                agentSessionMapper, agentMessageMapper, new AgentConstants(),
+                new com.csust.eyediagnosis.common.InsertRaceGuard(null));
         ChatHistoryService service = new ChatHistoryService(
                 agentSessionMapper, agentMessageMapper, new ObjectMapper(),
                 sessionMessageQueue, messageWriter);

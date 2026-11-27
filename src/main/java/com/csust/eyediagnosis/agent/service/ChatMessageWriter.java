@@ -1,6 +1,7 @@
 package com.csust.eyediagnosis.agent.service;
 
 import com.csust.eyediagnosis.agent.config.AgentConstants;
+import com.csust.eyediagnosis.common.InsertRaceGuard;
 import com.csust.eyediagnosis.exception.BusinessException;
 import com.csust.eyediagnosis.exception.ErrorCode;
 import com.csust.eyediagnosis.exception.ThrowUtils;
@@ -9,7 +10,6 @@ import com.csust.eyediagnosis.mapper.AgentSessionMapper;
 import com.csust.eyediagnosis.model.entity.AgentMessage;
 import com.csust.eyediagnosis.model.entity.AgentSession;
 import lombok.RequiredArgsConstructor;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,6 +33,7 @@ public class ChatMessageWriter {
     private final AgentSessionMapper sessionMapper;
     private final AgentMessageMapper messageMapper;
     private final AgentConstants agentConstants;
+    private final InsertRaceGuard insertRaceGuard;
 
     /**
      * 原子声明或校验会话所有权：
@@ -60,15 +61,15 @@ public class ChatMessageWriter {
         created.setLastMessage("");
         created.setCreatedTime(new Date());
         created.setUpdatedTime(new Date());
-        try {
-            sessionMapper.insert(created);
+        // 撞键必须走 savepoint：本方法带 @Transactional，直接 catch 的话 PostgreSQL 上
+        // 事务已被这次失败中止，下面的回读会报 25P02（MySQL 上则不会）。
+        if (insertRaceGuard.tryInsert(() -> sessionMapper.insert(created))) {
             return created;
-        } catch (DuplicateKeyException exception) {
-            AgentSession raced = sessionMapper.selectBySessionId(sessionId);
-            ThrowUtils.throwIf(raced == null || !userId.equals(raced.getUserId()),
-                    ErrorCode.NO_AUTH_ERROR, "无权限访问该会话");
-            return raced;
         }
+        AgentSession raced = sessionMapper.selectBySessionId(sessionId);
+        ThrowUtils.throwIf(raced == null || !userId.equals(raced.getUserId()),
+                ErrorCode.NO_AUTH_ERROR, "无权限访问该会话");
+        return raced;
     }
 
     @Transactional

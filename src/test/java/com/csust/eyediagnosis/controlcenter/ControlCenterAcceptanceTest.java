@@ -243,7 +243,7 @@ class ControlCenterAcceptanceTest {
                 "SELECT payload FROM t_config_draft WHERE id = 1", String.class);
         // 键名里带点：JSON 路径必须写成 $."brand.siteName"，否则会被当成两级嵌套。
         assertEquals("Iris", jdbc.queryForObject(
-                "SELECT JSON_UNQUOTE(JSON_EXTRACT(payload, '$.\"brand.siteName\"')) FROM t_config_draft WHERE id = 1",
+                "SELECT payload ->> 'brand.siteName' FROM t_config_draft WHERE id = 1",
                 String.class), "草稿内容被过期请求改动了, 实际 payload=" + storedPayload);
     }
 
@@ -258,8 +258,8 @@ class ControlCenterAcceptanceTest {
         assertNotNull(audits);
         assertTrue(audits > 0, "草稿操作必须留下审计");
         Integer leaks = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM t_config_audit_event WHERE payload LIKE '%Passw0rd%' "
-                        + "OR payload LIKE '%csrf%' OR payload LIKE '%session%'", Integer.class);
+                "SELECT COUNT(*) FROM t_config_audit_event WHERE payload::text LIKE '%Passw0rd%' "
+                        + "OR payload::text LIKE '%csrf%' OR payload::text LIKE '%session%'", Integer.class);
         assertEquals(0, leaks, "审计不得包含口令 / CSRF token / Session");
     }
 

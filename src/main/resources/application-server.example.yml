@@ -1,11 +1,23 @@
 # 服务器部署配置示例（请复制为 application-server.yml 并填写真实凭据）
 # 真实文件 application-server.yml 已加入 .gitignore，请勿提交到仓库
 spring:
+  # PostgreSQL 18 + pgvector。业务关系数据在 diagnosis schema，RAG 向量在 rag
+  # schema，同一实例逻辑隔离；currentSchema 决定解析路径。
   datasource:
-    url: jdbc:mysql://<host>:3306/diagnosis?characterEncoding=utf-8&serverTimezone=Asia/Shanghai
-    driver-class-name: com.mysql.cj.jdbc.Driver
-    username: <db-user>
-    password: <db-password>
+    url: jdbc:postgresql://<host>:5432/iris?currentSchema=diagnosis,rag,public&stringtype=unspecified
+    driver-class-name: org.postgresql.Driver
+    # 应用账号只有 USAGE + DML，没有 DDL、装扩展与迁移历史读写权限。
+    username: iris_app
+    password: ${IRIS_DB_APP_PASSWORD}
+  flyway:
+    locations: classpath:db/postgresql
+    schemas: diagnosis
+    default-schema: diagnosis
+    create-schemas: true
+    validate-on-migrate: true
+    # 迁移账号拥有 DDL；由 scripts/postgresql/bootstrap-roles.sql 一次性建立。
+    user: iris_migrator
+    password: ${IRIS_DB_MIGRATOR_PASSWORD}
   jackson:
     # 不要设置 date-format：无 time-zone 的 SimpleDateFormat 会按 UTC 输出
     # 无偏移墙钟，正是 R3 修掉的 8 小时时差。时间格式统一由 JsonConfig 的
@@ -27,12 +39,9 @@ spring:
           max-wait: -1
       connect-timeout: 3000
   ai:
-    vectorstore:
-      chroma:
-        client:
-          host: <chroma-host>
-          port: 8000
-        collection-name: diagnosis-knowledge
+    # 向量库是 PostgreSQL 的 rag schema（表 rag.iris_knowledge_vectors），
+    # 不再有独立的 Chroma 服务。表与索引由 Flyway 迁移建立，应用启动不建表、不删表。
+
     openai:
       base-url: https://dashscope.aliyuncs.com/compatible-mode
       api-key: ${DASHSCOPE_API_KEY}

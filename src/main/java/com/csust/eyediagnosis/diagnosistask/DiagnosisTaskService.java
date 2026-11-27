@@ -61,7 +61,7 @@ public class DiagnosisTaskService {
         // 之后就只剩一句「受限」——那正是 V33 加这一列要消掉的现象。
         String restrictReason = validVersion ? null : "STORAGE_VERSION_MISSING";
         try {
-            jdbc.update("INSERT INTO t_diagnosis_task (taskId,userId,idempotencyKey,requestDigest,imageDigest,objectKey,objectVersion,imageFormat,status,restrictReason,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,NOW(6),NOW(6))",
+            jdbc.update("INSERT INTO t_diagnosis_task (taskId,userId,idempotencyKey,requestDigest,imageDigest,objectKey,objectVersion,imageFormat,status,restrictReason,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,NOW(),NOW())",
                     id, userId, key, requestDigest, imageDigest, objectKey, version, format, status, restrictReason);
         } catch (DuplicateKeyException e) {
             var concurrent = findRequest(userId, key, requestDigest);
