@@ -37,6 +37,8 @@ CI 里是根 `verify.yml` 的 `web` job），小程序看 `miniapp/package.json`
 RAG 证据、Spring 装配时升到 L2（`--db`）；准备合并时才用 L3。规则与逐模块影响映射见
 `docs/testing/verification-levels.md`。
 
+**`scripts/` 自身自测**：`python -m unittest discover -s scripts/tests -p "test_check_*.py"`——**裸跑，勿加 `-I`**（隔离模式会剥离 sys.path，`from scripts.*` 导入直接 `ModuleNotFoundError`）。
+
 **后端全量验证走 `scripts/verify.sh`**：它自带一次性 MySQL 8 + Redis、注入 `SPRING_PROFILES_ACTIVE=ci`、跑完整 `mvn test`（含 `contextLoads` 与两个 MySQL 集成门禁），结束自动清理容器。JDK 21 由脚本设为 `C:\Users\yuwen\.jdks\corretto-21.0.7`；手工跑 Maven 时用 `JAVA_HOME=<该路径> mvn ...`。
 
 **Docker 测试资源统一走 `scripts/lib/docker-test-harness.sh`**（Run ID + `eye.owner` 标签 + 命名卷 + 统一 teardown）；遗留资源只读盘点与安全回收用 `scripts/docker-test-resources.sh`（默认 dry-run，**禁止全局 prune**）。根因、入口清单与历史资源清理方案见 `docs/docker-test-resources.md`。

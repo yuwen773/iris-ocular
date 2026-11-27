@@ -36,3 +36,15 @@
 /algorithm/configs/calibration/ @yuwen773
 /algorithm/tools/ @yuwen773
 /algorithm/mcp_server/ @yuwen773
+
+# CI 与测试执行配置（R3）：改动等于改门禁本身。
+# 分支保护的 require_code_owner_reviews 读的是**基线分支**的 CODEOWNERS，
+# PR 无法通过修改本文件免除自己的评审要求；这一条约束的是「改门禁必须被看见」，
+# 不是「自动判断改动是否安全」。限制与信任模型见 docs/testing/ci-trust-model.md。
+/.github/ @yuwen773
+/scripts/check_*.py @yuwen773
+/scripts/tests/ @yuwen773
+/scripts/lib/ @yuwen773
+/scripts/verify.sh @yuwen773
+/scripts/verify-fast.sh @yuwen773
+/pom.xml @yuwen773

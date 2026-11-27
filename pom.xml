@@ -259,6 +259,19 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
+                <!-- 声明 provider 为插件依赖：
+                     1) 它随插件在构建一开始解析，不再等到测试执行时才去中央仓库，
+                        `mvn package -DskipTests` 就能把它写进 CI 的 Maven 缓存；
+                     2) 版本与插件同一属性，避免两者漂移。
+                     背景：2026-11-26/27 有 4 次 job 在一条用例都没跑时因 Maven Central
+                     429 解析该 provider 失败而变红（issue19、issue23）。 -->
+                <dependencies>
+                    <dependency>
+                        <groupId>org.apache.maven.surefire</groupId>
+                        <artifactId>surefire-junit-platform</artifactId>
+                        <version>${maven-surefire-plugin.version}</version>
+                    </dependency>
+                </dependencies>
                 <configuration>
                     <argLine>-Dfile.encoding=UTF-8</argLine>
                 </configuration>

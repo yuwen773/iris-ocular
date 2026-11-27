@@ -11,6 +11,8 @@ from xml.etree import ElementTree
 
 from scripts.check_surefire_skips import CONTRACTS, check
 
+P = "com.csust.eyediagnosis."
+
 
 def suite_xml(name, cases, skipped=0, failures=0, errors=0):
     root = ElementTree.Element(
@@ -111,15 +113,37 @@ class SurefireSkipGateTest(unittest.TestCase):
         self.write(name, cases=32)
         self.assertEqual(1, self.verdict(CONTRACTS["collaboration"]))
 
+    def graph_reports(self):
+        """The four suites the Graph job runs on one disposable MySQL."""
+        self.write(P + "collaboration.GraphExecutionTest", cases=37)
+        self.write(P + "poc.realtime.RealtimeGraphSpikeTest", cases=12)
+        self.write(P + "poc.CoordinationPocTest", cases=4)
+        self.write(P + "poc.CoordinationMySqlTest", cases=14)
+
     def test_graph_execution_rejects_missing_skipped_and_dropped_cases(self):
-        name = "com.csust.eyediagnosis.collaboration.GraphExecutionTest"
+        name = P + "collaboration.GraphExecutionTest"
         self.write("example.UnrelatedTest", cases=1)
         self.assertEqual(1, self.verdict(CONTRACTS["graph-execution"]))
-        self.write(name, cases=37)
+        self.graph_reports()
         self.assertEqual(0, self.verdict(CONTRACTS["graph-execution"]))
         self.write(name, cases=37, skipped=1)
         self.assertEqual(1, self.verdict(CONTRACTS["graph-execution"]))
         self.write(name, cases=36)
+        self.assertEqual(1, self.verdict(CONTRACTS["graph-execution"]))
+
+    def test_graph_execution_no_longer_tolerates_a_silently_skipped_coordination_suite(self):
+        # CoordinationMySqlTest was skipped in every CI job before G1 because no
+        # job set COORDINATION_POC_URL. A missing report must now be red, not green.
+        self.graph_reports()
+        self.assertEqual(0, self.verdict(CONTRACTS["graph-execution"]))
+        for suite in ("poc.CoordinationMySqlTest", "poc.CoordinationPocTest",
+                      "poc.realtime.RealtimeGraphSpikeTest"):
+            name = P + suite
+            (self.directory / f"TEST-{name}.xml").unlink()
+            self.assertEqual(1, self.verdict(CONTRACTS["graph-execution"]), suite)
+            self.write(name, cases=CONTRACTS["graph-execution"]["expected"][name])
+            self.assertEqual(0, self.verdict(CONTRACTS["graph-execution"]), suite)
+        self.write(P + "poc.CoordinationMySqlTest", cases=14, skipped=14)
         self.assertEqual(1, self.verdict(CONTRACTS["graph-execution"]))
 
     def test_issue20_requires_complete_suite_without_skips_or_dropped_cases(self):
