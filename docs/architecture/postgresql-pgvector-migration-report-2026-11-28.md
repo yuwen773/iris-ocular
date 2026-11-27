@@ -9,15 +9,15 @@
 
 | 项 | 状态 | 一句话证据 |
 |---|---|---|
-| PG 18 + pgvector 基建 | PASS | Flyway V1–V5 在 6 个库 migrate + validate 成功 |
+| PG 18 + pgvector 基建 | PASS | Flyway V1–V7 在 6 个库 migrate + validate 成功（V6/V7 为本轮补的 shim 边界与 owner 表达式索引） |
 | 关系数据持久化 | PASS | 59 表 / 93 行演练、逐表 digest、26 序列同步、0 未验证外键 |
-| 业务不变量与并发 | PASS | 全量后端套件 1415 用例 0 失败（含 ControlCenter 多进程 7/7） |
+| 业务不变量与并发 | PASS | 全量后端套件 1421 用例 0 失败（含 ControlCenter 多进程 7/7） |
 | 向量迁移（Chroma→pgvector） | PASS | 300 块逐字节保真、overlap@10 = 1.000、隔离过滤不泄漏 |
 | 备份恢复 | PASS | `pg_dump \| pg_restore` 到独立库，行数 + 向量 + Flyway 历史一致 |
 | 最小权限账号 | PASS | 12 条拒绝探针（DDL/扩展/schema/迁移历史），DML 放行 |
 | 全量后端套件（PG） | PASS | `mvn -B test`：1421 tests / 0 fail / 0 err / 383 skipped / exit 0 |
 | 跳测门禁契约 | PASS | `check_surefire_skips.py backend-unit` exit 0 |
-| CI（远端 HEAD） | 见 §5.7 | 首轮 20/24，三个契约 job 已修；最终 HEAD 的 run 见 §5.7 |
+| CI（远端 HEAD） | PASS | run `46047803428`（HEAD `c403adcb`）：20/20 必需检查 success；`postgres-integration` / `vector-migration-drill` / `flyway-postgres` / `miniapp` 均 success；10 个 MySQL-only job 按设计 `skipped`（§5.7） |
 | 独立评审 A/B | PASS（已整改） | A：BLOCK → 1 P0 + 3 P1 已修；B：FIX_P0_P1 → 无 P0，2 P1 已修（见 §9） |
 | 生产切换 | BLOCKED | 需真实数据导出、分支保护变更、部署授权 |
 
@@ -61,7 +61,7 @@
 | 关系演练 | `scripts/migration/run-drill.sh`、`scripts/migration/generate-drill-fixture.py` |
 | 验证入口 | `scripts/verify-pg.sh`（L1 门禁；`--full` 全量） |
 | 应用代码 | `VectorStoreConfig`、`LexicalCorpusService`、`BuiltinCorpusSeeder`、`PostgreSqlRequirement`、`InsertRaceGuard` |
-| PG 测试 | `src/test/java/com/csust/eyediagnosis/postgres/Pg*IntegrationTest.java`（4 套件 / 24 用例） |
+| PG 测试 | `src/test/java/com/csust/eyediagnosis/postgres/Pg*IntegrationTest.java`（4 套件 / 26 用例） |
 | CI | `.github/workflows/verify.yml`（`backend-unit`、`flyway-postgres`、`postgres-integration`、`vector-migration-drill`；10 个 MySQL-only job 以 `if: ${{ false }}` 标注 NOT_RUN） |
 
 ## 5. 验收证据
@@ -70,12 +70,13 @@
 
 ```
 $ scripts/verify-pg.sh
-run-id: eye-...
+run-id: test-20261127t181948z-c403adcb-1451-18e0
 roles: iris_migrator / iris_app bootstrapped
-MIGRATED=5 VERSION=5
+MIGRATED=7 VERSION=7
 VALIDATE=OK
-postgres suites=4 tests=24 skipped=0 failures=0 errors=0
+postgres suites=4 tests=26 skipped=0 failures=0 errors=0
 PASS: PostgreSQL verification (gates)
+clean: run test-20261127t181948z-c403adcb-1451-18e0 has no leftover containers/volumes/networks
 ```
 退出码 0。另在 `iris` / `iris_ci` / `iris_it` / `iris_drill` / `iris_restore` / `iris_vec_drill` 六库
 执行过 migrate + validate，全部 `VALIDATE=OK`。
@@ -146,8 +147,15 @@ exit=0
 | `product-contract` | `ProductSchemaTest` 仍连 MySQL，而 MySQL 驱动已移除 | 迁移到真实 PG（pgvector service + PG Flyway），断言同一组表列；21/21 + skip 门禁 exit 0 |
 | `docker-lifecycle` | compose 新增 postgres 后，镜像钉版检查仍假设只有一个 image 行 | 按服务解析，并新增 pgvector 钉版断言；22/22 |
 
-第二轮（`41f8cb4e`）后三个 job 转绿的结论以最终 HEAD 的 Actions 结果为准（见 PR #176 检查页）；
-`vector-migration-drill` 与 `postgres-integration` 在首轮即已实际执行并通过（非 NOT_RUN）。
+最终候选 HEAD `c403adcb` 的 run `46047803428`：**20/20 必需检查 success**，另有
+`postgres-integration`、`vector-migration-drill`、`flyway-postgres`、`miniapp` 四个可选 job success；
+10 个 MySQL-only job（issue17–24、collaboration、graph-execution、issue24-evaluation）按设计 `skipped`，
+已由 PG 等价门禁替代。其中 `backend-unit`、`product-contract`、`postgres-integration`、
+`vector-migration-drill`、`flyway-postgres` 均为实际执行（非 NOT_RUN），跳测门禁在
+`backend-unit` 内以 exit 0 通过。
+
+此后若仅追加文档提交，最终交付 HEAD 指向最新一次文档提交，其 CI 结果以 PR #176 检查页为准；
+上文 `c403adcb` 的代码内容与树不变。
 
 ### 5.6 本轮修复后重点复跑
 
@@ -216,7 +224,7 @@ collaboration empty object -> '{}'                          OK (rolestates={})
    Draft PR 必须保持 Draft。
 4. **部署**：反向代理需 `proxy_set_header Host $host`（`SameOriginFilter` 前提）；连接串必须带
    `stringtype=unspecified`，否则启动闸门会拒绝启动。
-5. **Flyway 版本**：11.7.2 文档支持到 PG 17，实测 18.7 上 V1–V5 与 validate 全部通过；
+5. **Flyway 版本**：11.7.2 文档支持到 PG 17，实测 18.7 上 V1–V7 与 validate 全部通过；
    升级 Flyway 前不要依赖「官方支持 18」。
 6. **回滚**：切换前保留 MySQL 只读快照与 Chroma 卷；`scripts/migration/*` 全部支持 dry-run 与幂等重跑。
 
