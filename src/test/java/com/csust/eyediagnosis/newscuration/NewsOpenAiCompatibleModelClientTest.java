@@ -18,6 +18,7 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class NewsOpenAiCompatibleModelClientTest {
 
@@ -248,6 +249,55 @@ class NewsOpenAiCompatibleModelClientTest {
         }
     }
 
+    @Test
+    void bailianFreeQuotaExhaustionIsDefinitiveButNotAnAuthFailure() throws Exception {
+        AtomicInteger requests = new AtomicInteger();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/compatible-mode/v1/chat/completions", exchange -> {
+            try (exchange) {
+                int attempt = requests.incrementAndGet();
+                exchange.getRequestBody().readAllBytes();
+                String body = switch (attempt) {
+                    case 1 -> """
+                            {"error":{"code":"AllocationQuota.FreeTierOnly","message":"free quota exhausted"},
+                             "request_id":"free-tier-only"}
+                            """;
+                    case 2 -> "{\"code\":\"Arrearage\",\"message\":\"account in arrears\"}";
+                    default -> "{\"error\":{\"code\":\"InvalidApiKey\",\"message\":\"bad key\"}}";
+                };
+                byte[] payload = body.getBytes(StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().add("Content-Type", "application/json");
+                exchange.sendResponseHeaders(403, payload.length);
+                exchange.getResponseBody().write(payload);
+            }
+        });
+        server.start();
+        try (var client = new NewsOpenAiCompatibleModelClient(Map.of("fixture", bailianProfile()),
+                key -> "local-test-key", ignored -> URI.create("http://127.0.0.1:" + server.getAddress().getPort()),
+                JsonConfig.createNewsProtocolObjectMapper())) {
+            // 额度用尽：确定性失败、不重试、不当作鉴权失败（否则一次额度用尽会把整个 scope 熔断）。
+            NewsCurationModels.DefinitiveFailure quota = assertInstanceOf(
+                    NewsCurationModels.DefinitiveFailure.class, client.invoke(bailianRequest()));
+            assertEquals("MODEL_FREE_QUOTA_EXHAUSTED", quota.errorCode());
+            assertFalse(quota.authFailure());
+            assertEquals(403, quota.httpStatus());
+
+            NewsCurationModels.DefinitiveFailure arrears = assertInstanceOf(
+                    NewsCurationModels.DefinitiveFailure.class, client.invoke(bailianRequest()));
+            assertEquals("MODEL_BALANCE_INSUFFICIENT", arrears.errorCode());
+            assertFalse(arrears.authFailure(), "欠费不是凭据问题，不得触发鉴权熔断");
+
+            NewsCurationModels.DefinitiveFailure auth = assertInstanceOf(
+                    NewsCurationModels.DefinitiveFailure.class, client.invoke(bailianRequest()));
+            assertEquals("MODEL_AUTH_REJECTED", auth.errorCode());
+            assertTrue(auth.authFailure(), "真正的鉴权失败仍要熔断");
+
+            assertEquals(3, requests.get(), "每次 invoke 只发一次请求：额度耗尽不得自动重发");
+        } finally {
+            server.stop(0);
+        }
+    }
+
     private static String usage() {
         return """
                 {"prompt_tokens":100,"completion_tokens":20,"total_tokens":120,
@@ -273,6 +323,22 @@ class NewsOpenAiCompatibleModelClientTest {
                 NewsModelProfile.Format.JSON_OBJECT, new NewsModelProfile.Capabilities(
                         true, false, NewsModelProfile.UsageFormat.DEEPSEEK_CACHE),
                 new NewsModelProfile.PricingVersion("fixture-v1", 1_000_000, 100_000, 2_000_000));
+    }
+
+    private static NewsModelProfile bailianProfile() {
+        return new NewsModelProfile(NewsModelProfile.Provider.QWEN, NewsModelProfile.Platform.BAILIAN,
+                URI.create("https://dashscope.aliyuncs.com"), "/compatible-mode/v1/chat/completions",
+                "qwen3.8-max-0902", "FIXTURE_KEY", Duration.ofSeconds(2), Duration.ofSeconds(2),
+                8192, 1024, 0, NewsModelProfile.Format.JSON_OBJECT,
+                new NewsModelProfile.Capabilities(true, false, NewsModelProfile.UsageFormat.STANDARD, true),
+                // 北京地域标准价：输入 12 元 / 输出 36 元 / 缓存命中 1.5 元，每百万 token。
+                new NewsModelProfile.PricingVersion("bailian-qwen3.8-max-20261127", 12_000_000, 1_500_000, 36_000_000));
+    }
+
+    private static NewsCurationModels.ModelCallRequest bailianRequest() {
+        return new NewsCurationModels.ModelCallRequest("fixture-id", "fixture-key", "QWEN", "qwen3.8-max-0902",
+                "wp08b-test", "JSON only", "{}", "fixture-hash", null, Duration.ofSeconds(4),
+                "fixture", "{}");
     }
 
     private static NewsCurationModels.ModelCallRequest request() {
