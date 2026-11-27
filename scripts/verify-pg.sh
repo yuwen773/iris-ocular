@@ -111,6 +111,10 @@ export IRIS_FLYWAY_USER=iris_migrator IRIS_FLYWAY_PASSWORD="$MIGRATOR_PASSWORD"
 export PG_IT_URL="$URL" PG_IT_APP_USER=iris_app PG_IT_APP_PASSWORD="$APP_PASSWORD"
 export PG_IT_MIGRATOR_USER=iris_migrator PG_IT_MIGRATOR_PASSWORD="$MIGRATOR_PASSWORD"
 
+# Stale XMLs from an earlier run would otherwise be counted again (and can make a
+# separately-run skip gate read a suite that no longer exists). Always start clean.
+rm -rf target/surefire-reports
+
 set +e
 if [ "$MODE" = "full" ]; then
   mvn -B test

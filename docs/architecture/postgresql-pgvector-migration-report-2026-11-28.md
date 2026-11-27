@@ -15,7 +15,7 @@
 | 向量迁移（Chroma→pgvector） | PASS | 300 块逐字节保真、overlap@10 = 1.000、隔离过滤不泄漏 |
 | 备份恢复 | PASS | `pg_dump \| pg_restore` 到独立库，行数 + 向量 + Flyway 历史一致 |
 | 最小权限账号 | PASS | 12 条拒绝探针（DDL/扩展/schema/迁移历史），DML 放行 |
-| 全量后端套件（PG） | PASS | `mvn -B test`：1415 tests / 0 fail / 0 err / 384 skipped / exit 0 |
+| 全量后端套件（PG） | PASS | `mvn -B test`：1421 tests / 0 fail / 0 err / 383 skipped / exit 0 |
 | 跳测门禁契约 | PASS | `check_surefire_skips.py backend-unit` exit 0 |
 | CI（远端 HEAD） | 见 §5.7 | 首轮 20/24，三个契约 job 已修；最终 HEAD 的 run 见 §5.7 |
 | 独立评审 A/B | PASS（已整改） | A：BLOCK → 1 P0 + 3 P1 已修；B：FIX_P0_P1 → 无 P0，2 P1 已修（见 §9） |
@@ -124,7 +124,7 @@ restore_ok: 行数与源一致；3 条向量行可检索；flyway_schema_history
 
 ```
 $ JAVA_HOME=corretto-21 mvn -B test     # SPRING_PROFILES_ACTIVE=ci, PG_IT_URL=...iris_ci
-Tests run: 1415, Failures: 0, Errors: 0, Skipped: 384
+Tests run: 1421, Failures: 0, Errors: 0, Skipped: 383
 exit=0
 ```
 
@@ -134,7 +134,7 @@ skip gate passed: no unexpected skipped or dropped tests
 exit=0
 ```
 
-384 条跳过全部是契约声明的 opt-in 套件（MySQL-only、协作、评测等），逐条列在门禁输出里。
+383 条跳过全部是契约声明的 opt-in 套件（MySQL-only、协作、评测等），逐条列在门禁输出里。本轮删除了 Chroma 时代的 `VectorStoreConfigTest`（会向真实向量表写无主数据），跳过数相应从 384 变为 383。
 
 ### 5.7 CI（远端）
 
