@@ -145,13 +145,14 @@ G1 做了与没做的事：
   信任模型与残余风险见 `docs/testing/ci-trust-model.md`。
 - 覆盖映射见 `docs/testing/ci-coverage-map.md`。
 
-**实测（run `45988086579`，head `14e99f0d`，23 个 job 全绿）**：`issue24-evaluation` 92s→**12s**（不再起
-Maven/MySQL）；`issue19`/`issue21` 68s→88s、76s→98s（含新增的导出与上传 artifact）；`docs-contract` 8s→8s；
-`frontend` 62s→54s；`graph-execution-mysql` 106s→134s（新增的 `CoordinationMySqlTest` 14 例本体 19.0s）。
-单次 run 合计 **38.0 job-分钟**，比 23 run 样本的中位 33.9 **没有变快**——未改动的
-`backend-unit`/`web`/`flyway` 三项同轮就慢了 121s，已经超过去重省下的约 80s，所以单次 run 对中位数
-不能当结论用。去重看的是**执行次数**：78 条重复 Java 用例 → 0，`test_check_*.py` 4 处 → 1 处
-（`issue19` 那处第一轮漏删，由 `cd031e03` 补上）。覆盖不退化：`backend-unit` 仍 1388 例 / 384 跳 / 0 失败。
+**实测（两次全绿 run）**：`issue24-evaluation` 92s→**12s / 10s**（稳定 −82s，不再起 Maven/MySQL）；
+`graph-execution-mysql` 106s→134s / 143s（稳定 +30~37s，新增的 `CoordinationMySqlTest` 14 例本体 19.0s）；
+`issue19` 68→88s / 71s、`issue21` 76→98s / 85s、`docs-contract` 8→8s / 9s、`frontend` 62→54s / 70s
+全部落在 run 间波动里，不作为结论。单次 run 合计 38.0 与 **33.9 job-分钟**（最终 HEAD `0bcd9739`），
+而 23 run 样本的中位也是 33.9——**只能说「没有变慢」**：没改动过的 `backend-unit`/`web`/`flyway`
+两次之间就差 121s，比去重省下的约 80s 还多，单次 run 不能对中位数下结论。去重看的是**执行次数**：
+78 条重复 Java 用例 → 0；`test_check_*.py` 4 处 → 1 处（`issue19` 那处第一轮漏删，由 `cd031e03` 补上，
+最终 HEAD 日志里只出现 1 次）。覆盖不退化：`backend-unit` 仍 1388 例 / 384 跳 / 0 失败。
 
 仍然有效的老规矩：**现有必需检查一个也不提前删、不放宽**；聚合门禁（`merge-gate`）要到 G2/G3
 验证通过、G5 才提交正式切换方案。RAG 的两条评估（需要真实 embedding 密钥）仍不进 PR 门禁。
