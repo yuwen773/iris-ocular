@@ -585,8 +585,8 @@ public class NewsWorkbenchService {
                        c.contentDigest, c.policyVersion, c.callId, c.status, c.decision,
                        c.evidenceTier, c.relevanceScore, c.suggestedTitle, c.suggestedSummary,
                        c.category, c.contentType,
-                       COALESCE(JSON_LENGTH(c.claimsJson), 0) AS claimsCount,
-                       COALESCE(JSON_LENGTH(c.violationsJson), 0) AS violationsCount,
+                       COALESCE(CASE WHEN jsonb_typeof(c.claimsJson) = 'array' THEN jsonb_array_length(c.claimsJson) ELSE 0 END, 0) AS claimsCount,
+                       COALESCE(CASE WHEN jsonb_typeof(c.violationsJson) = 'array' THEN jsonb_array_length(c.violationsJson) ELSE 0 END, 0) AS violationsCount,
                        c.evidenceSnapshotSha256,
                 """ + LINKED_NEWS_ID_SQL + " AS linkedNewsId, "
                 + LINKED_NEWS_STATUS_SQL + """

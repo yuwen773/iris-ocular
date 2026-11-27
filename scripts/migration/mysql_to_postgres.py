@@ -186,12 +186,19 @@ def load_table(src, pg, schema: str, meta: dict, args, batch_size: int) -> int:
     placeholders = ", ".join(["%s"] * len(mapping))
     conflict = f" ON CONFLICT ({', '.join(pk.lower() for pk in meta['pk'])}) DO NOTHING" if meta["pk"] else ""
 
+    def tz_for(column: str) -> dt.tzinfo:
+        # One global --source-timezone is not enough for a real cutover: the MySQL
+        # line mixes UTC-written columns (UTC_TIMESTAMP/UTC_DATE) with wall-clock
+        # values written by the JDBC session or the server default timezone.
+        # --column-timezone TABLE.COLUMN=ZONE overrides one column at a time.
+        return args._column_tz.get((target_table, column), args._tz)
+
     inserted = 0
     with src.cursor() as cur:
         cur.execute(f"SELECT {select_cols} FROM `{table}`")
         rows: list[tuple] = []
         for row in cur:
-            rows.append(tuple(convert(row[src], typ, args._tz) for src, _, typ in mapping))
+            rows.append(tuple(convert(row[src_col], typ, tz_for(tgt_col)) for src_col, tgt_col, typ in mapping))
             if len(rows) >= batch_size:
                 inserted += _flush(pg, schema, target_table, insert_cols, placeholders, conflict, rows)
                 rows = []
@@ -268,12 +275,38 @@ def verify_table(src, pg, schema: str, meta: dict, db: str) -> tuple[bool, str]:
 
 
 def foreign_key_violations(pg, schema: str) -> int:
+    """Count child rows whose non-null FK has no parent.
+
+    The previous version counted `pg_constraint.convalidated = false`, which is
+    always 0 here because V1 adds both FKs as validated — so it proved nothing.
+    This walks every FK in the schema and runs a real anti-join.
+    """
+    total = 0
     with pg.cursor() as cur:
         cur.execute(
-            """SELECT COUNT(*) FROM pg_constraint c
+            """SELECT quote_ident(cn.nspname) || '.' || quote_ident(cc.relname) AS child,
+                      quote_ident(pn.nspname) || '.' || quote_ident(pc.relname) AS parent,
+                      (SELECT string_agg(quote_ident(a.attname), ',' ORDER BY k.ord)
+                         FROM unnest(c.conkey) WITH ORDINALITY k(attnum, ord)
+                         JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum) AS child_cols,
+                      (SELECT string_agg(quote_ident(a.attname), ',' ORDER BY k.ord)
+                         FROM unnest(c.confkey) WITH ORDINALITY k(attnum, ord)
+                         JOIN pg_attribute a ON a.attrelid = c.confrelid AND a.attnum = k.attnum) AS parent_cols
+               FROM pg_constraint c
                JOIN pg_namespace n ON n.oid = c.connamespace
-               WHERE n.nspname = %s AND c.contype = 'f' AND NOT c.convalidated""", (schema,))
-        return int(cur.fetchone()[0])
+               JOIN pg_class cc ON cc.oid = c.conrelid
+               JOIN pg_namespace cn ON cn.oid = cc.relnamespace
+               JOIN pg_class pc ON pc.oid = c.confrelid
+               JOIN pg_namespace pn ON pn.oid = pc.relnamespace
+               WHERE n.nspname = %s AND c.contype = 'f'""", (schema,))
+        for child, parent, child_cols, parent_cols in cur.fetchall():
+            cur.execute(
+                f"""SELECT COUNT(*) FROM {child} c
+                    WHERE ({child_cols}) IS NOT NULL
+                      AND NOT EXISTS (SELECT 1 FROM {parent} p
+                                      WHERE ({parent_cols}) = ({child_cols}))""")
+            total += int(cur.fetchone()[0])
+    return total
 
 
 def main() -> int:
@@ -286,6 +319,10 @@ def main() -> int:
     parser.add_argument("--target-dsn", required=True)
     parser.add_argument("--target-schema", default="diagnosis")
     parser.add_argument("--source-timezone", default="UTC")
+    parser.add_argument("--column-timezone", action="append", default=[], metavar="TABLE.COLUMN=ZONE",
+                        help="per-column override (repeatable); for columns whose wall clock differs "
+                             "from --source-timezone, e.g. UTC_TIMESTAMP-written columns when the "
+                             "session tz is Asia/Shanghai")
     parser.add_argument("--batch-size", type=int, default=500)
     parser.add_argument("--state-file", default=None)
     parser.add_argument("--resume", action="store_true")
@@ -295,6 +332,14 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=0, help="row cap per table (smoke runs)")
     args = parser.parse_args()
     args._tz = _parse_tz(args.source_timezone)
+    args._column_tz = {}
+    for spec in args.column_timezone:
+        try:
+            key, zone = spec.split("=", 1)
+            table, column = key.split(".", 1)
+        except ValueError:
+            fail(f"--column-timezone expects TABLE.COLUMN=ZONE, got {spec}")
+        args._column_tz[(table.lower(), column.lower())] = _parse_tz(zone)
 
     src = connect_source(args)
     try:
@@ -362,7 +407,7 @@ def main() -> int:
             synced = sync_sequences(pg, args.target_schema)
             print(f"SEQUENCES synced={len(synced)}")
             violations = foreign_key_violations(pg, args.target_schema)
-            print(f"FOREIGN_KEYS unvalidated={violations}")
+            print(f"FOREIGN_KEYS orphan_rows={violations}")
             return 0 if violations == 0 else 2
     finally:
         src.close()

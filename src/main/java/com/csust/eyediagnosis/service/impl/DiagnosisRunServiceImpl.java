@@ -26,6 +26,8 @@ public class DiagnosisRunServiceImpl implements DiagnosisRunService {
         try {
             diagnosisRunMapper.insert(run);
         } catch (DuplicateKeyException duplicate) {
+            // 同 DiagnosisTaskService.create：这里没有事务，撞键后的回读安全。
+            // 若将来包进事务，改用 common/InsertRaceGuard，避免 PG 的 25P02。
             // 同一 runId 再次进来：要么上一次还在跑，要么已经结束。
             // 两种都不能再落一条记录，也不该覆盖已有状态。
             DiagnosisRun existing = diagnosisRunMapper.selectByRunId(runId);

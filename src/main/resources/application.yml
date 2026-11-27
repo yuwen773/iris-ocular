@@ -36,6 +36,11 @@ spring:
     driver-class-name: org.postgresql.Driver
     username: ${SPRING_DATASOURCE_USERNAME:iris_app}
     password: ${SPRING_DATASOURCE_PASSWORD:}
+    hikari:
+      # MySQL 的 innodb_lock_wait_timeout 默认 50s；PostgreSQL 默认无限等待。
+      # 配置中心的发布/回滚靠 SELECT … FOR UPDATE 串行化，没有这个上限时争用会
+      # 永久挂起，而不是像 MySQL 那样超时并映射成可重试的 CONFIG_CONCURRENT_CONFLICT。
+      connection-init-sql: SET lock_timeout = '50s'
   flyway:
     enabled: true
     # 历史 MySQL 迁移链（db/migration）保持原样、不再改写；PostgreSQL 线是独立
@@ -46,10 +51,10 @@ spring:
     create-schemas: true
     baseline-on-migrate: false
     validate-on-migrate: true
-    # 迁移账号与应用账号分离：应用账号没有 DDL 权限，迁移由 iris_migrator 执行。
-    # 未显式配置时回落到数据源账号（本地单账号开发场景），生产必须分开。
-    user: ${IRIS_FLYWAY_USER:${spring.datasource.username}}
-    password: ${IRIS_FLYWAY_PASSWORD:${spring.datasource.password}}
+    # 迁移账号与应用账号分离：应用账号没有 DDL 权限，不能兼任迁移。
+    # 本地也要先跑 scripts/postgresql/bootstrap-roles.sql 建两个角色。
+    user: ${IRIS_FLYWAY_USER:iris_migrator}
+    password: ${IRIS_FLYWAY_PASSWORD:}
 mybatis-plus:
   configuration:
     map-underscore-to-camel-case: false

@@ -42,7 +42,10 @@ import java.util.regex.Pattern;
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class PostgreSqlRequirement implements ApplicationRunner {
 
-    /** 最低支持主版本：schema 基线使用 PostgreSQL 18 的 virtual generated column。 */
+    /**
+     * 最低支持主版本：这是运维口径的下限（18 是本轮验收与 pgvector 镜像的基线），
+     * 不是 schema 语法要求——基线只用 {@code GENERATED … STORED}（PostgreSQL 12+）。
+     */
     static final int MIN_MAJOR = 18;
 
     private static final Pattern VERSION = Pattern.compile("^(\\d+)(?:\\.(\\d+))?");

@@ -9,6 +9,10 @@ spring:
     # 应用账号只有 USAGE + DML，没有 DDL、装扩展与迁移历史读写权限。
     username: iris_app
     password: ${IRIS_DB_APP_PASSWORD}
+    hikari:
+      # 与 application.yml 一致：PostgreSQL 默认无限等锁，必须显式设上限，
+      # 否则配置中心并发发布在争用时永久挂起而不是返回可重试冲突。
+      connection-init-sql: SET lock_timeout = '50s'
   flyway:
     locations: classpath:db/postgresql
     schemas: diagnosis
