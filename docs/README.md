@@ -51,6 +51,7 @@ git show <commit>:<path> > <file>
 | `architecture/codebase-archaeology-2026-11-17.md` | 查架构演变时间线、有意设计 vs 历史包袱的归因、可安全移除清单 |
 | `architecture/css-architecture-contract.md` | 查 Tailwind / Iris CSS 的职责边界与 `@layer` 迁移路径 |
 | `architecture/migration-matrix.md` | 查各目标库的迁移升级路径 |
+| `architecture/postgresql-pgvector-migration-report-2026-11-28.md` | 查 MySQL+Chroma → PostgreSQL 18 + pgvector 迁移的决策、验收证据、本轮修复的移植缺陷与生产切换授权清单 |
 | `architecture/multi-agent-adr.md` | 查多 Agent 架构决策记录 |
 | `testing/2026-10-19-test-audit.md` | 质疑某个测试是否真的调用了被测实现 |
 | `testing/verification-levels.md` | 决定这次改动该跑 L0/L1/L2/L3 的哪一级，以及各模块至少跑什么（`scripts/verify-fast.sh`） |
