@@ -80,8 +80,9 @@ scripts/verify-fast.sh --level L3
 | Python 算法服务 | `algorithm/` 下 `python -m pytest ... -m "not slow"`（CI 的 `python` job 同口径） | 含子进程/watchdog → 那几条在 Linux 上跑（CI `watchdog` job） |
 | 工作树与运维脚本 `scripts/**` | `python -m unittest discover -s scripts/tests`；shell 改动先 `bash -n` | 会动 Docker 资源 → 只跑 dry-run，别在共享主机上做真实回收 |
 
-> **协作 / 多 Agent 运行时**：本基线（`master`）还没有这套代码，对应用例随该功能所在分支落地。
-> 落地后按「工具执行与持久化 + 消息队列/恢复」两行处理，且必须 L2。
+> **协作 / 多 Agent 运行时**：相关代码已随 #117 / #172 进入 `master`，对应用例在 CI 的
+> `collaboration-mysql`、`graph-execution-mysql` 与本地 L3 第三遍执行；改动按「工具执行与持久化 +
+> 消息队列/恢复」两行处理，且必须 L2。
 
 ---
 
@@ -126,10 +127,26 @@ L1 省的是**范围**，不是**严格度**。以下与级别无关，永远不
 - 已应用的 Flyway 迁移不可修改；
 - 准备合并时必须有一次 L3（或等价的 CI 全绿），不能用一串 L1 拼出「已验证」。
 
-## 7. 何时才考虑 CI 层优化
+## 7. CI 层优化（G1 起进入实施）
 
-先按上面跑一段真实工作，观察三件事：L1 是否真的够用、L2 的启动开销是否可接受、
-L3 是否仍然只在合并前触发。**没有这些数据之前不动 CI**；现有 CI 门禁一个也不删、不放宽。
+2026-11-27 的 G0 审计（`docs/architecture/g0-engineering-governance-audit-2026-11-27.md`）给出了实测基线：
+22 个必需上下文、单 PR 中位 33.9 job-分钟、95% 的合并没有评审记录。所有者接受该审计并批准 G1：
+**只消除已证实的重复、补齐已确认的覆盖缺口、给 CI 自身加最小防护**，不改分支保护、不删必需检查。
+
+G1 做了与没做的事：
+
+- 删除重复执行：`scripts/tests` 的 `test_check_*.py` 从 4 处收敛到 `docs-contract` 一处；
+  `issue24-evaluation` 不再重跑 `PatientDraftTest` / `PatientExplanationApiTest`（78 例），
+  改为消费 `issue19` / `issue21` 的产物，并用 commit + run + SHA-256 绑定来源；
+  `frontend` job 的重复 `lint:check` 删除。
+- 补齐覆盖：`CoordinationMySqlTest` 接入 `graph-execution-mysql`（此前 CI 从不执行）；
+  `graph-execution` 的契约从 1 个套件扩到 4 个（37/12/4/14）。
+- 保护自身：`ci-change-approved` 标签闸门 + CODEOWNERS 覆盖 CI 路径；
+  信任模型与残余风险见 `docs/testing/ci-trust-model.md`。
+- 覆盖映射见 `docs/testing/ci-coverage-map.md`。
+
+仍然有效的老规矩：**现有必需检查一个也不提前删、不放宽**；聚合门禁（`merge-gate`）要到 G2/G3
+验证通过、G5 才提交正式切换方案。RAG 的两条评估（需要真实 embedding 密钥）仍不进 PR 门禁。
 
 ## 8. 验收实测（2026-11-19，本机 Windows + Git Bash）
 

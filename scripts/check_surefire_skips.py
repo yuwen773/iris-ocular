@@ -121,7 +121,15 @@ CONTRACTS = {
     "issue18": ISSUE18_CONTRACT,
     "issue19": ISSUE19_CONTRACT,
     "collaboration": {"scope": "named", "expected": {P + "collaboration.CollaborationRunTest": 33}, "opt_in": {}},
-    "graph-execution": {"scope": "named", "expected": {P + "collaboration.GraphExecutionTest": 37}, "opt_in": {}},
+    # The Graph job runs four suites on one disposable MySQL. All four are pinned:
+    # CoordinationMySqlTest used to be skipped everywhere because no job set
+    # COORDINATION_POC_URL, and the spike suite had no zero-skip proof at all.
+    "graph-execution": {"scope": "named", "expected": {
+        P + "collaboration.GraphExecutionTest": 37,
+        P + "poc.realtime.RealtimeGraphSpikeTest": 12,
+        P + "poc.CoordinationPocTest": 4,
+        P + "poc.CoordinationMySqlTest": 14,
+    }, "opt_in": {}},
     "issue20": {"scope": "named", "expected": {P + "doctorreview.DoctorReviewApiTest": 38}, "opt_in": {}},
     "issue21": {"scope": "named", "expected": {P + "patientexplanation.PatientExplanationApiTest": 37}, "opt_in": {}},
     "issue22": {"scope": "named", "expected": {P + "patientauthorization.PatientAuthorizationApiTest": 37}, "opt_in": {}},

@@ -5,11 +5,45 @@ on:
   push:
     branches: [master]
 
+# Least privilege: every job here only reads the repository. Fork pull requests
+# already get a read-only token; this makes it explicit for same-repository
+# branches too, so a compromised step cannot push or release.
+permissions:
+  contents: read
+
+# Superseded pull-request runs are useless: a new push makes the old one
+# irrelevant. Master pushes are left alone so every merged commit keeps a
+# complete run as its evidence.
+concurrency:
+  group: verify-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Maven Central answered 429 while resolving the Surefire provider, which made
+  # jobs red before any test ran (issue19-mysql, 2026-11-26/27). Retrying the
+  # download is the correct handling; it does not retry tests.
+  MAVEN_ARGS: -Dmaven.wagon.http.retryHandler.count=3
+
 jobs:
   docs-contract:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Fetch the pull request base for the CI integrity gate
+        if: github.event_name == 'pull_request'
+        run: git fetch --no-tags --depth=1 origin "${{ github.event.pull_request.base.sha }}"
+      # The workflow that runs here is the pull request's own copy, so this step
+      # cannot protect itself. What it can do: never let a gate change be silent.
+      # The durable control is CODEOWNERS on the base branch plus branch
+      # protection; see docs/testing/ci-trust-model.md.
+      - name: Require owner acknowledgement for CI-sensitive changes
+        if: github.event_name == 'pull_request'
+        env:
+          CI_CHANGE_APPROVED: ${{ contains(github.event.pull_request.labels.*.name, 'ci-change-approved') }}
+        run: >-
+          python3 scripts/check_ci_integrity.py
+          --base "${{ github.event.pull_request.base.sha }}"
+          --acknowledged "$CI_CHANGE_APPROVED"
       - name: Verify the architecture design document contract
         run: python3 scripts/check_design_doc.py
       - name: Verify steering docs match migrations and controllers
@@ -169,8 +203,8 @@ jobs:
           distribution: corretto
           java-version: '21'
           cache: maven
-      - name: Verify report gates
-        run: python3 -m unittest discover -s scripts/tests -p "test_check_*.py"
+      # Gate self-tests run once in docs-contract; running the same discovery
+      # here only duplicated work (G1 deduplication).
       - name: Verify MySQL health check
         env:
           ISSUE17_MYSQL_CONTAINER: ${{ job.services.mysql.id }}
@@ -207,8 +241,6 @@ jobs:
           distribution: corretto
           java-version: '21'
           cache: maven
-      - name: Verify report gates
-        run: python3 -m unittest discover -s scripts/tests -p "test_check_*.py"
       - name: Run controlled reference lifecycle and eligibility tests
         run: mvn -B -Dtest=ControlledReferenceApiTest test
       - name: Require every controlled reference case to run
@@ -247,6 +279,24 @@ jobs:
         run: mvn -B -Dtest=PatientDraftTest test
       - name: Require every draft case to run
         run: python3 scripts/check_surefire_skips.py target/surefire-reports issue19
+      # issue24-evaluation used to re-run this suite only to obtain its XML.
+      # Export it instead; the consumer verifies commit, run and SHA-256.
+      - name: Publish the draft reports consumed by issue24-evaluation
+        if: always()
+        env:
+          REPORT_SUITE: com.csust.eyediagnosis.patientdraft.PatientDraftTest
+        run: >-
+          python3 scripts/check_surefire_artifacts.py export
+          --source target/surefire-reports
+          --dest target/surefire-artifact
+          --suite "$REPORT_SUITE"
+          --job issue19-mysql
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: issue19-surefire
+          path: target/surefire-artifact/
+          if-no-files-found: error
 
   collaboration-mysql:
     runs-on: ubuntu-latest
@@ -301,6 +351,10 @@ jobs:
           --health-retries=10
     env:
       GRAPH_EXECUTION_TEST_URL: jdbc:mysql://127.0.0.1:3306/graph_execution_test
+      # CoordinationMySqlTest was skipped in every CI job because nothing set
+      # this variable (14 cases, G0 finding). It runs here now: same disposable
+      # MySQL, its own schema and its own account.
+      COORDINATION_POC_URL: jdbc:mysql://127.0.0.1:3306/coordination_poc
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -312,63 +366,48 @@ jobs:
         # Only this disposable service enables the failure-injection trigger.
         # The application's database account keeps schema-only privileges.
         run: |
-          docker exec ${{ job.services.mysql.id }} mysql -uroot -proot-password -e 'SET GLOBAL log_bin_trust_function_creators=1'
-          mvn -B -Dtest=GraphExecutionTest,RealtimeGraphSpikeTest,CoordinationPocTest test
-      - name: Require every Graph case to run
+          docker exec ${{ job.services.mysql.id }} mysql -uroot -proot-password -e 'SET GLOBAL log_bin_trust_function_creators=1; CREATE DATABASE IF NOT EXISTS coordination_poc; CREATE USER IF NOT EXISTS "poc"@"%" IDENTIFIED BY "poc"; GRANT ALL PRIVILEGES ON coordination_poc.* TO "poc"@"%";'
+          mvn -B -Dtest=GraphExecutionTest,RealtimeGraphSpikeTest,CoordinationPocTest,CoordinationMySqlTest test
+      - name: Require every Graph and coordination case to run
         if: always()
         run: python3 scripts/check_surefire_skips.py target/surefire-reports graph-execution
 
   issue24-evaluation:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    services:
-      mysql:
-        image: mysql:8.0.36
-        env:
-          MYSQL_DATABASE: issue19_test
-          MYSQL_USER: issue19
-          MYSQL_PASSWORD: issue19
-          MYSQL_ROOT_PASSWORD: root-password
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="mysql -h 127.0.0.1 -uissue19 -pissue19 issue19_test -e 'SELECT 1'"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=10
-    env:
-      ISSUE19_TEST_URL: jdbc:mysql://127.0.0.1:3306/issue19_test
-      ISSUE21_TEST_URL: jdbc:mysql://127.0.0.1:3306/issue21_test
+    # The evaluation needs the Surefire reports of two suites that already gate
+    # this repository. It used to re-run both (78 duplicate cases) only to get
+    # them. Now it consumes their artifacts, and refuses anything that is not
+    # from this commit and this run. `needs` makes that dependency explicit and
+    # keeps a red producer from being papered over by a green consumer.
+    needs: [issue19-mysql, issue21-mysql]
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with:
-          distribution: corretto
-          java-version: '21'
-          cache: maven
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Create the isolated patient HTTP database
-        env:
-          MYSQL_PWD: root-password
+      - uses: actions/download-artifact@v4
+        with:
+          name: issue19-surefire
+          path: artifacts/issue19
+      - uses: actions/download-artifact@v4
+        with:
+          name: issue21-surefire
+          path: artifacts/issue21
+      - name: Verify provenance and import the patient reports
+        run: >-
+          python3 scripts/check_surefire_artifacts.py assemble
+          --source artifacts/issue19
+          --source artifacts/issue21
+          --dest target/surefire-reports
+      - name: Re-check the imported reports against the same contracts
         run: |
-          mysql -h 127.0.0.1 -uroot <<'SQL'
-          CREATE DATABASE issue21_test;
-          CREATE USER 'issue21'@'%' IDENTIFIED BY 'issue21';
-          GRANT ALL ON issue21_test.* TO 'issue21'@'%';
-          SQL
+          python3 scripts/check_surefire_skips.py target/surefire-reports issue19
+          python3 scripts/check_surefire_skips.py target/surefire-reports issue21
       - name: Verify the public evaluation CLIs
         run: |
           python3 -m unittest discover -s scripts/tests -p 'test_evaluate_agent_collaboration.py'
           python3 -m unittest discover -s scripts/tests -p 'test_evaluate_rag_query_expansion.py'
-      - name: Run current coordinator and patient HTTP reliability cases
-        run: mvn -B -Dtest=PatientDraftTest,PatientExplanationApiTest test
-      - name: Require complete zero-skip reliability evidence
-        if: always()
-        run: |
-          python3 scripts/check_surefire_skips.py target/surefire-reports issue19
-          python3 scripts/check_surefire_skips.py target/surefire-reports issue21
       - name: Execute fixed scripted role ablations and import current reliability results
         if: always()
         run: >-
@@ -390,6 +429,7 @@ jobs:
             target/agent-collaboration/
             target/rag-query-expansion/
             target/surefire-reports/TEST-*.xml
+            target/surefire-reports/artifact-provenance.json
           if-no-files-found: error
 
   issue20-mysql:
@@ -454,6 +494,23 @@ jobs:
         run: mvn -B -Dtest=PatientExplanationApiTest test
       - name: Require every patient explanation case to run
         run: python3 scripts/check_surefire_skips.py target/surefire-reports issue21
+      # Same contract as issue19: one report, bound to this commit and run.
+      - name: Publish the explanation reports consumed by issue24-evaluation
+        if: always()
+        env:
+          REPORT_SUITE: com.csust.eyediagnosis.patientexplanation.PatientExplanationApiTest
+        run: >-
+          python3 scripts/check_surefire_artifacts.py export
+          --source target/surefire-reports
+          --dest target/surefire-artifact
+          --suite "$REPORT_SUITE"
+          --job issue21-mysql
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: issue21-surefire
+          path: target/surefire-artifact/
+          if-no-files-found: error
 
   issue22-mysql:
     runs-on: ubuntu-latest
@@ -616,7 +673,6 @@ jobs:
       - run: npm ci
       - run: npm run lint:check
       - run: npm run test -- --run
-      - run: npm run lint:check
       - run: npm run build
 
   web:
