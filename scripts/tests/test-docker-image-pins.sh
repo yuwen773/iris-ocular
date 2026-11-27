@@ -45,8 +45,20 @@ check_eq "CI mysql image(s)" "$MYSQL_IMAGE" "$mysql_ci"
 check_eq "CI redis image(s)" "$REDIS_IMAGE" "$redis_ci"
 check_eq "CI chroma image" "$CHROMA_IMAGE" "$chroma_ci"
 
-compose_chroma="$(grep -E '^[[:space:]]+image:' "$COMPOSE" | sed -E 's/.*image:[[:space:]]*//' | tr -d '\r' | sort -u | tr '\n' ' ' | sed 's/ $//')"
-check_eq "compose chroma image" "$CHROMA_IMAGE" "$compose_chroma"
+# Compose now runs two data services (postgres default, chroma behind a profile),
+# so match the image per service instead of assuming a single image line.
+compose_image() {
+  local svc="$1"
+  awk -v svc="$svc" '
+    $0 == "  " svc ":" { inside = 1; next }
+    inside && /^  [^ ]/ { inside = 0 }
+    inside && /^[[:space:]]+image:/ {
+      sub(/.*image:[[:space:]]*/, ""); gsub(/\r/, ""); print; exit
+    }
+  ' "$COMPOSE"
+}
+check_eq "compose chroma image" "$CHROMA_IMAGE" "$(compose_image chroma)"
+check_eq "compose postgres image" "$PGVECTOR_IMAGE" "$(compose_image postgres)"
 
 # ---- local entry points use the harness ----------------------------------
 check_contains "verify.sh sources the harness" "scripts/lib/docker-test-harness.sh" "$VERIFY"

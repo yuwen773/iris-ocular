@@ -103,7 +103,8 @@ Java 21 与本机 MySQL 实例的环境事实见主检出目录的 `CLAUDE.local
 ## Database (PostgreSQL 18 + pgvector)
 
 > **本分支（`feat/postgresql-pgvector-migration`）已迁到 PostgreSQL**：不再是 MySQL + ChromaDB。
-> MySQL 的 `db/migration/V*.sql` 保留为历史记录，**不要**再往上加迁移。
+> MySQL 的 `db/migration/V*.sql` 保留为历史记录（Current head is V47），**不要**再往上加迁移；
+> PostgreSQL 线是 `db/postgresql/V*.sql`，当前到 V5。
 > 迁移决策、验收证据、本轮修复的移植缺陷与生产切换授权清单见
 > `docs/architecture/postgresql-pgvector-migration-report-2026-11-28.md`。
 
