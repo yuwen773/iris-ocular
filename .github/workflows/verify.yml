@@ -44,6 +44,11 @@ jobs:
           python3 scripts/check_ci_integrity.py
           --base "${{ github.event.pull_request.base.sha }}"
           --acknowledged "$CI_CHANGE_APPROVED"
+      # upload-artifact@v4 names are immutable per run: a re-run that reaches the
+      # same name dies with 409. Every upload must be re-run-safe (overwrite or a
+      # per-attempt name), or the documented `re-run` recovery breaks.
+      - name: Require re-run-safe artifact uploads
+        run: python3 scripts/check_workflow_artifacts.py
       - name: Verify the architecture design document contract
         run: python3 scripts/check_design_doc.py
       - name: Verify steering docs match migrations and controllers
@@ -297,6 +302,8 @@ jobs:
           name: issue19-surefire
           path: target/surefire-artifact/
           if-no-files-found: error
+          # Re-run safety: upload-artifact names are immutable per run.
+          overwrite: true
 
   collaboration-mysql:
     runs-on: ubuntu-latest
@@ -431,6 +438,8 @@ jobs:
             target/surefire-reports/TEST-*.xml
             target/surefire-reports/artifact-provenance.json
           if-no-files-found: error
+          # Re-run safety: upload-artifact names are immutable per run.
+          overwrite: true
 
   issue20-mysql:
     runs-on: ubuntu-latest
@@ -511,6 +520,8 @@ jobs:
           name: issue21-surefire
           path: target/surefire-artifact/
           if-no-files-found: error
+          # Re-run safety: upload-artifact names are immutable per run.
+          overwrite: true
 
   issue22-mysql:
     runs-on: ubuntu-latest
