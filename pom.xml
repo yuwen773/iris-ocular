@@ -81,8 +81,8 @@
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.mysql</groupId>
-            <artifactId>mysql-connector-j</artifactId>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
             <scope>runtime</scope>
         </dependency>
         <!-- 隔离库夹具显式使用 HikariCP 池化数据源（与生产数据源一致）；版本由 Spring Boot BOM 管理 -->
@@ -96,7 +96,7 @@
         </dependency>
         <dependency>
             <groupId>org.flywaydb</groupId>
-            <artifactId>flyway-mysql</artifactId>
+            <artifactId>flyway-database-postgresql</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -177,10 +177,10 @@
             <artifactId>json-schema-validator</artifactId>
             <version>1.5.7</version>
         </dependency>
-        <!-- Chroma Vector Store -->
+        <!-- pgvector Vector Store（RAG 存储适配层；表与索引由 Flyway 建） -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
-            <artifactId>spring-ai-chroma-store</artifactId>
+            <artifactId>spring-ai-pgvector-store</artifactId>
         </dependency>
         <!-- Spring AI Alibaba Agent Framework -->
         <dependency>

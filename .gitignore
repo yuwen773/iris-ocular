@@ -127,3 +127,6 @@ NUL
 # 一次性本地重构/修补脚本（不入库）
 /iris_refactor*.py
 /algorithm/_fix_decision2.py
+
+# 迁移执行状态与证据（本地文件，不入库；报告与工具在 docs/ 与 scripts/）
+.migration-state/
