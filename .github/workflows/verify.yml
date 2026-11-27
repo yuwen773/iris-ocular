@@ -273,8 +273,8 @@ jobs:
           distribution: corretto
           java-version: '21'
           cache: maven
-      - name: Verify report gates
-        run: python3 -m unittest discover -s scripts/tests -p "test_check_*.py"
+      # The gate self-tests run once, in docs-contract. Re-running the same
+      # 65 tests here proved nothing new about this job's suite.
       - name: Run four-agent draft, timeout and process recovery tests
         run: mvn -B -Dtest=PatientDraftTest test
       - name: Require every draft case to run
