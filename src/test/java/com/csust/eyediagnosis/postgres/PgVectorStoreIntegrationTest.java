@@ -14,6 +14,10 @@ import org.springframework.ai.vectorstore.filter.FilterExpressionBuilder;
 import org.springframework.ai.vectorstore.pgvector.PgVectorStore;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.test.util.ReflectionTestUtils;
+import com.csust.eyediagnosis.agent.rag.BuiltinCorpus;
+import com.csust.eyediagnosis.agent.rag.LexicalCorpusService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -22,6 +26,8 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -236,6 +242,54 @@ class PgVectorStoreIntegrationTest {
     }
 
     /** 同一文本 → 同一单位向量；不同文本近似正交。 */
+    /**
+     * 生产环境真正使用的 owner 过滤是「本人 或 系统语料（0）」，且 userId 是 19 位雪花号。
+     * 单值等值测试覆盖不到 OR 语义与长整数字面量渲染（Filter.Value 若是 String 会被加引号，
+     * 与 jsonb 数字比较就永远不命中）。
+     */
+    @Test
+    void builtinOwnerFilterIncludesSystemCorpusAndExcludesOtherOwners() {
+        long snowflake = 1234567890123456789L;
+        store.add(List.of(
+                doc("bf_user", "builtin filter shared text", Map.of("ownerUserId", snowflake, "documentId", "du", "chunkIndex", 0)),
+                doc("bf_sys", "builtin filter shared text", Map.of("ownerUserId", 0, "documentId", "ds", "chunkIndex", 0)),
+                doc("bf_other", "builtin filter shared text", Map.of("ownerUserId", 8, "documentId", "do", "chunkIndex", 0))));
+
+        List<Document> hits = store.similaritySearch(SearchRequest.builder()
+                .query("builtin filter shared text").topK(10)
+                .filterExpression(BuiltinCorpus.ownerFilter(snowflake))
+                .build());
+
+        Set<String> ids = hits.stream().map(Document::getId).collect(Collectors.toSet());
+        assertTrue(ids.contains(PREFIX + "bf_user"), "own chunk must be visible: " + ids);
+        assertTrue(ids.contains(PREFIX + "bf_sys"), "system corpus must be visible: " + ids);
+        assertFalse(ids.contains(PREFIX + "bf_other"), "another owner's chunk must not be visible: " + ids);
+    }
+
+    /**
+     * 词法通道的 SQL（owner 文本比较 + 雪花号）只在 PostgreSQL 上真跑一遍才算数；
+     * 之前只有 Mockito 单测，语法/类型错误会被 catch 成 WARN，安静关掉混合召回。
+     */
+    @Test
+    void lexicalCorpusQueryReadsOwnerCorpusOnPostgres() {
+        long snowflake = 1234567890123456788L;
+        store.add(List.of(
+                doc("lex_own", "lexical owner chunk", Map.of("ownerUserId", snowflake, "documentId", 41, "chunkIndex", 0)),
+                doc("lex_sys", "lexical system chunk", Map.of("ownerUserId", 0, "documentId", 42, "chunkIndex", 0)),
+                doc("lex_other", "lexical other chunk", Map.of("ownerUserId", 8, "documentId", 43, "chunkIndex", 0))));
+
+        LexicalCorpusService service = new LexicalCorpusService();
+        ReflectionTestUtils.setField(service, "jdbcTemplate", jdbc);
+        ReflectionTestUtils.setField(service, "objectMapper", new ObjectMapper());
+
+        Set<String> ids = service.loadOwnerCorpus(snowflake, 50).stream()
+                .map(Document::getId).collect(Collectors.toSet());
+
+        assertTrue(ids.contains(PREFIX + "lex_own"), "own chunk must load: " + ids);
+        assertTrue(ids.contains(PREFIX + "lex_sys"), "system chunk must load: " + ids);
+        assertFalse(ids.contains(PREFIX + "lex_other"), "another owner's chunk must not load: " + ids);
+    }
+
     static final class DeterministicEmbeddingModel implements EmbeddingModel {
 
         static float[] vector(String text) {

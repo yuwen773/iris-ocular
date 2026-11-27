@@ -30,12 +30,13 @@ Base package: `com.csust.eyediagnosis`
 后端构建脚本看 `pom.xml`，产品前端脚本看 `web/package.json`（`typecheck` / `test` / `build` / `lint`，
 CI 里是根 `verify.yml` 的 `web` job），小程序看 `miniapp/package.json`（`typecheck` / `test` / `build:weapp` /
 `gen:tokens`，CI 里是 `miniapp` job），Vue 已弃用线看 `frontend/package.json`，算法服务看
-`algorithm/requirements.txt` 与 `run_mcp_server.py` / `grpc_server.py`；`docker-compose.yml` 起 ChromaDB :8000。
+`algorithm/requirements.txt` 与 `run_mcp_server.py` / `grpc_server.py`；`docker-compose.yml` 默认起
+PostgreSQL 18 + pgvector（:5432），Chroma 只在 `--profile legacy-chroma` 下作迁移对照工具。
 
-**日常改动走分级验证 `scripts/verify-fast.sh`**（L0 / L1 / L2 / L3，**默认 L1**）：
-按改动范围点名要跑的用例，改一两个文件不必启动全量。涉及数据库状态、迁移、权限、
-RAG 证据、Spring 装配时升到 L2（`--db`）；准备合并时才用 L3。规则与逐模块影响映射见
-`docs/testing/verification-levels.md`。
+**本分支（PG 线）的后端验证一律走 `scripts/verify-pg.sh`**：`verify-fast.sh` 的 `--db`
+（MySQL 8）与 `scripts/verify.sh` 属于迁移前的旧线，在本分支不能作为通过证据。
+L0 的静态检查仍可用 `scripts/verify-fast.sh` 的非 `--db` 档；涉及数据库、迁移、权限、
+RAG 证据、Spring 装配时用 `scripts/verify-pg.sh`（L1 门禁）或 `--full`（全量）。
 
 **后端全量验证走 `scripts/verify-pg.sh`**（`--full` 跑完整 `mvn test`）：它通过 docker-test-harness 起一次性
 `pgvector/pgvector:pg18`、bootstrap 最小权限角色、跑真正的 PG Flyway 线，注入 `SPRING_PROFILES_ACTIVE=ci`，
@@ -104,7 +105,7 @@ Java 21 与本机 MySQL 实例的环境事实见主检出目录的 `CLAUDE.local
 
 > **本分支（`feat/postgresql-pgvector-migration`）已迁到 PostgreSQL**：不再是 MySQL + ChromaDB。
 > MySQL 的 `db/migration/V*.sql` 保留为历史记录（Current head is V47），**不要**再往上加迁移；
-> PostgreSQL 线是 `db/postgresql/V*.sql`，当前到 V6。
+> PostgreSQL 线是 `db/postgresql/V*.sql`，当前到 V7。
 > 迁移决策、验收证据、本轮修复的移植缺陷与生产切换授权清单见
 > `docs/architecture/postgresql-pgvector-migration-report-2026-11-28.md`。
 

@@ -43,8 +43,7 @@ BACKEND_UNIT_CONTRACT = {
     "expected": {},
     "opt_in": {
         P + "collaboration.ProductSchemaTest": {"env": "PRODUCT_ACCEPTANCE_TEST_URL", "cases": 1},
-        P + "agent.config.VectorStoreConfigTest": {"env": "RUN_CHROMA_INTEGRATION_TESTS", "cases": 1},
-        P + "agent.rag.RAGEvaluationTest": {"env": "RUN_RAG_EVALUATION_TESTS", "cases": 2},
+            P + "agent.rag.RAGEvaluationTest": {"env": "RUN_RAG_EVALUATION_TESTS", "cases": 2},
         P + "diagnosistask.DiagnosisTaskApiTest": {"env": "ISSUE17_TEST_URL", "cases": 7, "skipped": 4},
         P + "diagnosistask.DiagnosisTaskRecoveryTest": {"env": "ISSUE17_TEST_URL", "cases": 10, "skipped": 10},
         P + "controlledreference.ControlledReferenceApiTest": {

@@ -17,8 +17,8 @@
 | 最小权限账号 | PASS | 12 条拒绝探针（DDL/扩展/schema/迁移历史），DML 放行 |
 | 全量后端套件（PG） | PASS | `mvn -B test`：1415 tests / 0 fail / 0 err / 384 skipped / exit 0 |
 | 跳测门禁契约 | PASS | `check_surefire_skips.py backend-unit` exit 0 |
-| CI（远端 HEAD） | NOT_RUN | 工作流已改 pgvector；推送前未在 Actions 上观测 |
-| 独立评审 A/B | 见 §9 | 数据库/并发、RAG/业务契约两路独立评审 |
+| CI（远端 HEAD） | 见 §5.7 | 首轮 20/24，三个契约 job 已修；最终 HEAD 的 run 见 §5.7 |
+| 独立评审 A/B | PASS（已整改） | A：BLOCK → 1 P0 + 3 P1 已修；B：FIX_P0_P1 → 无 P0，2 P1 已修（见 §9） |
 | 生产切换 | BLOCKED | 需真实数据导出、分支保护变更、部署授权 |
 
 ## 2. 范围与不变量
@@ -84,7 +84,7 @@ PASS: PostgreSQL verification (gates)
 
 ```
 $ scripts/migration/run-drill.sh
-ok_tables=59 SEQUENCES synced=26 FOREIGN_KEYS unvalidated=0
+ok_tables=59 SEQUENCES synced=26 FOREIGN_KEYS orphan_rows=0
 instant_utc=2026-11-20 10:00:00 identity_after_import=13 restore_ok
 rag.iris_knowledge_vectors=3 PASS
 ```
@@ -100,12 +100,18 @@ VERIFY source_chunks=300 target_rows=300
 FIDELITY ok ids=3 embedding_tolerance=1e-6
 OVERLAP chroma_vs_pg_exact@10=1.000
 OVERLAP pg_exact_vs_pg_hnsw@10=1.000
-LATENCY_MS chroma p50=22.8 p95=...
-LATENCY_MS pg_hnsw p50=2.4 p95=...
+VERIFY content/metadata/embedding match
+LATENCY_MS chroma p50=4.5 p95=27.7
+LATENCY_MS pg_exact p50=3.8 p95=5.1
+LATENCY_MS pg_hnsw p50=2.3 p95=2.7
 ISOLATION ok owners=['7']
 PASS vector migration drill
 ```
 退出码 0。**只使用合成数据**；真实语料导入需要授权（见 §8）。
+
+导入校验新增「同 id 但内容/元数据/向量不同」检查（`ON CONFLICT DO NOTHING` 会保留旧行，
+只看 id 集合会在部分重跑时假绿）。负例实测：把一行 content 改坏后重跑，
+`VERIFY_FAIL divergent_rows=1 sample=['drill_chunk_00000']`、退出码 **2**；恢复数据后重跑 PASS。
 
 ### 5.4 备份与恢复
 
@@ -155,6 +161,17 @@ exit=0
 | P1-2 | 测试以 `innodb_lock_wait_timeout` 设置锁等待 | 子进程 `SET SESSION innodb_lock_wait_timeout` 让连接初始化失败，报成「向量表不存在」 | 改为 `SET lock_timeout = 2000`；`CannotAcquireLockException` 映射不变（PG `55P03`） |
 | P1-3 | 生产 SQL 残留 `JSON_OBJECT()` / `JSON_ARRAY()` / `LAST_INSERT_ID()` | 对应链路（协作准入、受控参考资料上传、资讯候选落库、草稿测试种子）在 PG 上必失败；这些套件是 opt-in，默认不跑所以套件绿了也看不出来 | 改用 `'{}'` / `'[]'` 字面量；`LAST_INSERT_ID()` → `INSERT ... RETURNING id`（不用 `lastval()`：并发下会取到别人的 id） |
 | P1-4 | Java `boolean` 写入 `smallint` 标志列 | `column "istest" is of type smallint but expression is of type boolean` | 在 bootstrap 里建 boolean→smallint 的 **assignment** cast（PG 18 内建 boolean→integer 是 explicit，不能复用）；SQL 保持 `isTest` 原样 |
+| P0-4 | 判读缓存 `InferenceCacheMapper.upsert` 仍是 MySQL `ON DUPLICATE KEY UPDATE` | 开启判读缓存时（`cacheEnabled=true`）每次写缓存都是语法错误，整个 `/api/diagnosis` 返回 50000；该路径没有 PG 用例，全量套件绿也看不出来 | 改为 `ON CONFLICT (imagehash, modelversion, weightsha256, preprocessversion, inferencepolicyversion) DO NOTHING`，真实 PG 上回滚事务验证冲突行数为 1、无异常 |
+| P1-5 | 资讯工作台候选列表用 `JSON_LENGTH` | 候选列表查询在 PG 报 `function json_length(jsonb) does not exist`，管理员打开即 50000 | 改为 `jsonb_typeof(...)='array'` 保护的 `jsonb_array_length`；两个取证脚本同步 |
+| P1-6 | 生产连接没有 `lock_timeout` | PG 默认无限等锁；配置中心 `SELECT … FOR UPDATE` 争用会永久挂起，`CONFIG_CONCURRENT_CONFLICT` 的「锁等待超时」分支在 PostgreSQL 上不可达 | Hikari `connection-init-sql: SET lock_timeout = '50s'`（与 MySQL 默认 50s 对齐），server 示例同步 |
+| P1-7 | 关系迁移假设单一源时区 | MySQL 线混用 `UTC_TIMESTAMP()`/`UTC_DATE()`（45 处）与 JDBC/默认时区写入的本地墙钟；单一 `--source-timezone` 必然让其中一类偏移 8 小时（若会话为 Asia/Shanghai） | 新增 `--column-timezone TABLE.COLUMN=ZONE` 逐列覆盖；真实切换前必须逐列分类（见 §8） |
+| P2-1 | `utc_timestamp(fsp)` 忽略精度；`date_format` 未映射 `%` 码不加引号 | `UTC_TIMESTAMP(0)` 仍是微秒精度；`%M/%p/%T` 等码可与相邻 token 合并成错误格式 | `V6__date_time_shim_edges.sql`：按 fsp 截断，补齐常见码，未映射码按字面量加引号；逐函数实测 |
+| P1-8 | `Document.score` 口径反转：Chroma 写 `1 - distance`，`PgVectorStore` 写 `distance` | 侧栏「相关度」把最好的命中显示成 0.02、最差的 1.0；`retrievalScore` 也反向且量纲不同 | 新增 `agent/rag/SimilarityScoredVectorStore` 包装：存储边界换算成 0..1 相似度（截断），`DocumentSearchTool` 与既有用例语义不变；3 条单测 |
+| P1-9 | `PgVectorStore` 建 bean 时校验表，依赖 bean 创建顺序「碰巧」晚于 Flyway | 空库首次启动时顺序变化即 `IllegalStateException`；整改前在空库实测为通过（说明只是顺序巧合） | 给 `pgVectorStore` 加 `@DependsOnDatabaseInitialization`，把顺序变成契约 |
+| P2-2 | 向量列维度与配置 `dimensions` 未比对 | 改配置后要到第一次 `add()`（付费嵌入之后）才报错 | 启动时比对 `pg_attribute.atttypmod`（pgvector 直接存维度，实测确认）；不一致拒绝启动；2 条单测 |
+| P2-3 | 词法通道 owner 查询全表扫（GIN 不服务 `->>`） | 每个用户每分钟全表扫向量表，上限 2 万块 | V7 函数索引 `(metadata ->> 'ownerUserId')`，查询表达式与索引逐字一致，EXPLAIN 实测走 Bitmap Index Scan |
+| P2-4 | Chroma 退役残留：`IrisRagGenerationProbe.java`（已无法编译）、`VectorStoreConfigTest`（会向真实向量表写无主数据）、文档仍指 MySQL 验证路径 | 误导或污染 | 删除探测器与其 ps1/演示测试（回归由 PG 套件承担）；`check_surefire_skips` 同步；CLAUDE.md 与迁移矩阵标注「本分支只认 verify-pg.sh」 |
+| P2-5 | `BuiltinCorpusSeeder` 直接拼接 schema/table | 配置值可把任意 SQL 带进语句（与 `LexicalCorpusService` 不一致） | 加同样的标识符校验 |
 
 P1-3 的四处 SQL 已在真实 PG 上用回滚事务逐条验证：
 
@@ -178,6 +195,9 @@ collaboration empty object -> '{}'                          OK (rolestates={})
 
 1. **数据**：真实 MySQL 导出与 Chroma 向量导入需要在获得授权后对生产只读副本执行；
    本仓库只交付工具 + 合成演练证据。
+   - **时区分类（必做）**：先在源库确认 `serverTimezone` 与写入口径，把「SQL 里 `UTC_TIMESTAMP()`/`UTC_DATE()`
+     写入的列」和「JDBC / `DEFAULT CURRENT_TIMESTAMP` 按会话时区写入的列」分开，逐列用
+     `--column-timezone TABLE.COLUMN=ZONE` 指定；只给一个全局 `--source-timezone` 会让其中一类整体偏移。
 2. **向量**：禁止对真实知识库重嵌入；导入工具保证 embedding 原样搬运，但仍需业务方确认集合与维度（1024）。
 3. **CI/仓库**：分支保护与必需检查列表需要 owner 调整（当前仍是 MySQL 时代的 job 集合）；
    Draft PR 必须保持 Draft。
@@ -189,8 +209,15 @@ collaboration empty object -> '{}'                          OK (rolestates={})
 
 ## 9. 独立评审
 
-- 评审 A（数据库与并发）：待填结果与发现编号。
-- 评审 B（RAG 与业务契约）：待填结果与发现编号。
+- 评审 A（数据库与并发）：**BLOCK → 已整改**。发现 1 个 P0（`InferenceCacheMapper` 的 `ON DUPLICATE KEY`）、
+  3 个 P1（`JSON_LENGTH`、生产缺 `lock_timeout`、迁移工具单一源时区）、5 个 P2（撞键回读事务前提、生成列触发器、
+  `utc_timestamp(fsp)`、`date_format` 未映射码、迁移工具外键「验证」恒为 0、Flyway 默认账号）。P0/P1 全部修复并
+  在真实 PG 上验证；P2 中 V6 两个 shim 与 FK 检查已修，其余以注释/文档固化。复评结论见 PR 检查与 §5.7。
+- 评审 B（RAG 与业务契约）：**FIX_P0_P1 → 已整改，无 P0**。2 个 P1：`Document.score` 由相似度变成距离
+  （侧栏相关度反向）、`PgVectorStore` 建 bean 与 Flyway 的顺序依赖；均已修复（存储边界换算包装 +
+  `@DependsOnDatabaseInitialization`，空库实测 + 单测）。P2：导入缺内容/元数据/向量一致性校验（已加，负例退出码 2）、
+  维度漂移（启动即拒绝）、词法通道全表扫（V7 索引）、Chroma 退役残留（探测器与演示测试删除、文档改口）、
+  seeder 标识符校验（已加）；owner 过滤（含 19 位雪花号与系统语料）与词法 SQL 新增真实 PG 用例。
 
 ## 10. 复现步骤
 

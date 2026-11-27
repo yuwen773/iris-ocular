@@ -73,7 +73,9 @@ public class LexicalCorpusService {
         int offset = 0;
         String sql = "SELECT id, content, metadata::text AS metadata FROM "
                 + qualifiedTable()
-                + " WHERE (metadata::jsonb ->> 'ownerUserId') IN (?, ?)"
+                // 与 V7 的函数索引表达式逐字一致（metadata ->> 'ownerUserId'），
+                // 否则规划器用不上索引，每个用户每分钟全表扫一遍。
+                + " WHERE (metadata ->> 'ownerUserId') IN (?, ?)"
                 + " ORDER BY id LIMIT ? OFFSET ?";
         try {
             while (offset < maxChunks) {

@@ -115,6 +115,48 @@ def digest_ids(ids) -> str:
     return digest.hexdigest()
 
 
+def verify_batch_matches(pg, schema: str, table: str, batch: dict) -> list[str]:
+    """Return the ids whose target row differs from the source batch.
+
+    `ON CONFLICT (id) DO NOTHING` is deliberate (a re-run must never overwrite a
+    newer production row), but it makes the id-set digest insufficient: a stale or
+    divergent row with the same id would pass. Compare content, metadata (as
+    parsed JSON, since json text formatting is not stable) and embedding (1e-6,
+    same tolerance as the drill) for every source id.
+    """
+    ids = batch.get("ids") or []
+    if not ids:
+        return []
+    documents = batch.get("documents") or [None] * len(ids)
+    metadatas = batch.get("metadatas") or [None] * len(ids)
+    embeddings = batch.get("embeddings") or [None] * len(ids)
+    with pg.cursor() as cur:
+        cur.execute(
+            f"SELECT id, content, metadata::text, embedding::text FROM {schema}.{table} "
+            f"WHERE id = ANY(%s)", ([str(i) for i in ids],))
+        target = {row[0]: row[1:] for row in cur.fetchall()}
+    mismatched = []
+    for index, chunk_id in enumerate(ids):
+        row = target.get(str(chunk_id))
+        if row is None:
+            mismatched.append(str(chunk_id))
+            continue
+        content, metadata_text, embedding_text = row
+        if content != documents[index]:
+            mismatched.append(str(chunk_id))
+            continue
+        if (json.loads(metadata_text) if metadata_text is not None else None) != metadatas[index]:
+            mismatched.append(str(chunk_id))
+            continue
+        expected = embeddings[index]
+        if expected is not None:
+            actual = [float(v) for v in embedding_text.strip("[]").split(",")] if embedding_text else []
+            if len(actual) != len(expected) or any(
+                    abs(a - float(e)) > 1e-6 for a, e in zip(actual, expected)):
+                mismatched.append(str(chunk_id))
+    return mismatched
+
+
 def target_id_digest(pg, schema: str, table: str, ids) -> tuple[int, str]:
     """Count and digest of the source ids that are present in the target.
 
@@ -213,6 +255,22 @@ def main() -> int:
             print("VERIFY_FAIL id set digest mismatch", file=sys.stderr)
             return 2
         print(f"VERIFY id_digest={source_digest}")
+
+        # 2) 同 id 但内容/元数据/向量不同：ON CONFLICT DO NOTHING 会保留旧行，
+        #    只看 id 集合会在「部分跑过、目标已有旧数据」时假绿。
+        offset = 0
+        divergent: list[str] = []
+        while True:
+            batch = fetch_batch(base, collection["id"], offset, args.batch_size)
+            ids = batch.get("ids") or []
+            if not ids:
+                break
+            divergent.extend(verify_batch_matches(pg, args.schema, args.table, batch))
+            offset += len(ids)
+        if divergent:
+            print(f"VERIFY_FAIL divergent_rows={len(divergent)} sample={divergent[:5]}", file=sys.stderr)
+            return 2
+        print("VERIFY content/metadata/embedding match")
         return 0
 
 

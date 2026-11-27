@@ -162,13 +162,21 @@ public class BuiltinCorpusSeeder implements ApplicationRunner {
      * <p>用于识别语料变短后多出来的旧分块。PostgreSQL 线可以直接按 metadata 全量
      * 列举（旧 Chroma 实现只能靠一次近似 ANN 检索"尽量找全"），清理因此是穷尽的。
      */
+    /** 与 LexicalCorpusService 相同的标识符约束：配置值不能把任意 SQL 拼进语句。 */
+    private String qualifiedTable() {
+        if (!vectorSchema.matches("[a-zA-Z0-9_]{1,64}") || !vectorTable.matches("[a-zA-Z0-9_]{1,64}")) {
+            throw new IllegalStateException("向量表名不合法: " + vectorSchema + "." + vectorTable);
+        }
+        return vectorSchema + "." + vectorTable;
+    }
+
     private List<String> findExistingBuiltinIds() {
         if (jdbcTemplate == null) {
             return List.of();
         }
         try {
             return jdbcTemplate.queryForList(
-                    "SELECT id FROM " + vectorSchema + "." + vectorTable
+                    "SELECT id FROM " + qualifiedTable()
                             + " WHERE metadata::jsonb @> ?",
                     String.class,
                     "{\"corpus\":\"" + BuiltinCorpus.CORPUS_TAG + "\"}");
