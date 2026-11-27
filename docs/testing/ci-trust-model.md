@@ -15,6 +15,15 @@ G1 能做到的是让这类改动永远可见、且必须走一次显式的管�
 | fork 的 PR：密钥不注入，`GITHUB_TOKEN` **只读** | 同上 |
 | **必需检查按名字匹配**：job 不存在则检查一直 Pending，挡住合并；但同名 job 被改成 `echo ok` 仍会报 success | GitHub 分支保护行为 |
 | **CODEOWNERS 读基线分支的版本**：「pull requests use the version of `CODEOWNERS` from the base branch」；`require_code_owner_reviews` 只在开启了必需评审时生效 | GitHub 文档 *About code owners* |
+| **`upload-artifact@v4` 产物名在同一次 run 内不可变**：re-run 某 attempt 再次上传同名产物报 `409 Conflict: an artifact with this name already exists`；`download-artifact@v4` 只取本 run 的产物 | actions/upload-artifact#478、2026-11-27 复核 |
+| **跨 job 复用报告按 attempt 绑定**：`check_surefire_artifacts.py` 的 `assemble` 校验 `runAttempt`，只重跑 consumer（`re-run failed jobs`）会因 attempt 自增而被拒 | `scripts/check_surefire_artifacts.py` |
+
+**产物与重跑契约**（由上两行推出）：
+
+- 上传一律可重跑安全——`with:` 里写 `overwrite: true`，或 `name:` 带 `${{ github.run_attempt }}`；
+  由 `scripts/check_workflow_artifacts.py` 在 `docs-contract` 强制（缺一条即红）。
+- 涉及跨 job 产物的 job 从 `issue19/21 → issue24` 起，用 **re-run all jobs** 恢复，
+  不要只 `gh run rerun --failed`（只重跑 consumer 会撞 attempt 校验，只重跑 producer 会撞 409）。
 
 ## 2. 由此推出的四条结论
 
