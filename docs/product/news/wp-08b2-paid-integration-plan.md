@@ -166,3 +166,29 @@ eye-diagnosis:
 在得到仓库所有者的单独付费授权之前，本文件的任何步骤都不执行；仓库默认配置保持
 `eye-diagnosis.news-curation.enabled=false`，CI 与本地验证全部使用脚本化夹具。
 本文件的费率与模型 ID 是「准备好了」的证据，不是「跑过了」的证据。
+
+## 9. 首次联调的实际状态：阻塞（0 次真实请求）
+
+2026-11-27，PR #172 经授权合并进 master（`74eee927`）之后按 §6 的步骤准备执行首次真实调用，
+在「执行顺序」第 1 步之前停下：**仓库里没有任何运行时入口会触发 P05 调用**。
+
+核对证据：
+
+| 检查 | 结果 |
+| --- | --- |
+| `git grep "runModel(" -- src/main` | 只有 `NewsCurationService` 自身的三个重载；调用方全在 `src/test` |
+| `git grep "curateRevision" -- src/main` | 唯一调用方 `NewsBenchRunner.runEndToEndWithMySql`，这是**测试用** harness（`@Component`，没有任何 `@Scheduled`/`@RestController` 调用它） |
+| 管理端 25 个端点 | 信源开关/配置、任务入队/重试、预算、重置熔断、回执回收/对账/转候选、核验登记/撤回——**没有一个会发起模型调用** |
+| 网络可达性 | `https://dashscope.aliyuncs.com/compatible-mode/v1/models` 无鉴权返回 `401`（0.55s），链路可用 |
+| 密钥 | 当前 shell 只有 `DASHSCOPE_API_KEY`；方案里的 `secretRef: IRIS_NEWS_QWEN_API_KEY` 未设置，且该密钥未做过任何真实鉴权验证 |
+
+按 §4 的规则「缺少必要调用入口则报告阻塞，不自行绕过」：没有新增临时端点、没有写临时脚本直连供应商、
+没有放宽或跳过任何预算闸门。本轮真实请求 **0 次**，`t_news_curation_budget` /
+`t_news_curation_lifetime_budget` / `t_news_model_call_receipt` 均无新增行，
+`eye-diagnosis.news-curation.enabled` 仍为 `false`。
+
+解除阻塞需要的最小改动（属于新工作包，需单独评审，不在 B2 范围内）：一个窄入口
+（管理员端点或授权的 CLI）以 `Selection("production", Prompt.P05, profileKey, null)` 调用
+`NewsCurationService.runModel(...)`，并且必须复用既有四道闸门与整次实验上限，
+不新增任何绕过路径。入口就绪后，§6 的单份 Research Insight 应先跑；本轮不预生成实验报告，
+以免把「没跑」写成「跑过」。
