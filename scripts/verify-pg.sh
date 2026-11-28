@@ -34,11 +34,13 @@ for arg in "$@"; do
   esac
 done
 
+# shellcheck source=scripts/lib/docker-images.env
+. "$ROOT/scripts/lib/docker-images.env"
 # shellcheck source=scripts/lib/docker-test-harness.sh
 . "$ROOT/scripts/lib/docker-test-harness.sh"
 eye_docker_init
 eye_docker_trap_teardown
-eye_docker_require_image pgvector/pgvector:pg18
+eye_docker_require_image "$PGVECTOR_IMAGE"
 
 APP_PASSWORD="verify-app-password"
 MIGRATOR_PASSWORD="verify-migrator-password"
@@ -51,7 +53,7 @@ eye_docker_run_named "$NAME" -d \
   -e POSTGRES_PASSWORD=verify-superuser-password \
   -e IRIS_MIGRATOR_PASSWORD="$MIGRATOR_PASSWORD" \
   -e IRIS_APP_PASSWORD="$APP_PASSWORD" \
-  -p 0:5432 pgvector/pgvector:pg18 >/dev/null
+  -p 0:5432 "$PGVECTOR_IMAGE" >/dev/null
 PG_PORT=$(eye_docker_host_port "$NAME" 5432)
 echo "postgres: 127.0.0.1:$PG_PORT/$DB"
 

@@ -445,8 +445,8 @@ public class NewsLifecycleService {
             return List.of();
         }
         return jdbc.query("""
-                SELECT id, newsId, revisionNo, action, CAST(status AS SIGNED) AS status, title, summary, content,
-                       coverImg, category, source, CAST(featured AS SIGNED) AS featured, curationCandidateId,
+                SELECT id, newsId, revisionNo, action, status, title, summary, content,
+                       coverImg, category, source, featured, curationCandidateId,
                        materialRevisionId, evidenceSnapshotSha256, evidenceSnapshotJson,
                        contentSha256, actorId, actorRole, reviewNote, createdAt
                 FROM t_news_revision
@@ -703,8 +703,8 @@ public class NewsLifecycleService {
                     .eq("id", newsId));
         }
         List<News> rows = jdbc.query("""
-                SELECT id, CAST(status AS SIGNED) AS status, title, summary, content, coverImg, category, source,
-                       CAST(featured AS SIGNED) AS featured, reviewNote, reviewedById, curationCandidateId,
+                SELECT id, status, title, summary, content, coverImg, category, source,
+                       featured, reviewNote, reviewedById, curationCandidateId,
                        materialRevisionId, evidenceSnapshotSha256, currentRevisionNo, publishedRevisionNo
                 FROM t_news
                 WHERE id = ? AND isDelete = 0

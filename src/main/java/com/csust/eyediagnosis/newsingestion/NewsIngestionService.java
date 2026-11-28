@@ -1042,7 +1042,10 @@ public class NewsIngestionService {
                 rs.getString("leaseWorkerId"),
                 rs.getInt("attemptCount"),
                 rs.getInt("maxAttempts"),
-                rs.getInt("leaseActive") == 1
+                // 这个列是布尔表达式：MySQL 返回 0/1，PostgreSQL 返回 boolean，
+                // 按 int 读在 PG 上直接抛「Bad value for type int : t」。
+                // getBoolean 两种都认（pgjdbc 会把 int2/int4 读成 != 0）。
+                rs.getBoolean("leaseActive")
         );
     }
 

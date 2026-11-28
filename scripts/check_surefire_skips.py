@@ -56,18 +56,17 @@ BACKEND_UNIT_CONTRACT = {
         P + "patientexplanation.PatientExplanationApiTest": {"env": "ISSUE21_TEST_URL", "cases": 37, "skipped": 37},
         P + "patientauthorization.PatientAuthorizationApiTest": {"env": "ISSUE22_TEST_URL", "cases": 37, "skipped": 37},
         P + "patientfollowup.PatientFollowUpApiTest": {"env": "ISSUE23_TEST_URL", "cases": 37, "skipped": 37},
-        P + "migration.FlywayMySqlIntegrationTest": {"env": "FLYWAY_TEST_URL", "cases": 7, "skipped": 7},
-        P + "agent.service.ToolAuditMySqlIntegrationTest": {"env": "FLYWAY_TEST_URL", "cases": 1, "skipped": 1},
-        P + "agent.service.ToolTerminalPersistenceMySqlIntegrationTest": {"env": "FLYWAY_TEST_URL", "cases": 1, "skipped": 1},
-        P + "poc.CoordinationMySqlTest": {"env": "COORDINATION_POC_URL", "cases": 14, "skipped": 14},
-        P + "upload.state.UploadTaskMapperMySqlIntegrationTest": {"env": "FLYWAY_TEST_URL", "cases": 3, "skipped": 3},
-        P + "service.DiagnosisRunMySqlIntegrationTest": {"env": "FLYWAY_TEST_URL", "cases": 8, "skipped": 8},
-        P + "integration.AdminAnalyticsMySqlIntegrationTest": {"env": "FLYWAY_TEST_URL", "cases": 1, "skipped": 1},
-        P + "newsingestion.NewsIngestionMySqlIntegrationTest": {"env": "FLYWAY_TEST_URL", "cases": 13, "skipped": 13},
-        P + "newsingestion.NewsCollectionScheduleMySqlIntegrationTest": {"env": "FLYWAY_TEST_URL", "cases": 6, "skipped": 6},
-        P + "newscuration.NewsCurationMySqlIntegrationTest": {"env": "FLYWAY_TEST_URL", "cases": 18, "skipped": 18},
-        P + "service.NewsEditorialPublishMySqlIntegrationTest": {"env": "FLYWAY_TEST_URL", "cases": 8, "skipped": 8},
-        P + "newsworkbench.NewsWorkbenchMySqlIntegrationTest": {"env": "FLYWAY_TEST_URL", "cases": 13, "skipped": 13},
+        P + "agent.service.ToolAuditPostgresIntegrationTest": {"env": "BUSINESS_TEST_URL", "cases": 1, "skipped": 1},
+        P + "agent.service.ToolTerminalPersistencePostgresIntegrationTest": {"env": "BUSINESS_TEST_URL", "cases": 1, "skipped": 1},
+        P + "poc.CoordinationPostgresTest": {"env": "COORDINATION_POC_URL", "cases": 14, "skipped": 14},
+        P + "upload.state.UploadTaskMapperPostgresIntegrationTest": {"env": "BUSINESS_TEST_URL", "cases": 3, "skipped": 3},
+        P + "service.DiagnosisRunPostgresIntegrationTest": {"env": "BUSINESS_TEST_URL", "cases": 8, "skipped": 8},
+        P + "integration.AdminAnalyticsPostgresIntegrationTest": {"env": "BUSINESS_TEST_URL", "cases": 1, "skipped": 1},
+        P + "newsingestion.NewsIngestionPostgresTest": {"env": "BUSINESS_TEST_URL", "cases": 13, "skipped": 13},
+        P + "newsingestion.NewsCollectionSchedulePostgresTest": {"env": "BUSINESS_TEST_URL", "cases": 6, "skipped": 6},
+        P + "newscuration.NewsCurationPostgresTest": {"env": "BUSINESS_TEST_URL", "cases": 18, "skipped": 18},
+        P + "service.NewsEditorialPublishPostgresTest": {"env": "BUSINESS_TEST_URL", "cases": 8, "skipped": 8},
+        P + "newsworkbench.NewsWorkbenchPostgresTest": {"env": "BUSINESS_TEST_URL", "cases": 13, "skipped": 13},
     },
 }
 
@@ -83,21 +82,22 @@ ISSUE17_CONTRACT = {
     "opt_in": {},
 }
 
-# The Flyway job has database env vars set, so its suites must run fully.
-FLYWAY_CONTRACT = {
+# The postgres-integration job creates business_test / coordination_poc and sets the
+# env vars these suites need, so every case must actually run there.
+BUSINESS_CONTRACT = {
     "scope": "named",
     "expected": {
-        P + "migration.FlywayMySqlIntegrationTest": 7,
-        P + "upload.state.UploadTaskMapperMySqlIntegrationTest": 3,
-        P + "agent.service.ToolAuditMySqlIntegrationTest": 1,
-        P + "agent.service.ToolTerminalPersistenceMySqlIntegrationTest": 1,
-        P + "service.DiagnosisRunMySqlIntegrationTest": 8,
-        P + "integration.AdminAnalyticsMySqlIntegrationTest": 1,
-        P + "newsingestion.NewsIngestionMySqlIntegrationTest": 13,
-        P + "newsingestion.NewsCollectionScheduleMySqlIntegrationTest": 6,
-        P + "newscuration.NewsCurationMySqlIntegrationTest": 18,
-        P + "service.NewsEditorialPublishMySqlIntegrationTest": 8,
-        P + "newsworkbench.NewsWorkbenchMySqlIntegrationTest": 13,
+        P + "upload.state.UploadTaskMapperPostgresIntegrationTest": 3,
+        P + "agent.service.ToolAuditPostgresIntegrationTest": 1,
+        P + "agent.service.ToolTerminalPersistencePostgresIntegrationTest": 1,
+        P + "service.DiagnosisRunPostgresIntegrationTest": 8,
+        P + "integration.AdminAnalyticsPostgresIntegrationTest": 1,
+        P + "newsingestion.NewsIngestionPostgresTest": 13,
+        P + "newsingestion.NewsCollectionSchedulePostgresTest": 6,
+        P + "newscuration.NewsCurationPostgresTest": 18,
+        P + "service.NewsEditorialPublishPostgresTest": 8,
+        P + "newsworkbench.NewsWorkbenchPostgresTest": 13,
+        P + "poc.CoordinationPostgresTest": 14,
     },
     "opt_in": {},
 }
@@ -125,7 +125,7 @@ CONTRACTS = {
     "issue21": {"scope": "named", "expected": {P + "patientexplanation.PatientExplanationApiTest": 37}, "opt_in": {}},
     "issue22": {"scope": "named", "expected": {P + "patientauthorization.PatientAuthorizationApiTest": 37}, "opt_in": {}},
     "issue23": {"scope": "named", "expected": {P + "patientfollowup.PatientFollowUpApiTest": 37}, "opt_in": {}},
-    "flyway": FLYWAY_CONTRACT,
+    "business": BUSINESS_CONTRACT,
     "product": {"scope": "named", "expected": {
         P + "collaboration.ProductSchemaTest": 1,
         P + "collaboration.CollaborationImagesTest": 7,

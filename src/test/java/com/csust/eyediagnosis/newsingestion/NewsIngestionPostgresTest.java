@@ -1,13 +1,11 @@
 package com.csust.eyediagnosis.newsingestion;
 
 import com.csust.eyediagnosis.config.ControlCenterProperties;
+import com.csust.eyediagnosis.integration.LegacyGateSupport;
 import com.csust.eyediagnosis.config.JsonConfig;
 import com.csust.eyediagnosis.config.SameOriginFilter;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.flywaydb.core.Flyway;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
@@ -16,7 +14,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
-import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
@@ -36,7 +33,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TimeZone;
-import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -55,14 +51,18 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * L2 real-MySQL integration suite for WP-02 News Engine scheduling, lease fencing,
- * idempotent receipts, cursor arbitration, atomic rollback, and material pool promotion.
+ * WP-02 News Engine 的真实 PostgreSQL 回归：调度、租约栅栏、幂等回执、游标仲裁、
+ * 原子回滚与素材池提升。
  *
- * <p>Requires {@code FLYWAY_TEST_URL} / {@code FLYWAY_TEST_USERNAME} / {@code FLYWAY_TEST_PASSWORD}.
- * Keeps {@code Assumptions.assumeTrue} inside {@code @BeforeEach} so Surefire records exact
- * case/skip counts matching {@code scripts/check_surefire_skips.py} (13 cases).
+ * <p>原套件跑在一次性 MySQL 库上。迁移只改方言：日期算术换成 PG 的
+ * {@code now() - INTERVAL ...}、{@code SIGNAL SQLSTATE} 触发器换成
+ * {@link LegacyGateSupport#createFailTrigger}、{@code information_schema} 断言按
+ * schema {@code diagnosis} 取表。断言一条未改。
+ *
+ * <p>库由 {@code BUSINESS_TEST_URL} 指定（库名必须叫 {@code business_test}）；
+ * 未设置时整类跳过，设置了但指向别的库时直接失败。
  */
-class NewsIngestionMySqlIntegrationTest {
+class NewsIngestionPostgresTest {
 
     private static final DateTimeFormatter DB_UTC_FORMAT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'").withZone(ZoneOffset.UTC);
@@ -72,10 +72,8 @@ class NewsIngestionMySqlIntegrationTest {
     private static final NewsWorkerIdentity WORKER_B =
             new NewsWorkerIdentity("worker-b", NewsIngestionProperties.ALL_SOURCES);
 
-    private static String schema;
-    private static JdbcTemplate admin;
     private static JdbcTemplate jdbc;
-    private static DriverManagerDataSource dataSource;
+    private static javax.sql.DataSource dataSource;
 
     private ObjectMapper mapper;
     private NewsWireCodec codec;
@@ -85,10 +83,9 @@ class NewsIngestionMySqlIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        String url = System.getenv("FLYWAY_TEST_URL");
-        Assumptions.assumeTrue(url != null && !url.isBlank(),
-                "Set FLYWAY_TEST_URL to run the real MySQL News Engine gate");
-        ensureDatabase();
+        String url = LegacyGateSupport.assumeIsolated(System.getenv("BUSINESS_TEST_URL"), "business_test");
+        ensureDatabase(url);
+        jdbc = new JdbcTemplate(dataSource);
 
         jdbc.execute("DELETE FROM t_news_material_revision");
         jdbc.execute("DELETE FROM t_news_material");
@@ -96,6 +93,10 @@ class NewsIngestionMySqlIntegrationTest {
         jdbc.execute("DELETE FROM t_news_batch_item");
         jdbc.execute("DELETE FROM t_news_collection_batch");
         jdbc.execute("DELETE FROM t_news_collection_lease");
+        // 共享库的卫生：MySQL 时代每个套件自带一个新库，PG 时代五个套件共用 business_test，
+        // 调度表留下的行会让「这个版本还没有调度管理」的判断失真。
+        jdbc.execute("DELETE FROM t_news_collection_task_event");
+        jdbc.execute("DELETE FROM t_news_collection_schedule");
         jdbc.execute("DELETE FROM t_news_collection_task");
         jdbc.execute("DELETE FROM t_news_source_cursor");
         jdbc.execute("DELETE FROM t_news_source");
@@ -116,33 +117,15 @@ class NewsIngestionMySqlIntegrationTest {
         transactions = new TransactionTemplate(txManager);
     }
 
-    private static synchronized void ensureDatabase() {
-        if (jdbc != null) {
+    private static synchronized void ensureDatabase(String url) {
+        if (dataSource != null) {
             return;
         }
-        String url = System.getenv("FLYWAY_TEST_URL");
-        String username = System.getenv("FLYWAY_TEST_USERNAME");
-        String password = System.getenv("FLYWAY_TEST_PASSWORD");
-        schema = "diagnosis_ci_news_" + UUID.randomUUID().toString().replace("-", "");
-
-        admin = new JdbcTemplate(new DriverManagerDataSource(url, username, password));
-        admin.execute("CREATE DATABASE `" + schema + "`");
-
-        dataSource = new DriverManagerDataSource(withSchema(url, schema), username, password);
-        Flyway.configure()
-                .dataSource(dataSource)
-                .locations("classpath:db/migration", "classpath:db/callback")
-                .load()
-                .migrate();
-        jdbc = new JdbcTemplate(dataSource);
-    }
-
-    @AfterAll
-    static void tearDownAll() {
-        if (schema == null || admin == null) {
-            return;
-        }
-        admin.execute("DROP DATABASE IF EXISTS `" + schema + "`");
+        var source = LegacyGateSupport.dataSource(url);
+        LegacyGateSupport.ensureSchema(url, source, List.of(), () -> {
+            throw new IllegalStateException("BUSINESS_TEST_URL must point at PostgreSQL");
+        });
+        dataSource = source;
     }
 
     // Case 1
@@ -155,8 +138,8 @@ class NewsIngestionMySqlIntegrationTest {
         );
         for (String table : expectedTables) {
             Integer count = jdbc.queryForObject(
-                    "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = ? AND table_name = ?",
-                    Integer.class, schema, table);
+                    "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'diagnosis' AND table_name = ?",
+                    Integer.class, table);
             assertEquals(1, count, "Missing V40 table: " + table);
         }
         List<String> sources = jdbc.queryForList(
@@ -250,7 +233,7 @@ class NewsIngestionMySqlIntegrationTest {
         assertTrue(service.claim(WORKER_B).isEmpty(), "Later window W2 must not leapfrog retry-scheduled W1");
 
         // Make W1 eligible again; Worker B claims W1 gen 2 and completes empty window.
-        jdbc.update("UPDATE t_news_collection_task SET nextAttemptAt = DATE_SUB(UTC_TIMESTAMP(6), INTERVAL 1 SECOND) WHERE taskId = 'task-w1'");
+        jdbc.update("UPDATE t_news_collection_task SET nextAttemptAt = now() - INTERVAL '1 second' WHERE taskId = 'task-w1'");
         NewsWireModels.Lease w1Gen2 = service.claim(WORKER_B).orElseThrow();
         assertEquals("task-w1", w1Gen2.taskId());
         assertEquals(2L, w1Gen2.generation());
@@ -333,7 +316,7 @@ class NewsIngestionMySqlIntegrationTest {
         assertEquals(0L, service.countVisibleRevisions());
 
         // Simulate worker A crash via lease expiration in DB time.
-        jdbc.update("UPDATE t_news_collection_task SET leaseExpiresAt = DATE_SUB(UTC_TIMESTAMP(6), INTERVAL 1 SECOND) WHERE taskId = 'task-crash-1'");
+        jdbc.update("UPDATE t_news_collection_task SET leaseExpiresAt = now() - INTERVAL '1 second' WHERE taskId = 'task-crash-1'");
 
         NewsWireModels.Lease gen2 = service.claim(WORKER_B).orElseThrow();
         assertEquals(2L, gen2.generation());
@@ -412,7 +395,7 @@ class NewsIngestionMySqlIntegrationTest {
         String completeResp = service.complete(WORKER_A, lease.taskId(), "1:complete", completeBody);
         assertEquals("{\"committedCursor\":\"2026-10-08\"}", completeResp);
 
-        jdbc.update("UPDATE t_news_collection_task SET leaseExpiresAt = DATE_SUB(UTC_TIMESTAMP(6), INTERVAL 10 MINUTE) WHERE taskId = 'task-idem-1'");
+        jdbc.update("UPDATE t_news_collection_task SET leaseExpiresAt = now() - INTERVAL '10 minute' WHERE taskId = 'task-idem-1'");
         assertEquals("{\"sequence\":1,\"recordCount\":1}",
                 service.submitBatch(WORKER_A, lease.taskId(), "1:1", batchBody));
         assertEquals(completeResp,
@@ -534,12 +517,8 @@ class NewsIngestionMySqlIntegrationTest {
                 batchJson(1L, lease.leaseToken(), 1, List.of(pubmedMaterial("PMID-RB1", "Rollback test"))));
 
         byte[] completeBody = completeJson(1L, lease.leaseToken(), 1, 1, LocalDate.of(2026, 10, 8));
-        jdbc.execute("""
-                CREATE TRIGGER trg_fail_news_cursor_update
-                BEFORE UPDATE ON t_news_source_cursor
-                FOR EACH ROW
-                SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'injected cursor failure'
-                """);
+        LegacyGateSupport.createFailTrigger(jdbc, "trg_fail_news_cursor_update", "UPDATE",
+                "t_news_source_cursor", "injected cursor failure");
         try {
             assertThrows(DataAccessException.class, () ->
                     service.complete(WORKER_A, lease.taskId(), "1:complete", completeBody));
@@ -555,7 +534,7 @@ class NewsIngestionMySqlIntegrationTest {
                     "SELECT COUNT(*) FROM t_news_worker_receipt WHERE taskId = 'task-rb-1' AND action = 'complete'",
                     Integer.class));
         } finally {
-            jdbc.execute("DROP TRIGGER IF EXISTS trg_fail_news_cursor_update");
+            LegacyGateSupport.dropFailTrigger(jdbc, "trg_fail_news_cursor_update", "t_news_source_cursor");
         }
 
         // Retrying the exact same request after fault clears commits everything cleanly.
@@ -589,8 +568,8 @@ class NewsIngestionMySqlIntegrationTest {
             JsonNode serialized = mapper.readTree(codec.writeLease(lease));
             assertTrue(serialized.get("leaseExpiresAt").textValue().endsWith("Z"));
 
-            // Force DB-clock lease expiry; fencing must reject based on MySQL UTC_TIMESTAMP(6).
-            jdbc.update("UPDATE t_news_collection_task SET leaseExpiresAt = DATE_SUB(UTC_TIMESTAMP(6), INTERVAL 1 SECOND) WHERE taskId = 'task-tz-1'");
+            // Force DB-clock lease expiry; fencing must reject based on the database clock.
+            jdbc.update("UPDATE t_news_collection_task SET leaseExpiresAt = now() - INTERVAL '1 second' WHERE taskId = 'task-tz-1'");
             NewsControlException stale = assertThrows(NewsControlException.class, () ->
                     service.submitBatch(WORKER_A, lease.taskId(), "1:1",
                             batchJson(1L, lease.leaseToken(), 1, List.of(pubmedMaterial("PMID-TZ", "Expired")))));
@@ -613,7 +592,7 @@ class NewsIngestionMySqlIntegrationTest {
         assertTrue(service.getCommittedCursor("pubmed", 1L).isEmpty());
         assertTrue(service.claim(WORKER_A).isEmpty(), "Backoff window must delay immediate re-claim");
 
-        jdbc.update("UPDATE t_news_collection_task SET nextAttemptAt = DATE_SUB(UTC_TIMESTAMP(6), INTERVAL 1 SECOND) WHERE taskId = 'task-fail-a'");
+        jdbc.update("UPDATE t_news_collection_task SET nextAttemptAt = now() - INTERVAL '1 second' WHERE taskId = 'task-fail-a'");
         NewsWireModels.Lease a2 = service.claim(WORKER_A).orElseThrow();
         assertEquals(2L, a2.generation());
         String r2 = service.fail(WORKER_A, "task-fail-a", "2:fail",
@@ -663,7 +642,7 @@ class NewsIngestionMySqlIntegrationTest {
                 LocalDate.of(2026, 10, 1), LocalDate.of(2026, 10, 8), 1);
         NewsWireModels.Lease c1 = service.claim(WORKER_A).orElseThrow();
         assertEquals("task-fail-c", c1.taskId());
-        jdbc.update("UPDATE t_news_collection_task SET leaseExpiresAt = DATE_SUB(UTC_TIMESTAMP(6), INTERVAL 1 SECOND) WHERE taskId = 'task-fail-c'");
+        jdbc.update("UPDATE t_news_collection_task SET leaseExpiresAt = now() - INTERVAL '1 second' WHERE taskId = 'task-fail-c'");
         assertTrue(service.claim(WORKER_B).isEmpty());
         NewsIngestionService.TaskSnapshot cSnap = service.getTask("task-fail-c").orElseThrow();
         assertEquals("FAILED", cSnap.status());
@@ -786,7 +765,7 @@ class NewsIngestionMySqlIntegrationTest {
 
     private Instant dbUtcNow() {
         String text = jdbc.queryForObject(
-                "SELECT DATE_FORMAT(UTC_TIMESTAMP(6), '%Y-%m-%dT%H:%i:%s.%fZ')", String.class);
+                "SELECT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"')", String.class);
         return Instant.from(DB_UTC_FORMAT.parse(text));
     }
 
@@ -852,14 +831,6 @@ class NewsIngestionMySqlIntegrationTest {
         NewsControlException ex = assertThrows(NewsControlException.class, action);
         assertEquals(HttpStatus.CONFLICT, ex.getStatus());
         assertEquals("INCOMPLETE_BATCHES", ex.getCode());
-    }
-
-    private static String withSchema(String url, String targetSchema) {
-        int query = url.indexOf('?');
-        String base = query < 0 ? url : url.substring(0, query);
-        String params = query < 0 ? "" : url.substring(query);
-        int slash = base.lastIndexOf('/');
-        return base.substring(0, slash + 1) + targetSchema + params;
     }
 
     private static <T> Callable<T> race(CountDownLatch ready, CountDownLatch start, Callable<T> body) {

@@ -13,7 +13,10 @@ import java.util.Date;
 @Data
 @TableName("t_agent_tool_audit")
 public class AgentToolAudit implements Serializable {
-    @TableId(type = IdType.AUTO)
+    // 列名写成迁移里的实际小写：MyBatis-Plus 把 keyColumn 交给 pgjdbc 时会拼成
+    // RETURNING "auditId"（带引号 → 大小写敏感），而 PG 迁移里的列是未加引号的
+    // auditid。写成同一字符串后，引号里的名字才对得上。
+    @TableId(value = "auditid", type = IdType.AUTO)
     private Long auditId;
     private String sessionId;
     private Long userId;

@@ -79,7 +79,7 @@ public class NewsWorkbenchService {
     private static final String LINKED_NEWS_ID_SQL =
             "(SELECT n.id FROM t_news n WHERE n.curationCandidateId = c.id AND n.isDelete = 0 ORDER BY n.id DESC LIMIT 1)";
     private static final String LINKED_NEWS_STATUS_SQL =
-            "(SELECT CAST(n.status AS SIGNED) FROM t_news n WHERE n.curationCandidateId = c.id AND n.isDelete = 0 ORDER BY n.id DESC LIMIT 1)";
+            "(SELECT n.status FROM t_news n WHERE n.curationCandidateId = c.id AND n.isDelete = 0 ORDER BY n.id DESC LIMIT 1)";
 
     /**
      * 阻塞判定，与 Worker 领取逻辑（{@code NewsIngestionService.claimForSource} 的 NOT EXISTS 子句）
@@ -111,7 +111,7 @@ public class NewsWorkbenchService {
                    DATE_FORMAT(t.windowEndBefore, '%Y-%m-%d') AS windowEndBefore,
                    t.status, t.generation, t.attemptCount, t.maxAttempts, t.leaseWorkerId,
                    DATE_FORMAT(t.leaseExpiresAt, '%Y-%m-%dT%H:%i:%s.%fZ') AS leaseExpiresAtUtc,
-                   CAST(CASE WHEN t.status = 'LEASED' AND t.leaseExpiresAt <= UTC_TIMESTAMP(6) THEN 1 ELSE 0 END AS SIGNED)
+                   CASE WHEN t.status = 'LEASED' AND t.leaseExpiresAt <= UTC_TIMESTAMP(6) THEN 1 ELSE 0 END
                        AS leaseExpired,
                    DATE_FORMAT(t.nextAttemptAt, '%Y-%m-%dT%H:%i:%s.%fZ') AS nextAttemptAtUtc,
                    t.taskType, t.lastFailureCode, t.committedBatchCount, t.committedRecordCount,
@@ -857,7 +857,7 @@ public class NewsWorkbenchService {
                        totalCases, passedCases, precisionBps, recallBps,
                        evidenceCatchBps, licenseComplianceBps, injectionCatchBps,
                        totalCalls, totalTokens, totalCostMicros,
-                       CAST(gatePassed AS SIGNED) AS gatePassed,
+                       gatePassed,
                        DATE_FORMAT(createdAt, '%Y-%m-%dT%H:%i:%s.%fZ') AS createdAtUtc
                 FROM t_news_bench_run
                 ORDER BY createdAt DESC, runId DESC
@@ -885,7 +885,7 @@ public class NewsWorkbenchService {
 
     private List<NewsWorkbenchModels.SourceDetailVO> loadSources(String optionalSource) {
         String sourceSql = """
-                SELECT source, CAST(enabled AS SIGNED) AS enabled,
+                SELECT source, enabled,
                        DATE_FORMAT(updatedAt, '%Y-%m-%dT%H:%i:%s.%fZ') AS updatedAtUtc
                 FROM t_news_source
                 """ + (optionalSource != null ? "WHERE source = ? " : "") + "ORDER BY source ASC";
@@ -1205,7 +1205,7 @@ public class NewsWorkbenchService {
                 rs.getLong("maxCostMicros"),
                 rs.getLong("usedCostMicros"),
                 rs.getLong("reservedCostMicros"),
-                rs.getInt("circuitBroken") == 1,
+                rs.getBoolean("circuitBroken"),
                 rs.getString("circuitReason"),
                 parseUtcInstant(rs.getString("updatedAtUtc"))
         );

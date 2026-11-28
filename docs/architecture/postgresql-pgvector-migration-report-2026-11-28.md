@@ -15,8 +15,10 @@
 | 向量迁移（Chroma→pgvector） | PASS | 300 块逐字节保真、overlap@10 = 1.000、隔离过滤不泄漏 |
 | 备份恢复 | PASS | `pg_dump \| pg_restore` 到独立库，行数 + 向量 + Flyway 历史一致 |
 | 最小权限账号 | PASS | 12 条拒绝探针（DDL/扩展/schema/迁移历史），DML 放行 |
-| 全量后端套件（PG） | PASS | `scripts/verify-pg.sh --full`：1425 tests / 0 fail / 0 err / 383 skipped / exit 0 |
-| 跳测门禁契约 | PASS | `check_surefire_skips.py backend-unit` exit 0 |
+| 全量后端套件（PG） | PASS | M7 复跑：`mvn test` 1418 tests / 0 fail / 0 err / 376 skipped / exit 0；`check_surefire_skips.py backend-unit` exit 0 |
+| 跳测门禁契约 | PASS | `backend-unit` 与新增 `business` 契约均 exit 0；契约自身单测 21/21 |
+| 业务契约重新基线（M7） | PASS | 11 个原 MySQL 业务套件在真实 PG 上 86/86，断言未降级（§5.10） |
+| Flyway / 镜像可复现性 | PASS | Flyway 11.14.1 在 PG 18.7 迁移零警告；pgvector 镜像按 digest 钉死，静态门禁 23/23 |
 | 旧 MySQL 门禁（M6） | PASS | 10 个 `if: ${{ false }}` 检查全部改在 PG 上执行；11 套件本机真实 PG **291/291，0 skipped**（§5.8） |
 | CI（远端 HEAD） | PASS | run `46047803428`（HEAD `c403adcb`）：20/20 必需检查 success；`postgres-integration` / `vector-migration-drill` / `flyway-postgres` / `miniapp` 均 success；10 个 MySQL-only job 按设计 `skipped`（§5.7） |
 | 独立评审 A/B | PASS（已整改） | A：BLOCK → 1 P0 + 3 P1 已修；B：FIX_P0_P1 → 无 P0，2 P1 已修（见 §9） |
@@ -62,7 +64,8 @@
 | 关系演练 | `scripts/migration/run-drill.sh`、`scripts/migration/generate-drill-fixture.py` |
 | 验证入口 | `scripts/verify-pg.sh`（L1 门禁；`--full` 全量） |
 | 应用代码 | `VectorStoreConfig`、`LexicalCorpusService`、`BuiltinCorpusSeeder`、`PostgreSqlRequirement`、`InsertRaceGuard` |
-| PG 测试 | `src/test/java/com/csust/eyediagnosis/postgres/Pg*IntegrationTest.java`（4 套件 / 26 用例） |
+| PG 测试 | `src/test/java/com/csust/eyediagnosis/postgres/Pg*IntegrationTest.java`（4 套件 / 27 用例）+ M7 重新基线的 11 个业务套件（86 用例，§5.10，入口辅助 `integration/LegacyGateSupport`） |
+| 依赖与镜像 | `pom.xml` 的 `flyway.version=11.14.1`（PG 18 支持）；`scripts/lib/docker-images.env` 的 `PGVECTOR_DIGEST`（单一真源，CI/compose/verify-pg 同步） |
 | CI | `.github/workflows/verify.yml`（`backend-unit`、`flyway-postgres`、`postgres-integration`、`vector-migration-drill`；原 10 个 MySQL-only job 已在 M6 改为在 pgvector 上执行，检查名不变——见 §5.8） |
 
 ## 5. 验收证据
@@ -246,14 +249,72 @@ pgvector 镜像必须钉版」，本机 23/23 PASS。
 `product-contract`、`miniapp`、`docs-contract`、`watchdog`、`backend-compile`、
 `frontend`、`web-e2e-system-states`、`docker-lifecycle` 均 success。
 
-### 5.9 383 条跳过用例的处置
+### 5.9 跳过用例的处置（按用例标识去重，M7 口径）
+
+`mvn test`（不设任何 opt-in 变量，真实 PG 18.7 + Redis）实测：
+**1418 tests / 0 failures / 0 errors / 376 skipped / exit 0**，`scripts/check_surefire_skips.py
+target/surefire-reports backend-unit` exit 0。376 条跳过逐套件归类如下，没有一条的理由是
+「跑不了 MySQL 所以不跑」：
 
 | 组 | 用例数 | 处置 |
 |---|---|---|
-| 协作 / 患者草稿 / 医生复核 / 解释 / 授权 / 随访 / 受控参考资料 / 判读任务（本次 11 套件） | 291 | **已在 PG 上跑**：只在 `*_TEST_URL` 被设置时运行；CI 的 10 个 job 现在都会设置（§5.8）。`mvn test` 不设变量时仍按契约整类跳过（`LegacyGateSupport.assumeIsolated`，认的是 Assumptions 而不是异常） |
-| `FLYWAY_TEST_URL` 组：FlywayMySql、UploadTaskMapper、ToolAudit、ToolTerminalPersistence、DiagnosisRun、AdminAnalytics、NewsIngestion、NewsCollectionSchedule、NewsCuration、NewsEditorialPublish、NewsWorkbench | 79 | **未移植（明确记录）**：这些套件自建 MySQL 数据库并跑**已退役的 MySQL Flyway 历史**（`db/migration` + `db/callback`），夹具大量使用 MySQL 方言（`DATE_SUB`、`JSON_OBJECT`、反引号建库）。PG 侧现有覆盖是框架级契约：`PgPersistenceIntegrationTest`（MyBatis camelCase 映射、timestamptz、触发器、约束、回滚、upsert、自增）、`PgPrivilegeIntegrationTest`（12 条拒绝探针）、`PgVectorStoreIntegrationTest`（检索/过滤/隔离）、`flyway-postgres`（空库全量迁移 + schema 断言）。业务级语义（资讯采集租约、候选复核、编辑发布）**在 PG 上仍无对应用例**，见 §7 与 §8 |
-| `COORDINATION_POC_URL`（CoordinationMySqlTest） | 14 | 同上：MySQL 夹具；同名的 `CoordinationPocTest`（无库）已在 `graph-execution-mysql` 里运行 |
-| `RUN_RAG_EVALUATION_TESTS`（RAGEvaluationTest）、`PRODUCT_ACCEPTANCE_TEST_URL`（ProductSchemaTest） | 3 | 前者需要真实语料与付费嵌入（未授权）；后者已在 `product-contract` job 里以 PG 运行，非跳过 |
+| `*_TEST_URL` 组的 11 个套件（协作 33 / Graph 37 / 患者草稿 41 / 医生复核 38 / 解释 37 / 授权 37 / 随访 37 / 受控参考 13 / 判读任务 10+4） | 287 | **已在 PG 上跑**：CI 的 10 个 job 都会设置对应变量（§5.8）；本地不设变量时按契约整类跳过（`LegacyGateSupport.assumeIsolated`，用 Assumptions 而非异常） |
+| 业务回归套件（M7 从 MySQL 重新基线，§5.10） | 86 | **已在 PG 上跑**：本机真实 PG 86/86；CI `postgres-integration` 的第二段（`business` 契约） |
+| `ProductSchemaTest` | 1 | 在 `product-contract` job 以 PG 运行，非跳过 |
+| `RAGEvaluationTest` | 2 | 需真实语料 + 付费嵌入，**BLOCKED**（未授权），保持 opt-in |
+
+与旧口径的 **383 − 376 = 7** 差额，全部来自删除的 `FlywayMySqlIntegrationTest`
+（它断言的 MySQL 历史已退役，等价门禁见 §7；不是把断言删掉换绿）。
+
+### 5.10 M7：业务契约在 PostgreSQL 上重新基线
+
+M6 遗留的 93 条跳过（79 条 `FLYWAY_TEST_URL` + 14 条 `CoordinationMySqlTest`）逐套件分类的结果是：
+**86 条仍是有效业务契约**（不是 MySQL 历史依赖），已重跑；**7 条**（`FlywayMySqlIntegrationTest`）
+断言的正是退役的 MySQL 历史本身，归档并由 CI 的等价门禁承担；**0 条**属于「已被等价覆盖」
+或「业务已退役」。没有删除断言、没有降低断言、没有加无条件 `@Disabled`——删掉的只有 MySQL 版本本身。
+
+| 套件（新名） | 用例 | 本机真实 PG | CI |
+|---|---|---|---|
+| `newsingestion.NewsIngestionPostgresTest` | 13 | 13/13 | `postgres-integration` |
+| `newsingestion.NewsCollectionSchedulePostgresTest` | 6 | 6/6 | 同上 |
+| `newscuration.NewsCurationPostgresTest` | 18 | 18/18 | 同上 |
+| `service.NewsEditorialPublishPostgresTest` | 8 | 8/8（真实 PG + 真实 Redis） | 同上 |
+| `newsworkbench.NewsWorkbenchPostgresTest` | 13 | 13/13 | 同上 |
+| `service.DiagnosisRunPostgresIntegrationTest` | 8 | 8/8 | 同上 |
+| `upload.state.UploadTaskMapperPostgresIntegrationTest` | 3 | 3/3 | 同上 |
+| `agent.service.ToolAuditPostgresIntegrationTest` | 1 | 1/1 | 同上 |
+| `agent.service.ToolTerminalPersistencePostgresIntegrationTest` | 1 | 1/1 | 同上 |
+| `integration.AdminAnalyticsPostgresIntegrationTest` | 1 | 1/1 | 同上 |
+| `poc.CoordinationPostgresTest` | 14 | 14/14（子 JVM 崩溃/续跑/围栏） | 同上（`COORDINATION_POC_URL`） |
+
+移植方式：入口统一改成 `LegacyGateSupport.assumeIsolated(BUSINESS_TEST_URL, "business_test")`，
+库由套件自己按 `db/postgresql` 迁移（不再 `CREATE DATABASE` MySQL 库、不再跑 `db/migration`）。
+**夹具方言**逐条替换，断言一行未改：
+
+- `DATE_SUB(UTC_TIMESTAMP(6), INTERVAL n SECOND)` → `now() - INTERVAL 'n second'`；`UTC_TIMESTAMP(6)` → `now()`
+- `CREATE TRIGGER … SIGNAL SQLSTATE '45000'` → `LegacyGateSupport.createFailTrigger*`（plpgsql `RAISE EXCEPTION`；PG 侧幂等重建，避免上一轮失败留下的触发器污染下一次运行）
+- 每类自建 MySQL 库 → 共享 `business_test` + 每类 `setUp` 定点 `DELETE`（跨套件残留曾导致「只允许手工补采已提交窗口」的假失败）
+- `information_schema` 断言按 schema `diagnosis` 取表/取列（PG 上 `table_schema` 不是库名）
+- 分页插件 `DbType.MYSQL` → `DbType.POSTGRE_SQL`
+
+**这一轮同时暴露了 6 类生产缺陷**（§6 R7–R12：布尔列按 int 读、`CAST AS SIGNED`、`SUM(boolean)`、
+未定型 `? IS NULL`、MyBatis `Map` 别名大小写、MyBatis-Plus 生成主键 `keyColumn`）。它们都不是测试夹具问题：
+其中 `AgentToolAudit` 的生成主键缺陷会让审计行**静默丢失**，只有在真实 PG 上跑业务套件才看得见。
+
+CI 侧不新增 job、不改检查名，全部折叠进既有 `postgres-integration`：bootstrap 建 `business_test`、
+`coordination_poc`（`poc` 角色）并起 Redis 服务；第一段仍是 `Pg*IntegrationTest` 及其门禁，第二段跑上面
+11 个套件，收尾用 `check_surefire_skips.py … business`（契约：11 套件 86 用例，零跳过；单元测试 21/21）。
+
+同时固定了两项可复现性前提：
+
+- **Flyway 11.14.1**：11.7.2 在 PG 18.7 上每次都打「latest supported version of PostgreSQL is 17」。
+  逐版本 `javap` 核对 `PostgreSQLDatabase` 的支持上限常量后（11.13.0 = 17，11.14.0 = 18），只抬
+  `flyway.version` 到 11.14.1（该线最后的补丁版）。真实 PG 18.7 空库实测：`MIGRATED=7 VERSION=7` /
+  `VALIDATE=OK` / **0 条警告**；二次 migrate `MIGRATED=0`；篡改 `flyway_schema_history` 的 checksum 后
+  `exit=1` 且报 `Migration checksum mismatch`。
+- **镜像 digest**：`pgvector/pgvector:pg18@sha256:38681dc6…`（linux/amd64，CI 与本机 Docker 同架构），
+  `verify.yml` 15 处、`docker-compose.yml`、`docker-images.env`、`verify-pg.sh` 一处不漏；
+  `scripts/tests/test-docker-image-pins.sh` 23/23 PASS。
 
 ## 6. 本轮发现的移植缺陷与修复
 
@@ -285,6 +346,12 @@ pgvector 镜像必须钉版」，本机 23/23 PASS。
 | R4 | 迁移后的隔离套件在子 JVM 里重建 schema | 崩溃恢复/跨 JVM 重放用例的子进程一启动就把父进程刚写入的夹具表 `DROP` 掉（MySQL 路径「表已存在就跳过」，PG 路径会 `DROP … CASCADE` 再建），父进程随后读到空表 → `ACCESS_DENIED` | `isolatedDatabase(boolean initialize)`：父 JVM 建库，子 JVM 只连接；`CollaborationReplayWorker` 与 `GraphExecutionTest.RecoveryWorker` 传 `false` |
 | R5 | 套件里的 MySQL 方言在 PG 上是语法错误：`NOW(6)`、`JSON_SET`、`TIMESTAMPADD`、`SIGNAL SQLSTATE` 触发器、`DATABASE()` | 逐条报 `function now(integer) does not exist`、`syntax error at or near "SIGNAL"` 等 | 全部集中在 `LegacyGateSupport` 里按数据库生成对应写法（PG 用原生 `jsonb_set`/`CURRENT_TIMESTAMP`/`RAISE EXCEPTION`/`current_schema()`），**不为 MySQL 函数做仿真**——测试断言的是数据库真实行为 |
 | R6 | 有条件故障注入的 plpgsql 函数漏 `RETURN NEW`（条件不匹配时落到 `END`） | PG 报 `control reached end of trigger procedure without RETURN`：注入从「只让 EVIDENCE:1 这一行失败」退化成「所有行都失败」。用例照样绿，因为断言只看「抛错 + 回滚」——**验得比它声称的少**。由 CI 日志发现（`fail_graph_checkpoint()` 与 `synthetic checkpoint fault` 先后出现） | `LegacyGateSupport.createTrigger` 条件分支补 `RETURN NEW`；`GraphExecutionTest.checkpointCommitFailure…` 增加前提自检：非目标节点 `EVIDENCE:0` 必须在触发器在位时写入成功。真实 PG 实测 37/37 |
+| R7 | `boolean` 表达式列按 int 读（M7） | 资讯采集租约 `leaseActive`、精选熔断 `circuitBroken`、工作台预算在 PG 是 `boolean`，`rs.getInt(...) == 1` 抛 `Bad value for type int : t`：采集租约续租、精选预约与工作台预算读取全挂 | 改 `rs.getBoolean(...)`；pgjdbc 对 int2/int4 仍按 `!= 0` 返回，MySQL 时代语义不变 |
+| R8 | `CAST(x AS SIGNED)`（M7） | PG 无 `signed` 类型，报 `type "signed" does not exist`：工作台 5 处、`NewsLifecycleService` 2 处的 status/featured 读数 | 去掉 CAST（列本身是 smallint）；需要整型的表达式用 `CASE WHEN … THEN 1 ELSE 0 END`——MySQL 不接受 `CAST(x AS INTEGER)`，所以这不是「换成另一种 CAST」能解决的 |
+| R9 | `SUM(status = 'FAILED')`（M7） | PG 没有 `sum(boolean)`，调度状态接口整条查询失败 | `SUM(CASE WHEN … THEN 1 ELSE 0 END)`，计数语义逐字一致 |
+| R10 | 未定型参数 `? IS NULL`（M7） | `could not determine data type of parameter $3`：精选按 `logicalCallSha256` 的幂等查询在 PG 上直接失败 | `?::text IS NULL`；MySQL 侧同一表达式照常成立 |
+| R11 | MyBatis `Map` 返回的别名大小写（M7） | `selectVariants` 的 `replyToId/variantId/firstId` 与 `summarizeOwned` 的 `toolName/toolStatus/cnt` 在 PG 折叠成小写；MyBatis 给的是普通 `HashMap`（不像 Spring `ColumnMapRowMapper` 的 `LinkedCaseInsensitiveMap`），消息变体重放读到空、管理端工具审计 JSON 键名改名 | 别名加引号 `AS "toolName"`，两种数据库同义——与 R2 同一条策略。**推论有限度**：`JdbcTemplate.queryForList/queryForMap` 的读点不必改（Spring 的 `LinkedCaseInsensitiveMap` 兜住），`CollaborationRunTest` 33/33 在 PG 上复核过 |
+| R12 | MyBatis-Plus `IdType.AUTO` 的 `keyColumn`（M7） | `AgentToolAudit` 的字段名是 `auditId`，MP 把它当 `keyColumn` 交给 pgjdbc，拼成 `RETURNING "auditId"`（带引号 → 大小写敏感），而列实际是未加引号的 `auditid`：插入报 `column "auditId" does not exist`，`ToolAuditService` 按设计吞掉审计写失败，**审计行静默丢失** | `@TableId(value = "auditid", type = IdType.AUTO)`；其余 AUTO 主键的字段名都是 `id`（已折叠），无需改动。探针实测 `PROBE_OK id=4` 后删除 |
 
 M6 的验收语义也修了一处：套件入口一度用抛异常校验环境变量，`mvn test` 不设变量时
 203 条「opt-in 跳过」变成红色错误；改为 `assumeIsolated`（未设置 → Assumptions 跳过，
@@ -302,12 +369,11 @@ collaboration empty object -> '{}'                          OK (rolestates={})
 
 | 项 | 原因 |
 |---|---|
-| `FLYWAY_TEST_URL` 组的 11 个业务套件（79 条：资讯采集/调度、候选精选、编辑发布、工作台、判读运行、上传任务、工具审计、管理端分析、Flyway 历史） | 自建 MySQL 库并跑**已退役的 MySQL Flyway 历史**，夹具使用 `DATE_SUB`/`JSON_OBJECT`/反引号 DDL。PG 侧只有框架级契约（`PgPersistenceIntegrationTest` 等）与空库迁移门禁 `flyway-postgres`，**这些业务语义在 PG 上没有对应用例**。移植需要把这 11 个套件重新基线到 `db/postgresql`（含夹具方言），属独立工作包；在完成前它们的 MySQL 版本只在有 MySQL 服务时才有意义，因此保持跳过并在此登记 |
-| `CoordinationMySqlTest`（14 条） | 同上（MySQL 夹具）；无库的同名 `CoordinationPocTest` 已在 `graph-execution-mysql` 中运行 |
-| `RAGEvaluationTest`（2 条） | 需要真实语料与付费嵌入，未经授权不运行 |
+| `FlywayMySqlIntegrationTest` 的 7 条（原 MySQL 历史套件） | **归档（明确记录）**：这 7 条断言的对象是已退役的 `db/migration` MySQL 历史本身（首轮 apply、二次幂等、checksum 被篡改即拒）。PG 线已有等价且更强的门禁：`flyway-postgres` 空库全量 migrate + validate、本轮新增的「二次 migrate `MIGRATED=0`」与「篡改 `flyway_schema_history` 必须 exit ≠ 0 且报 `checksum mismatch`」。业务套件不再依赖 MySQL 历史，套件随之删除 |
+| `RAGEvaluationTest`（2 条） | 需要真实语料与付费嵌入，未经授权不运行（M7 维持 BLOCKED） |
 | 远端 CI 执行 | 首轮 run `46042136133`（HEAD `25eabef9`）：24 检查中 20 绿、3 红（docs-contract / product-contract / docker-lifecycle，均为契约脚本未随迁移更新），已在 `41f8cb4e` 修复；最终 HEAD 的 run 见 §5.7 |
 | 真实知识库向量导入 | 需授权；演练只覆盖合成数据 |
-| 真实语料的 RAG 端到端 | 需真实语料与付费嵌入（未授权）。合成语料上的检索、过滤、隔离、分数口径已在 `PgVectorStoreIntegrationTest`（9 条）里覆盖 |
+| 真实语料的 RAG 端到端 | 需真实语料与付费嵌入（未授权）。合成语料上的检索、过滤、隔离、分数口径已在 `PgVectorStoreIntegrationTest`（11 条）里覆盖 |
 
 ## 8. 生产切换阻塞与授权清单（BLOCKED_PENDING_AUTHORIZATION）
 
@@ -321,9 +387,15 @@ collaboration empty object -> '{}'                          OK (rolestates={})
    Draft PR 必须保持 Draft。
 4. **部署**：反向代理需 `proxy_set_header Host $host`（`SameOriginFilter` 前提）；连接串必须带
    `stringtype=unspecified`，否则启动闸门会拒绝启动。
-5. **Flyway 版本**：11.7.2 文档支持到 PG 17，实测 18.7 上 V1–V7 与 validate 全部通过；
-   升级 Flyway 前不要依赖「官方支持 18」。
-6. **回滚**：切换前保留 MySQL 只读快照与 Chroma 卷；`scripts/migration/*` 全部支持 dry-run 与幂等重跑。
+5. **Flyway 版本**：11.7.2（Boot 3.5.6 默认）在 PG 18.7 上每次迁移都打
+   「latest supported version of PostgreSQL is 17」警告，官方未验证 18。M7 用 `javap` 逐版本
+   核对 `PostgreSQLDatabase` 的支持上限常量，把 `flyway.version` 抬到 **11.14.1**（11.14.0 起该常量
+   为 18，11.14.1 是这一线的最后一个补丁版）；只动 Flyway 两个 artifact，不动 Spring Boot / Spring AI 栈。
+   PG 18.7 实测：V1–V7 migrate + validate 全过，零警告（§5.10）。
+6. **镜像**：CI 与本机测试入口统一钉 `pgvector/pgvector:pg18@sha256:38681dc6…`（linux/amd64 单架构清单），
+   `scripts/tests/test-docker-image-pins.sh` 23/23 校验 `verify.yml` / `docker-compose.yml` /
+   `docker-images.env` / `verify-pg.sh` 四处一致。
+7. **回滚**：切换前保留 MySQL 只读快照与 Chroma 卷；`scripts/migration/*` 全部支持 dry-run 与幂等重跑。
 
 ## 9. 独立评审
 

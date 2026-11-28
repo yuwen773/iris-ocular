@@ -1,10 +1,8 @@
 package com.csust.eyediagnosis.poc;
 
-import java.sql.DriverManager;
-
 final class CoordinationFencedWorker {
     public static void main(String[] args) throws Exception {
-        try (var connection = DriverManager.getConnection(args[0], "poc", "poc")) {
+        try (var connection = CoordinationDb.connect(args[0])) {
             var engine = CoordinationPoc.Engine.valueOf(args[2]);
             var store = new CoordinationStore(connection);
             if (store.engine(args[1]) != engine) throw new IllegalStateException("Engine mismatch");

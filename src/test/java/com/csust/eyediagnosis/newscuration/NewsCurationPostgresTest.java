@@ -1,5 +1,6 @@
 package com.csust.eyediagnosis.newscuration;
 
+import com.csust.eyediagnosis.integration.LegacyGateSupport;
 import com.csust.eyediagnosis.config.JsonConfig;
 import com.csust.eyediagnosis.newsingestion.NewsIngestionProperties;
 import com.csust.eyediagnosis.newsingestion.NewsIngestionService;
@@ -7,13 +8,9 @@ import com.csust.eyediagnosis.newsingestion.NewsWireCodec;
 import com.csust.eyediagnosis.newsingestion.NewsWireModels;
 import com.csust.eyediagnosis.newsingestion.NewsWorkerIdentity;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.flywaydb.core.Flyway;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 import java.nio.file.Path;
 import java.net.URI;
@@ -26,7 +23,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
-import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -50,7 +46,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>Keeps {@code Assumptions.assumeTrue} in {@code @BeforeEach} so Surefire records exact
  * case/skip counts matching {@code scripts/check_surefire_skips.py} (16 cases).
  */
-class NewsCurationMySqlIntegrationTest {
+/**
+ * 新闻精选的真实 PostgreSQL 回归：预算闸门、回执状态机、陈旧调用回收、
+ * 证据核验与候选状态推进。
+ *
+ * <p>原套件跑在一次性 MySQL 库上。迁移只改方言：日期算术换成 PG 的
+ * {@code now() - INTERVAL ...} / {@code CURRENT_DATE - n}、{@code information_schema}
+ * 断言按 schema {@code diagnosis} 取表。断言一条未改。
+ *
+ * <p>库由 {@code BUSINESS_TEST_URL} 指定（库名必须叫 {@code business_test}）。
+ */
+class NewsCurationPostgresTest {
 
     private static final String POLICY_V1 = "news-curation-v1";
     private static final String SCOPE_GLOBAL = "GLOBAL";
@@ -58,10 +64,8 @@ class NewsCurationMySqlIntegrationTest {
     private static final NewsWorkerIdentity WORKER =
             new NewsWorkerIdentity("curation-it-worker", NewsIngestionProperties.ALL_SOURCES);
 
-    private static String schema;
-    private static JdbcTemplate admin;
     private static JdbcTemplate jdbc;
-    private static DriverManagerDataSource dataSource;
+    private static javax.sql.DataSource dataSource;
 
     private ObjectMapper mapper;
     private NewsWireCodec wireCodec;
@@ -74,10 +78,9 @@ class NewsCurationMySqlIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        String url = System.getenv("FLYWAY_TEST_URL");
-        Assumptions.assumeTrue(url != null && !url.isBlank(),
-                "Set FLYWAY_TEST_URL to run the real MySQL News Curation gate");
-        ensureDatabase();
+        String url = LegacyGateSupport.assumeIsolated(System.getenv("BUSINESS_TEST_URL"), "business_test");
+        ensureDatabase(url);
+        jdbc = new JdbcTemplate(dataSource);
 
         jdbc.execute("DELETE FROM t_news_bench_run");
         jdbc.execute("DELETE FROM t_news_curation_candidate_event");
@@ -95,6 +98,8 @@ class NewsCurationMySqlIntegrationTest {
         jdbc.execute("DELETE FROM t_news_collection_batch");
         jdbc.execute("DELETE FROM t_news_collection_lease");
         jdbc.execute("DELETE FROM t_news_collection_task");
+        jdbc.execute("DELETE FROM t_news_collection_task_event");
+        jdbc.execute("DELETE FROM t_news_collection_schedule");
         jdbc.execute("DELETE FROM t_news_source_cursor");
         jdbc.execute("DELETE FROM t_news_source");
         jdbc.execute("""
@@ -127,33 +132,15 @@ class NewsCurationMySqlIntegrationTest {
                 jdbc, curationProperties, modelClient, verifier, promptBuilder, mapper);
     }
 
-    private static synchronized void ensureDatabase() {
-        if (jdbc != null) {
+    private static synchronized void ensureDatabase(String url) {
+        if (dataSource != null) {
             return;
         }
-        String url = System.getenv("FLYWAY_TEST_URL");
-        String username = System.getenv("FLYWAY_TEST_USERNAME");
-        String password = System.getenv("FLYWAY_TEST_PASSWORD");
-        schema = "diagnosis_ci_curation_" + UUID.randomUUID().toString().replace("-", "");
-
-        admin = new JdbcTemplate(new DriverManagerDataSource(url, username, password));
-        admin.execute("CREATE DATABASE `" + schema + "`");
-
-        dataSource = new DriverManagerDataSource(withSchema(url, schema), username, password);
-        Flyway.configure()
-                .dataSource(dataSource)
-                .locations("classpath:db/migration", "classpath:db/callback")
-                .load()
-                .migrate();
-        jdbc = new JdbcTemplate(dataSource);
-    }
-
-    @AfterAll
-    static void tearDownAll() {
-        if (schema == null || admin == null) {
-            return;
-        }
-        admin.execute("DROP DATABASE IF EXISTS `" + schema + "`");
+        var source = LegacyGateSupport.dataSource(url);
+        LegacyGateSupport.ensureSchema(url, source, List.of(), () -> {
+            throw new IllegalStateException("BUSINESS_TEST_URL must point at PostgreSQL");
+        });
+        dataSource = source;
     }
 
     // Case 1
@@ -165,8 +152,8 @@ class NewsCurationMySqlIntegrationTest {
                 "t_news_curation_candidate",
                 "t_news_bench_run")) {
             Integer count = jdbc.queryForObject(
-                    "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = ? AND table_name = ?",
-                    Integer.class, schema, table);
+                    "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'diagnosis' AND table_name = ?",
+                    Integer.class, table);
             assertEquals(1, count, "Missing V41 table: " + table);
         }
     }
@@ -461,11 +448,11 @@ class NewsCurationMySqlIntegrationTest {
                          budgetDate, budgetScope, provider, modelName, promptSha256, state,
                          reservedTokens, reservedCostMicros, reservedAt, deadlineAt)
                     VALUES ('stale-pre', '1:p:1', ?, ?, 1, ?, ?, 'dashscope', 'qwen3.5-plus', ?, 'RESERVED',
-                            4000, 50000, DATE_SUB(UTC_TIMESTAMP(6), INTERVAL 60 SECOND), DATE_SUB(UTC_TIMESTAMP(6), INTERVAL 5 SECOND)),
+                            4000, 50000, now() - INTERVAL '60 second', now() - INTERVAL '5 second'),
                            ('stale-disp', '2:p:1', ?, ?, 1, ?, ?, 'dashscope', 'qwen3.5-plus', ?, 'DISPATCHED',
-                            4000, 50000, DATE_SUB(UTC_TIMESTAMP(6), INTERVAL 60 SECOND), DATE_SUB(UTC_TIMESTAMP(6), INTERVAL 5 SECOND)),
+                            4000, 50000, now() - INTERVAL '60 second', now() - INTERVAL '5 second'),
                            ('fresh-disp', '3:p:1', ?, ?, 1, ?, ?, 'dashscope', 'qwen3.5-plus', ?, 'DISPATCHED',
-                            4000, 50000, UTC_TIMESTAMP(6), DATE_ADD(UTC_TIMESTAMP(6), INTERVAL 60 SECOND))
+                            4000, 50000, now(), now() + INTERVAL '60 second')
                     """,
                     revPre, POLICY_V1, BUDGET_DATE.toString(), SCOPE_GLOBAL, "a".repeat(64),
                     revDisp, POLICY_V1, BUDGET_DATE.toString(), SCOPE_GLOBAL, "b".repeat(64),
@@ -504,7 +491,7 @@ class NewsCurationMySqlIntegrationTest {
                     if (sql.contains("INSERT INTO t_news_model_call_receipt")) {
                         super.update("""
                                 UPDATE t_news_model_call_receipt
-                                SET deadlineAt = UTC_TIMESTAMP(6) WHERE callId = ?
+                                SET deadlineAt = now() WHERE callId = ?
                                 """, args[0]);
                     }
                     return updated;
@@ -1105,9 +1092,9 @@ class NewsCurationMySqlIntegrationTest {
                     (callId, idempotencyKey, materialRevisionId, policyVersion, attemptNo, budgetDate,
                      budgetScope, provider, modelName, promptSha256, state, reservedTokens, reservedCostMicros,
                      promptTokens, completionTokens, actualCostMicros, reservedAt, deadlineAt, completedAt)
-                VALUES ('archived-call', 'archived-key', ?, ?, 1, DATE_SUB(UTC_DATE(), INTERVAL 9 DAY),
+                VALUES ('archived-call', 'archived-key', ?, ?, 1, CURRENT_DATE - 9,
                         'ARCHIVE', 'dashscope', 'qwen-flash', REPEAT('b', 64), 'SUCCEEDED', 100, 10,
-                        60, 40, 10, UTC_TIMESTAMP(6), UTC_TIMESTAMP(6), UTC_TIMESTAMP(6))
+                        60, 40, 10, now(), now(), now())
                 """, revisionA, POLICY_V1);
         assertEquals(2, curationService.lifetimeBudget().usedCalls());
         assertEquals(660L, curationService.lifetimeBudget().usedTokens());
@@ -1235,14 +1222,6 @@ class NewsCurationMySqlIntegrationTest {
                                                         String providerRequestId) {
         return new NewsCurationModels.Succeeded(
                 rawJson, promptTokens, completionTokens, actualCostMicros, 200, providerRequestId, 320);
-    }
-
-    private static String withSchema(String url, String targetSchema) {
-        int query = url.indexOf('?');
-        String base = query < 0 ? url : url.substring(0, query);
-        String params = query < 0 ? "" : url.substring(query);
-        int slash = base.lastIndexOf('/');
-        return base.substring(0, slash + 1) + targetSchema + params;
     }
 
     private static <T> Callable<T> race(CountDownLatch ready, CountDownLatch start, Callable<T> body) {

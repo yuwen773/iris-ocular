@@ -56,8 +56,9 @@ public class NewsCollectionScheduleStatusService {
                 LEFT JOIN t_news_source_cursor c ON c.source = s.source
                     AND c.sourceConfigVersion = schedule.sourceConfigVersion
                 LEFT JOIN (
-                    SELECT source, COUNT(*) AS backlog, SUM(status = 'FAILED') AS failed,
-                           SUM(status = 'RETRY_SCHEDULED') AS retryScheduled
+                    SELECT source, COUNT(*) AS backlog,
+                           SUM(CASE WHEN status = 'FAILED' THEN 1 ELSE 0 END) AS failed,
+                           SUM(CASE WHEN status = 'RETRY_SCHEDULED' THEN 1 ELSE 0 END) AS retryScheduled
                     FROM t_news_collection_task
                     WHERE status IN ('PENDING', 'LEASED', 'FAILED', 'RETRY_SCHEDULED')
                     GROUP BY source

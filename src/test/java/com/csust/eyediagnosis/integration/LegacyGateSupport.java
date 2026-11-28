@@ -224,7 +224,7 @@ public final class LegacyGateSupport {
      * 两边的失败语义一致（语句级错误 → 事务回滚），消息文本保持同一个常量。
      */
     public static void createFailTrigger(JdbcTemplate jdbc, String name, String event, String table, String message) {
-        createTrigger(jdbc, name, event, table, null, null, message);
+        createTrigger(jdbc, name, event, table, null, message);
     }
 
     /**
@@ -237,17 +237,29 @@ public final class LegacyGateSupport {
     public static void createFailTriggerWhen(JdbcTemplate jdbc, String name, String event, String table,
                                              String column, String value, String message) {
         requireIdentifier(column);
-        createTrigger(jdbc, name, event, table, column, value, message);
+        createTrigger(jdbc, name, event, table, column == null ? null : "NEW." + column + "=" + sqlString(value),
+                message);
+    }
+
+    /**
+     * 有条件的故障注入，条件是 {@code NEW.<column> LIKE pattern}。
+     *
+     * <p>新闻调度套件要「只让自动计划出来的 pubmed 任务审计失败」：那批 taskId 共享
+     * {@code auto-pubmed-} 前缀，等值条件表达不出来。两边的 {@code LIKE} 语义一致。
+     */
+    public static void createFailTriggerLike(JdbcTemplate jdbc, String name, String event, String table,
+                                             String column, String pattern, String message) {
+        requireIdentifier(column);
+        createTrigger(jdbc, name, event, table, "NEW." + column + " LIKE " + sqlString(pattern), message);
     }
 
     private static void createTrigger(JdbcTemplate jdbc, String name, String event, String table,
-                                      String column, String value, String message) {
+                                      String condition, String message) {
         requireIdentifier(name);
         requireIdentifier(table);
         if (!event.matches("INSERT|UPDATE|DELETE")) {
             throw new IllegalArgumentException("event");
         }
-        String condition = column == null ? null : "NEW." + column + "=" + sqlString(value);
         if (isPostgres(jdbc.getDataSource())) {
             // 有条件的那个分支必须 RETURN NEW：plpgsql 的 BEFORE 触发器走到函数末尾仍要
             // 有返回值，否则条件不匹配的行也会以「control reached end of trigger procedure
@@ -258,6 +270,10 @@ public final class LegacyGateSupport {
                     : "BEGIN IF " + condition + " THEN RAISE EXCEPTION " + sqlString(message)
                     + "; END IF; RETURN NEW; END;";
             jdbc.execute("CREATE OR REPLACE FUNCTION " + name + "() RETURNS trigger AS $$ " + body + " $$ LANGUAGE plpgsql");
+            // 先清掉可能残留的同名触发器：用例在失败路径上不会走到 dropFailTrigger，
+            // 残留下来的会让下一次运行在 CREATE TRIGGER 上直接报 already exists——
+            // 一次真实的失败被伪装成「环境坏了」，掩盖了真正要看的断言。
+            jdbc.execute("DROP TRIGGER IF EXISTS " + name + " ON " + table);
             jdbc.execute("CREATE TRIGGER " + name + " BEFORE " + event + " ON " + table
                     + " FOR EACH ROW EXECUTE FUNCTION " + name + "()");
         } else if (condition == null) {

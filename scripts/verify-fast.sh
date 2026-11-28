@@ -18,7 +18,7 @@
 #   scripts/verify-fast.sh --java SessionMessageQueueTest
 #   scripts/verify-fast.sh --java 'SessionMessageQueueTest#anEvictedWriteNeverReportsSuccess'
 #   scripts/verify-fast.sh --web src/lib/agentStream.test.ts
-#   scripts/verify-fast.sh --java FlywayMySqlIntegrationTest --db
+#   scripts/verify-fast.sh --java DiagnosisRunPostgresIntegrationTest --db
 #   scripts/verify-fast.sh --level L3
 #
 # 结果打印成一行 `RESULT: PASS|FAIL|TIMEOUT`，附带代码 SHA 与日志目录。

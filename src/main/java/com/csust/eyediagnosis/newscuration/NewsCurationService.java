@@ -568,7 +568,9 @@ public class NewsCurationService {
                        state, reservedTokens, reservedCostMicros, callIdentityJson
                 FROM t_news_model_call_receipt
                 WHERE materialRevisionId = ? AND policyVersion = ?
-                   AND ((? IS NULL AND logicalCallSha256 IS NULL) OR logicalCallSha256 = ?)
+                   -- PostgreSQL 无法从「参数 IS NULL」推断参数类型（报 could not determine
+                   -- data type of parameter），必须显式标注；MySQL 侧同一表达式照常成立。
+                   AND ((?::text IS NULL AND logicalCallSha256 IS NULL) OR logicalCallSha256 = ?)
                 ORDER BY attemptNo ASC
                 FOR UPDATE
                 """, (rs, rowNum) -> mapReceiptRow(rs), revision.revisionId(), policyVersion, logical, logical);
@@ -1207,7 +1209,7 @@ public class NewsCurationService {
                 rs.getLong("maxCostMicros"),
                 rs.getLong("usedCostMicros"),
                 rs.getLong("reservedCostMicros"),
-                rs.getInt("circuitBroken") == 1,
+                rs.getBoolean("circuitBroken"),
                 rs.getString("circuitReason")
         );
     }

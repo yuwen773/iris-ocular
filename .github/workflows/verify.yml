@@ -96,7 +96,7 @@ jobs:
       # PostgreSQL 18 + pgvector 是唯一数据服务：业务关系数据在 diagnosis schema，
       # RAG 向量在 rag schema。MySQL 与 Chroma 不再是运行依赖。
       postgres:
-        image: pgvector/pgvector:pg18
+        image: pgvector/pgvector:pg18@sha256:38681dc6eaf55308e2a4c6de392d131652dcfac70e1263e35cd9b5ea3fe39782
         env:
           POSTGRES_DB: iris_ci
           POSTGRES_PASSWORD: ci-superuser-password
@@ -160,11 +160,15 @@ jobs:
     # timestamptz instants, ON UPDATE triggers, constraints, transaction rollback,
     # least-privilege role boundaries, pgvector retrieval/filters/delete, and the
     # diagnosis-task idempotency race. Skipping any of them fails the job.
+    #
+    # The business regression suites live in this job too (no extra job): they were
+    # re-baselined from the retired MySQL Flyway history onto the real PostgreSQL
+    # line, and they need a Redis of their own for the news lifecycle cache tests.
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     services:
       postgres:
-        image: pgvector/pgvector:pg18
+        image: pgvector/pgvector:pg18@sha256:38681dc6eaf55308e2a4c6de392d131652dcfac70e1263e35cd9b5ea3fe39782
         env:
           POSTGRES_DB: iris_it
           POSTGRES_PASSWORD: ci-superuser-password
@@ -177,6 +181,15 @@ jobs:
           --health-interval=5s
           --health-timeout=3s
           --health-retries=20
+      redis:
+        image: redis:7.2.4
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
     env:
       PGPASSWORD: ci-superuser-password
       PG_IT_URL: jdbc:postgresql://127.0.0.1:5432/iris_it?currentSchema=diagnosis,rag,public&stringtype=unspecified
@@ -184,6 +197,18 @@ jobs:
       PG_IT_APP_PASSWORD: ci-app-password
       PG_IT_MIGRATOR_USER: iris_migrator
       PG_IT_MIGRATOR_PASSWORD: ci-migrator-password
+      # Business regression suites (LegacyGateSupport ports). The database names are
+      # asserted by the suites themselves, so the URLs must keep exactly these paths.
+      BUSINESS_TEST_URL: jdbc:postgresql://127.0.0.1:5432/business_test
+      COORDINATION_POC_URL: jdbc:postgresql://127.0.0.1:5432/coordination_poc
+      COORDINATION_POC_USER: poc
+      COORDINATION_POC_PASSWORD: poc
+      # LegacyGateSupport connects as this role to create the vector extension and
+      # run the Flyway line inside business_test; the app role is not used there.
+      PG_TEST_USER: postgres
+      PG_TEST_PASSWORD: ci-superuser-password
+      SPRING_DATA_REDIS_HOST: 127.0.0.1
+      SPRING_DATA_REDIS_PORT: '6379'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -195,6 +220,13 @@ jobs:
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
           psql -h 127.0.0.1 -U postgres -d iris_it -v ON_ERROR_STOP=1             -v migrator_password=ci-migrator-password -v app_password=ci-app-password             -f scripts/postgresql/bootstrap-roles.sql
+          # business_test starts empty: each suite migrates the real PostgreSQL line
+          # into it on first use, which is the point of the re-baseline.
+          psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1             -c "CREATE DATABASE business_test"
+          # coordination_poc is owned by its own least-privilege role: the PoC store
+          # creates its tables at runtime and must not run as a superuser.
+          psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1             -c "CREATE ROLE poc LOGIN PASSWORD 'poc'"
+          psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1             -c "CREATE DATABASE coordination_poc OWNER poc"
       - name: Run the PostgreSQL integration gates
         run: mvn -B -Dtest='Pg*IntegrationTest' -Dsurefire.failIfNoSpecifiedTests=false test
       - name: Require every gate to have actually run
@@ -213,6 +245,15 @@ jobs:
                   sys.exit(f"{report}: tests={tests} skipped={skipped} failures={failures} errors={errors}")
           print(f"postgres_gates={len(reports)} all ran")
           PY
+      - name: Run the business regression suites on PostgreSQL
+        run: >-
+          mvn -B
+          -Dtest='UploadTaskMapperPostgresIntegrationTest,ToolAuditPostgresIntegrationTest,ToolTerminalPersistencePostgresIntegrationTest,DiagnosisRunPostgresIntegrationTest,AdminAnalyticsPostgresIntegrationTest,NewsIngestionPostgresTest,NewsCollectionSchedulePostgresTest,NewsCurationPostgresTest,NewsEditorialPublishPostgresTest,NewsWorkbenchPostgresTest,CoordinationPostgresTest'
+          test
+      # Counts, not exit codes: Maven already fails the step on a failed case. This
+      # gate fails a run that went green because a suite was skipped or lost cases.
+      - name: Require every business case to have actually run
+        run: python3 scripts/check_surefire_skips.py target/surefire-reports business
 
   vector-migration-drill:
     # Chroma -> pgvector rehearsal: import fidelity, id/metadata/embedding preserve,
@@ -221,7 +262,7 @@ jobs:
     timeout-minutes: 20
     services:
       postgres:
-        image: pgvector/pgvector:pg18
+        image: pgvector/pgvector:pg18@sha256:38681dc6eaf55308e2a4c6de392d131652dcfac70e1263e35cd9b5ea3fe39782
         env:
           POSTGRES_DB: iris_vec_drill
           POSTGRES_PASSWORD: ci-superuser-password
@@ -271,7 +312,7 @@ jobs:
     timeout-minutes: 15
     services:
       postgres:
-        image: pgvector/pgvector:pg18
+        image: pgvector/pgvector:pg18@sha256:38681dc6eaf55308e2a4c6de392d131652dcfac70e1263e35cd9b5ea3fe39782
         env:
           POSTGRES_DB: iris_gate
           POSTGRES_PASSWORD: ci-superuser-password
@@ -315,7 +356,7 @@ jobs:
     timeout-minutes: 10
     services:
       postgres:
-        image: pgvector/pgvector:pg18
+        image: pgvector/pgvector:pg18@sha256:38681dc6eaf55308e2a4c6de392d131652dcfac70e1263e35cd9b5ea3fe39782
         env:
           POSTGRES_DB: iris_gate
           POSTGRES_PASSWORD: ci-superuser-password
@@ -355,7 +396,7 @@ jobs:
     timeout-minutes: 10
     services:
       postgres:
-        image: pgvector/pgvector:pg18
+        image: pgvector/pgvector:pg18@sha256:38681dc6eaf55308e2a4c6de392d131652dcfac70e1263e35cd9b5ea3fe39782
         env:
           POSTGRES_DB: iris_gate
           POSTGRES_PASSWORD: ci-superuser-password
@@ -395,7 +436,7 @@ jobs:
     timeout-minutes: 10
     services:
       postgres:
-        image: pgvector/pgvector:pg18
+        image: pgvector/pgvector:pg18@sha256:38681dc6eaf55308e2a4c6de392d131652dcfac70e1263e35cd9b5ea3fe39782
         env:
           POSTGRES_DB: iris_gate
           POSTGRES_PASSWORD: ci-superuser-password
@@ -436,7 +477,7 @@ jobs:
     timeout-minutes: 10
     services:
       postgres:
-        image: pgvector/pgvector:pg18
+        image: pgvector/pgvector:pg18@sha256:38681dc6eaf55308e2a4c6de392d131652dcfac70e1263e35cd9b5ea3fe39782
         env:
           POSTGRES_DB: iris_gate
           POSTGRES_PASSWORD: ci-superuser-password
@@ -476,7 +517,7 @@ jobs:
     timeout-minutes: 10
     services:
       postgres:
-        image: pgvector/pgvector:pg18
+        image: pgvector/pgvector:pg18@sha256:38681dc6eaf55308e2a4c6de392d131652dcfac70e1263e35cd9b5ea3fe39782
         env:
           POSTGRES_DB: iris_gate
           POSTGRES_PASSWORD: ci-superuser-password
@@ -547,7 +588,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: pgvector/pgvector:pg18
+        image: pgvector/pgvector:pg18@sha256:38681dc6eaf55308e2a4c6de392d131652dcfac70e1263e35cd9b5ea3fe39782
         env:
           POSTGRES_DB: iris_gate
           POSTGRES_PASSWORD: ci-superuser-password
@@ -585,7 +626,7 @@ jobs:
     timeout-minutes: 10
     services:
       postgres:
-        image: pgvector/pgvector:pg18
+        image: pgvector/pgvector:pg18@sha256:38681dc6eaf55308e2a4c6de392d131652dcfac70e1263e35cd9b5ea3fe39782
         env:
           POSTGRES_DB: iris_gate
           POSTGRES_PASSWORD: ci-superuser-password
@@ -623,7 +664,7 @@ jobs:
     timeout-minutes: 10
     services:
       postgres:
-        image: pgvector/pgvector:pg18
+        image: pgvector/pgvector:pg18@sha256:38681dc6eaf55308e2a4c6de392d131652dcfac70e1263e35cd9b5ea3fe39782
         env:
           POSTGRES_DB: iris_gate
           POSTGRES_PASSWORD: ci-superuser-password
@@ -661,7 +702,7 @@ jobs:
     timeout-minutes: 10
     services:
       postgres:
-        image: pgvector/pgvector:pg18
+        image: pgvector/pgvector:pg18@sha256:38681dc6eaf55308e2a4c6de392d131652dcfac70e1263e35cd9b5ea3fe39782
         env:
           POSTGRES_DB: iris_gate
           POSTGRES_PASSWORD: ci-superuser-password
@@ -701,7 +742,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: pgvector/pgvector:pg18
+        image: pgvector/pgvector:pg18@sha256:38681dc6eaf55308e2a4c6de392d131652dcfac70e1263e35cd9b5ea3fe39782
         env:
           POSTGRES_DB: iris_flyway
           POSTGRES_PASSWORD: ci-superuser-password
@@ -731,6 +772,15 @@ jobs:
         run: |
           mvn -B -q compile resources:resources dependency:build-classpath -Dmdep.outputFile=/tmp/cp.txt
           IRIS_FLYWAY_PASSWORD=ci-migrator-password java -cp "target/classes:$(cat /tmp/cp.txt)"             scripts/postgresql/FlywayMigrate.java             "jdbc:postgresql://127.0.0.1:5432/iris_flyway?currentSchema=diagnosis"
+      # Second run must execute nothing and still validate. This replaces the
+      # retired MySQL suite's "migrate twice is idempotent" contract: a migration
+      # that is re-applied on every startup, or a history that fails validation
+      # after a clean run, breaks here.
+      - name: Re-migrating an already migrated database is a no-op
+        run: |
+          IRIS_FLYWAY_PASSWORD=ci-migrator-password java -cp "target/classes:$(cat /tmp/cp.txt)"             scripts/postgresql/FlywayMigrate.java             "jdbc:postgresql://127.0.0.1:5432/iris_flyway?currentSchema=diagnosis" | tee /tmp/remigrate.txt
+          grep -q '^MIGRATED=0 VERSION=' /tmp/remigrate.txt || { cat /tmp/remigrate.txt; echo "second migrate executed migrations"; exit 1; }
+          grep -q '^VALIDATE=OK$' /tmp/remigrate.txt
       - name: Assert the schema contract
         run: |
           tables=$(psql -h 127.0.0.1 -U postgres -d iris_flyway -Atc             "SELECT count(*) FROM information_schema.tables WHERE table_schema='diagnosis'")
@@ -741,6 +791,19 @@ jobs:
           echo "tables=$tables schema_contract=ok"
       - name: Application gate keeps refusing non-PostgreSQL targets
         run: mvn -B -Dtest=PostgreSqlRequirementTest test
+      # A tampered applied migration must be rejected, not silently re-run. This is
+      # the "checksum enforcement" half of the retired MySQL history suite.
+      - name: Drifted migration history is rejected
+        run: |
+          psql -h 127.0.0.1 -U postgres -d iris_flyway -v ON_ERROR_STOP=1             -c "UPDATE diagnosis.flyway_schema_history SET checksum = checksum + 1 WHERE version = '1'"
+          set +e
+          IRIS_FLYWAY_PASSWORD=ci-migrator-password java -cp "target/classes:$(cat /tmp/cp.txt)"             scripts/postgresql/FlywayMigrate.java             "jdbc:postgresql://127.0.0.1:5432/iris_flyway?currentSchema=diagnosis" > /tmp/drift.txt 2>&1
+          status=$?
+          set -e
+          psql -h 127.0.0.1 -U postgres -d iris_flyway -v ON_ERROR_STOP=1             -c "UPDATE diagnosis.flyway_schema_history SET checksum = checksum - 1 WHERE version = '1'"
+          if [ "$status" -eq 0 ]; then cat /tmp/drift.txt; echo "drifted history was accepted"; exit 1; fi
+          grep -qi 'checksum mismatch' /tmp/drift.txt || { cat /tmp/drift.txt; echo "unexpected failure mode"; exit 1; }
+          echo "drift_rejected=ok"
 
   product-contract:
     # 产品验收 schema 门禁。迁移后产品库是 PostgreSQL：这里用一次性 pgvector
@@ -748,7 +811,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: pgvector/pgvector:pg18
+        image: pgvector/pgvector:pg18@sha256:38681dc6eaf55308e2a4c6de392d131652dcfac70e1263e35cd9b5ea3fe39782
         env:
           POSTGRES_DB: product_acceptance_test
           POSTGRES_PASSWORD: product-acceptance-password

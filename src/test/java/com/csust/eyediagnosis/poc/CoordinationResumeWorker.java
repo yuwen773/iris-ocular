@@ -1,10 +1,8 @@
 package com.csust.eyediagnosis.poc;
 
-import java.sql.DriverManager;
-
 final class CoordinationResumeWorker {
     public static void main(String[] args) throws Exception {
-        try (var connection = DriverManager.getConnection(args[0], "poc", "poc")) {
+        try (var connection = CoordinationDb.connect(args[0])) {
             var store = new CoordinationStore(connection);
             var engine = store.engine(args[1]);
             if (!engine.name().equals(args[2])) System.exit(4);

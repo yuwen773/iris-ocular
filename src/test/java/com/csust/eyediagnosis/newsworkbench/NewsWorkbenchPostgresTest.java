@@ -1,5 +1,6 @@
 package com.csust.eyediagnosis.newsworkbench;
 
+import com.csust.eyediagnosis.integration.LegacyGateSupport;
 import com.baomidou.mybatisplus.annotation.DbType;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.config.GlobalConfig;
@@ -31,9 +32,6 @@ import com.csust.eyediagnosis.newsingestion.NewsWireModels;
 import com.csust.eyediagnosis.newsingestion.NewsWorkerIdentity;
 import com.csust.eyediagnosis.service.NewsLifecycleService;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.flywaydb.core.Flyway;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mybatis.spring.SqlSessionTemplate;
@@ -41,7 +39,6 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
-import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.IllegalTransactionStateException;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -77,7 +74,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>Keeps {@code Assumptions.assumeTrue} in {@code @BeforeEach} so Surefire records exact
  * case/skip counts matching {@code scripts/check_surefire_skips.py} (11 cases).
  */
-class NewsWorkbenchMySqlIntegrationTest {
+/**
+ * 管理员资讯引擎工作台的 PostgreSQL 回归：任务追踪、信源与预算管理、候选证据审查、
+ * 调用对账与评测历史。
+ *
+ * <p>原套件跑在一次性 MySQL 库上。迁移只改方言：日期算术换成 PG 的
+ * {@code now() - INTERVAL ...}、{@code SIGNAL SQLSTATE} 触发器换成
+ * {@link LegacyGateSupport#createFailTrigger}、分页插件换成 PostgreSQL 方言。
+ * 断言一条未改。
+ *
+ * <p>库由 {@code BUSINESS_TEST_URL} 指定（库名必须叫 {@code business_test}）。
+ */
+class NewsWorkbenchPostgresTest {
 
     private static final String POLICY_V1 = "news-curation-v1";
     private static final String SCOPE_GLOBAL = "GLOBAL";
@@ -85,10 +93,8 @@ class NewsWorkbenchMySqlIntegrationTest {
     private static final NewsWorkerIdentity WORKER =
             new NewsWorkerIdentity("workbench-it-worker", NewsIngestionProperties.ALL_SOURCES);
 
-    private static String schema;
-    private static JdbcTemplate admin;
     private static JdbcTemplate jdbc;
-    private static DriverManagerDataSource dataSource;
+    private static javax.sql.DataSource dataSource;
     private static SqlSessionTemplate sqlSessionTemplate;
 
     private ObjectMapper mapper;
@@ -106,12 +112,11 @@ class NewsWorkbenchMySqlIntegrationTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        String url = System.getenv("FLYWAY_TEST_URL");
-        Assumptions.assumeTrue(url != null && !url.isBlank(),
-                "Set FLYWAY_TEST_URL to run the real MySQL News Workbench gate");
-        ensureDatabase();
+        String url = LegacyGateSupport.assumeIsolated(System.getenv("BUSINESS_TEST_URL"), "business_test");
+        ensureDatabase(url);
 
         jdbc.execute("DELETE FROM t_news_collection_task_event");
+        jdbc.execute("DELETE FROM t_news_collection_schedule");
         jdbc.execute("DELETE FROM t_news_revision");
         jdbc.execute("DELETE FROM t_news_audit");
         jdbc.execute("DELETE FROM t_news");
@@ -346,15 +351,13 @@ class NewsWorkbenchMySqlIntegrationTest {
     }
 
     private static void assertTaskAuditInsertFails(Runnable operation) {
-        jdbc.execute("""
-                CREATE TRIGGER fail_task_audit_insert BEFORE INSERT ON t_news_collection_task_event
-                FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'injected task audit failure'
-                """);
+        LegacyGateSupport.createFailTrigger(jdbc, "fail_task_audit_insert", "INSERT",
+                "t_news_collection_task_event", "injected task audit failure");
         try {
             DataAccessException failure = assertThrows(DataAccessException.class, operation::run);
             assertTrue(failure.getMostSpecificCause().getMessage().contains("injected task audit failure"));
         } finally {
-            jdbc.execute("DROP TRIGGER fail_task_audit_insert");
+            LegacyGateSupport.dropFailTrigger(jdbc, "fail_task_audit_insert", "t_news_collection_task_event");
         }
     }
 
@@ -893,8 +896,8 @@ class NewsWorkbenchMySqlIntegrationTest {
                      reservedTokens, reservedCostMicros, reservedAt, deadlineAt)
                 VALUES ('stale-pre-io-call', '999999:news-curation-v1:1', 999999, ?, 1,
                         ?, ?, 'dashscope', 'qwen3.5-plus', ?, 'RESERVED',
-                        4000, 50000, DATE_SUB(UTC_TIMESTAMP(6), INTERVAL 10 MINUTE),
-                        DATE_SUB(UTC_TIMESTAMP(6), INTERVAL 5 MINUTE))
+                        4000, 50000, now() - INTERVAL '10 minute',
+                        now() - INTERVAL '5 minute')
                 """, POLICY_V1, BUDGET_DATE.toString(), SCOPE_GLOBAL, "a".repeat(64));
 
         NewsCurationModels.StaleReclaimResult reclaim = workbenchService.reclaimStaleCalls();
@@ -1014,7 +1017,7 @@ class NewsWorkbenchMySqlIntegrationTest {
                     (id, materialId, source, sourceRecordId, contentDigest, url, title, pmid, doi,
                      canonicalJson, firstTaskId, firstGeneration, visibleAt)
                 VALUES (?, ?, ?, ?, ?, 'https://example.test/study', 'Material', ?, ?,
-                        '{}', 'fixture', 1, UTC_TIMESTAMP(6))
+                        '{}', 'fixture', 1, now())
                 """, id, id, source, "record-" + id, digest, pmid, doi);
         jdbc.update("""
                 INSERT INTO t_news (id, title, userId, content, coverImg, status, publishTime,
@@ -1096,24 +1099,15 @@ class NewsWorkbenchMySqlIntegrationTest {
         ));
     }
 
-    private static synchronized void ensureDatabase() throws Exception {
+    private static synchronized void ensureDatabase(String url) throws Exception {
         if (jdbc != null) {
             return;
         }
-        String url = System.getenv("FLYWAY_TEST_URL");
-        String username = System.getenv("FLYWAY_TEST_USERNAME");
-        String password = System.getenv("FLYWAY_TEST_PASSWORD");
-        schema = "diagnosis_ci_workbench_" + UUID.randomUUID().toString().replace("-", "");
-
-        admin = new JdbcTemplate(new DriverManagerDataSource(url, username, password));
-        admin.execute("CREATE DATABASE `" + schema + "`");
-
-        dataSource = new DriverManagerDataSource(withSchema(url, schema), username, password);
-        Flyway.configure()
-                .dataSource(dataSource)
-                .locations("classpath:db/migration", "classpath:db/callback")
-                .load()
-                .migrate();
+        var source = LegacyGateSupport.dataSource(url);
+        LegacyGateSupport.ensureSchema(url, source, List.of(), () -> {
+            throw new IllegalStateException("BUSINESS_TEST_URL must point at PostgreSQL");
+        });
+        dataSource = source;
         jdbc = new JdbcTemplate(dataSource);
 
         MybatisConfiguration configuration = new MybatisConfiguration();
@@ -1129,7 +1123,7 @@ class NewsWorkbenchMySqlIntegrationTest {
         globalConfig.setDbConfig(dbConfig);
 
         MybatisPlusInterceptor interceptor = new MybatisPlusInterceptor();
-        interceptor.addInnerInterceptor(new PaginationInnerInterceptor(DbType.MYSQL));
+        interceptor.addInnerInterceptor(new PaginationInnerInterceptor(DbType.POSTGRE_SQL));
 
         MybatisSqlSessionFactoryBean factory = new MybatisSqlSessionFactoryBean();
         factory.setDataSource(dataSource);
@@ -1137,23 +1131,6 @@ class NewsWorkbenchMySqlIntegrationTest {
         factory.setGlobalConfig(globalConfig);
         factory.setPlugins(interceptor);
         sqlSessionTemplate = new SqlSessionTemplate(Objects.requireNonNull(factory.getObject()));
-    }
-
-    @AfterAll
-    static void tearDown() {
-        if (admin != null && schema != null) {
-            admin.execute("DROP DATABASE IF EXISTS `" + schema + "`");
-        }
-    }
-
-    private static String withSchema(String url, String targetSchema) {
-        int queryStart = url.indexOf('?');
-        String base = queryStart >= 0 ? url.substring(0, queryStart) : url;
-        String query = queryStart >= 0 ? url.substring(queryStart) : "";
-        int lastSlash = base.lastIndexOf('/');
-        String rewrittenBase = (lastSlash > base.indexOf("//") + 1 ? base.substring(0, lastSlash) : base)
-                + "/" + targetSchema;
-        return rewrittenBase + query;
     }
 
     private static final class ScriptedModelClient implements NewsCurationModelClient {
