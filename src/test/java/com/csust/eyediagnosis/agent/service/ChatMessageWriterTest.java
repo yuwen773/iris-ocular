@@ -24,7 +24,8 @@ class ChatMessageWriterTest {
     private final AgentSessionMapper sessionMapper = mock(AgentSessionMapper.class);
     private final AgentMessageMapper messageMapper = mock(AgentMessageMapper.class);
     private final ChatMessageWriter writer = new ChatMessageWriter(
-            sessionMapper, messageMapper, new AgentConstants());
+            sessionMapper, messageMapper, new AgentConstants(),
+            new com.csust.eyediagnosis.common.InsertRaceGuard(null));
 
     @Test
     void newSessionIsClaimedAndMessageAndCountAreWrittenTogether() {

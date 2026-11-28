@@ -3,7 +3,6 @@ package com.csust.eyediagnosis.poc;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
-import java.sql.DriverManager;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.CountDownLatch;
@@ -12,12 +11,22 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-class CoordinationMySqlTest {
+/**
+ * 协调原语的并发与崩溃语义，打真实数据库：租约令牌栅栏、过期 worker 不得提交、
+ * 跨进程崩溃前后只剩已提交状态、两种引擎的恢复各成功一次。
+ *
+ * <p>迁移后对着 PostgreSQL 跑；表结构由 {@link CoordinationStore#initialize()} 按方言建。
+ * 断言逐条沿用原套件——这些是并发契约，不因数据库更换而放宽。
+ *
+ * <p>库由 {@code COORDINATION_POC_URL} 指定（库名必须是 {@code coordination_poc}），
+ * 凭据见 {@link CoordinationDb}。
+ */
+class CoordinationPostgresTest {
     @Test
     void businessTransitionAndNextTaskRollbackTogether() throws Exception {
         String url = System.getenv("COORDINATION_POC_URL");
         Assumptions.assumeTrue(url != null && !url.isBlank(), "Requires isolated PoC database");
-        try (var connection = DriverManager.getConnection(url, "poc", "poc")) {
+        try (var connection = CoordinationDb.connect(url)) {
             CoordinationStore store = new CoordinationStore(connection);
             store.initialize();
             String id = UUID.randomUUID().toString();
@@ -35,7 +44,7 @@ class CoordinationMySqlTest {
     void processDeathBeforeAndAfterCommitLeavesOnlyCommittedState() throws Exception {
         String url = System.getenv("COORDINATION_POC_URL");
         Assumptions.assumeTrue(url != null && !url.isBlank(), "Requires isolated PoC database");
-        try (var connection = DriverManager.getConnection(url, "poc", "poc")) {
+        try (var connection = CoordinationDb.connect(url)) {
             var store = new CoordinationStore(connection);
             store.initialize();
             for (boolean afterCommit : new boolean[]{false, true}) {
@@ -56,7 +65,7 @@ class CoordinationMySqlTest {
     void graphRecoversCommittedCheckpointInAnotherProcess() throws Exception {
         String url = System.getenv("COORDINATION_POC_URL");
         Assumptions.assumeTrue(url != null && !url.isBlank(), "Requires isolated PoC database");
-        try (var connection = DriverManager.getConnection(url, "poc", "poc")) {
+        try (var connection = CoordinationDb.connect(url)) {
             var store = new CoordinationStore(connection);
             store.initialize();
             String id = UUID.randomUUID().toString();
@@ -77,7 +86,7 @@ class CoordinationMySqlTest {
     void competingClaimsAndExpiredWorkerCannotCommit() throws Exception {
         String url = System.getenv("COORDINATION_POC_URL");
         Assumptions.assumeTrue(url != null && !url.isBlank(), "Requires isolated PoC database");
-        try (var connection = DriverManager.getConnection(url, "poc", "poc")) {
+        try (var connection = CoordinationDb.connect(url)) {
             var store = new CoordinationStore(connection);
             store.initialize();
             String id = UUID.randomUUID().toString();
@@ -110,12 +119,7 @@ class CoordinationMySqlTest {
     }
 
     private static int claim(String url, String id, String owner, CountDownLatch start) throws Exception {
-        var options = new java.util.Properties();
-        options.setProperty("user", "poc");
-        options.setProperty("password", "poc");
-        options.setProperty("connectTimeout", "5000");
-        options.setProperty("socketTimeout", "5000");
-        try (var connection = DriverManager.getConnection(url, options)) {
+        try (var connection = CoordinationDb.connect(url, 5000, 5000)) {
             start.await();
             return new CoordinationStore(connection).claim(id, owner, 0);
         }
@@ -125,7 +129,7 @@ class CoordinationMySqlTest {
     void graphCheckpointCommitsWithWorkflowAndFailsClosedOnVersionMismatch() throws Exception {
         String url = System.getenv("COORDINATION_POC_URL");
         Assumptions.assumeTrue(url != null && !url.isBlank(), "Requires isolated PoC database");
-        try (var connection = DriverManager.getConnection(url, "poc", "poc")) {
+        try (var connection = CoordinationDb.connect(url)) {
             var store = new CoordinationStore(connection);
             store.initialize();
             String id = UUID.randomUUID().toString();
@@ -144,7 +148,7 @@ class CoordinationMySqlTest {
     void staleGraphWorkerCannotPersistCheckpointOrAdvanceWorkflow() throws Exception {
         String url = System.getenv("COORDINATION_POC_URL");
         Assumptions.assumeTrue(url != null && !url.isBlank(), "Requires isolated PoC database");
-        try (var connection = DriverManager.getConnection(url, "poc", "poc")) {
+        try (var connection = CoordinationDb.connect(url)) {
             var store = new CoordinationStore(connection);
             store.initialize();
             String id = UUID.randomUUID().toString();
@@ -165,7 +169,7 @@ class CoordinationMySqlTest {
     void bothEnginesUseFencedTransactionsAcrossProcessCrashes() throws Exception {
         String url = System.getenv("COORDINATION_POC_URL");
         Assumptions.assumeTrue(url != null && !url.isBlank(), "Requires isolated PoC database");
-        try (var connection = DriverManager.getConnection(url, "poc", "poc")) {
+        try (var connection = CoordinationDb.connect(url)) {
             var store = new CoordinationStore(connection);
             store.initialize();
             for (var engine : CoordinationPoc.Engine.values()) {
@@ -206,7 +210,7 @@ class CoordinationMySqlTest {
     void bothEnginesResumeTheTaskOnlyOnceInNewProcesses() throws Exception {
         String url = System.getenv("COORDINATION_POC_URL");
         Assumptions.assumeTrue(url != null && !url.isBlank(), "Requires isolated PoC database");
-        try (var connection = DriverManager.getConnection(url, "poc", "poc")) {
+        try (var connection = CoordinationDb.connect(url)) {
             var store = new CoordinationStore(connection);
             store.initialize();
             for (var engine : CoordinationPoc.Engine.values()) {
@@ -234,7 +238,7 @@ class CoordinationMySqlTest {
     void recoveryCannotBypassGraphVersionWithAnotherEngine() throws Exception {
         String url = System.getenv("COORDINATION_POC_URL");
         Assumptions.assumeTrue(url != null && !url.isBlank(), "Requires isolated PoC database");
-        try (var connection = DriverManager.getConnection(url, "poc", "poc")) {
+        try (var connection = CoordinationDb.connect(url)) {
             var store = new CoordinationStore(connection);
             store.initialize();
             String id = UUID.randomUUID().toString();
@@ -255,8 +259,8 @@ class CoordinationMySqlTest {
     void competingRecoveryWorkersFenceExpiredResultsForBothEngines() throws Exception {
         String url = System.getenv("COORDINATION_POC_URL");
         Assumptions.assumeTrue(url != null && !url.isBlank(), "Requires isolated PoC database");
-        try (var connection = DriverManager.getConnection(url, "poc", "poc");
-             var otherConnection = DriverManager.getConnection(url, "poc", "poc")) {
+        try (var connection = CoordinationDb.connect(url);
+             var otherConnection = CoordinationDb.connect(url)) {
             var store = new CoordinationStore(connection);
             var other = new CoordinationStore(otherConnection);
             store.initialize();
@@ -284,7 +288,7 @@ class CoordinationMySqlTest {
     void simultaneousRecoveryClaimsAllowOnlyOneWorker() throws Exception {
         String url = System.getenv("COORDINATION_POC_URL");
         Assumptions.assumeTrue(url != null && !url.isBlank(), "Requires isolated PoC database");
-        try (var connection = DriverManager.getConnection(url, "poc", "poc")) {
+        try (var connection = CoordinationDb.connect(url)) {
             var store = new CoordinationStore(connection);
             store.initialize();
             for (var engine : CoordinationPoc.Engine.values()) {
@@ -311,10 +315,7 @@ class CoordinationMySqlTest {
     }
 
     private static int claimRecovery(String url, String id, String owner, CountDownLatch start) throws Exception {
-        var options = new java.util.Properties();
-        options.setProperty("user", "poc"); options.setProperty("password", "poc");
-        options.setProperty("connectTimeout", "5000"); options.setProperty("socketTimeout", "5000");
-        try (var connection = DriverManager.getConnection(url, options)) {
+        try (var connection = CoordinationDb.connect(url, 5000, 5000)) {
             start.await();
             return new CoordinationStore(connection).claimRecovery(id, owner, 0);
         }
@@ -324,7 +325,7 @@ class CoordinationMySqlTest {
     void saverWritesInBothSegmentsCommitOnlyWithFencedBusinessState() throws Exception {
         String url = System.getenv("COORDINATION_POC_URL");
         Assumptions.assumeTrue(url != null && !url.isBlank(), "Requires isolated PoC database");
-        try (var connection = DriverManager.getConnection(url, "poc", "poc")) {
+        try (var connection = CoordinationDb.connect(url)) {
             var store = new CoordinationStore(connection);
             store.initialize();
             String id = UUID.randomUUID().toString();
@@ -360,7 +361,7 @@ class CoordinationMySqlTest {
     void incompatibleRecordedSaverVersionStopsRecovery() throws Exception {
         String url = System.getenv("COORDINATION_POC_URL");
         Assumptions.assumeTrue(url != null && !url.isBlank(), "Requires isolated PoC database");
-        try (var connection = DriverManager.getConnection(url, "poc", "poc")) {
+        try (var connection = CoordinationDb.connect(url)) {
             var store = new CoordinationStore(connection);
             store.initialize();
             String id = UUID.randomUUID().toString();
@@ -383,7 +384,7 @@ class CoordinationMySqlTest {
     void processDeathDuringRecoveryKeepsSaverAndBusinessStateAtomic() throws Exception {
         String url = System.getenv("COORDINATION_POC_URL");
         Assumptions.assumeTrue(url != null && !url.isBlank(), "Requires isolated PoC database");
-        try (var connection = DriverManager.getConnection(url, "poc", "poc")) {
+        try (var connection = CoordinationDb.connect(url)) {
             var store = new CoordinationStore(connection);
             store.initialize();
             for (var engine : CoordinationPoc.Engine.values()) {

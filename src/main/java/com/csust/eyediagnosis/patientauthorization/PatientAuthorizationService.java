@@ -55,7 +55,7 @@ public class PatientAuthorizationService {
             Stored current = find(id, true);
             if (current != null) return checked(current, review, approved);
             String content = encode(content(approved));
-            jdbc.update("INSERT INTO t_patient_authorization (taskId,authorizationId,userId,taskVersion,draftVersion,evidenceVersion,materialDigest,contentDigest,content,expiresAt) VALUES (?,?,?,?,?,?,?,?,?,DATE_ADD(UTC_TIMESTAMP(6),INTERVAL 30 MINUTE))",
+            jdbc.update("INSERT INTO t_patient_authorization (taskId,authorizationId,userId,taskVersion,draftVersion,evidenceVersion,materialDigest,contentDigest,content,expiresAt) VALUES (?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP(6) + interval '30 minutes')",
                     id, UUID.randomUUID().toString(), owner, review.taskVersion() + 1, review.draftVersion(), review.evidenceVersion(),
                     review.materialDigest(), digest(content), content);
             return find(id, true).view;
@@ -122,7 +122,7 @@ public class PatientAuthorizationService {
 
     private void restrictLocked(String id) {
         jdbc.update("UPDATE t_patient_authorization SET status='RESTRICTED' WHERE taskId=? AND status='OFFERED'", id);
-        jdbc.update("UPDATE t_diagnosis_task SET status='RESTRICTED',version=version+1,updatedAt=CURRENT_TIMESTAMP(6) WHERE taskId=? AND BINARY status<>BINARY 'RESTRICTED'", id);
+        jdbc.update("UPDATE t_diagnosis_task SET status='RESTRICTED',version=version+1,updatedAt=CURRENT_TIMESTAMP(6) WHERE taskId=? AND status<> 'RESTRICTED'", id);
     }
 
     private String owned(String id, long owner) {

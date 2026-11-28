@@ -3,6 +3,7 @@ package com.csust.eyediagnosis.patientdraft;
 import com.csust.eyediagnosis.diagnosistask.InferenceSnapshot;
 import com.csust.eyediagnosis.controlledreference.ControlledEvidenceRetriever;
 import com.csust.eyediagnosis.grpc.DiagnosisProto;
+import com.csust.eyediagnosis.integration.LegacyGateSupport;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zaxxer.hikari.HikariDataSource;
 import org.junit.jupiter.api.AfterAll;
@@ -60,14 +61,13 @@ class PatientDraftTest {
 
     @BeforeEach
     void database() throws Exception {
-        String url = System.getenv("ISSUE19_TEST_URL");
-        org.junit.jupiter.api.Assumptions.assumeTrue(url != null, "Requires isolated ISSUE19_TEST_URL");
-        if (!url.matches("jdbc:mysql://127\\.0\\.0\\.1:[0-9]+/issue19_test")) throw new IllegalArgumentException("Isolated database required");
+        String url = LegacyGateSupport.assumeIsolated(System.getenv("ISSUE19_TEST_URL"), "ISSUE19_TEST_URL", "issue19_test");
         if (pool == null) {
             pool = new HikariDataSource();
-            pool.setJdbcUrl(url);
-            pool.setUsername("issue19");
-            pool.setPassword("issue19");
+            pool.setJdbcUrl(LegacyGateSupport.jdbcUrl(url));
+            String[] credentials = LegacyGateSupport.credentials(url);
+            pool.setUsername(credentials[0]);
+            pool.setPassword(credentials[1]);
             pool.setMaximumPoolSize(16);
             pool.setMinimumIdle(1);
             pool.setConnectionTimeout(20_000);
@@ -75,23 +75,25 @@ class PatientDraftTest {
         }
         DataSource ds = pool;
         jdbc = new JdbcTemplate(ds);
-        for (String migration : List.of("V18__diagnosis_task.sql", "V19__controlled_reference.sql", "V20__patient_draft.sql")) {
-            String table = migration.startsWith("V10") ? "t_diagnosis_task" : migration.startsWith("V11") ? "t_controlled_reference" : "t_patient_draft_run";
-            if (jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=?", Integer.class, table) == 0) {
-                new ResourceDatabasePopulator(new ClassPathResource("db/migration/" + migration)).execute(ds);
+        LegacyGateSupport.ensureSchema(url, ds, java.util.List.of(), () -> {
+            for (String migration : List.of("V18__diagnosis_task.sql", "V19__controlled_reference.sql", "V20__patient_draft.sql")) {
+                String table = migration.startsWith("V10") ? "t_diagnosis_task" : migration.startsWith("V11") ? "t_controlled_reference" : "t_patient_draft_run";
+                if (jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=?", Integer.class, table) == 0) {
+                    new ResourceDatabasePopulator(new ClassPathResource("db/migration/" + migration)).execute(ds);
+                }
             }
-        }
-        // V33 只加一列，不建表：按列存在性补齐，不能靠上面的建表守卫。
-        com.csust.eyediagnosis.integration.DiagnosisTaskSchemaFixture.apply(ds, jdbc);
-        // V16 alters an existing table, so it is keyed on its own column rather than on table existence.
-        if (jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() "
-                + "AND table_name='t_patient_draft_message' AND column_name='startedAt'", Integer.class) == 0) {
-            new ResourceDatabasePopulator(new ClassPathResource("db/migration/V23__patient_draft_message_timing.sql")).execute(ds);
-        }
-        if (jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() "
-                + "AND table_name='t_patient_draft_run' AND column_name='workflowVersion'", Integer.class) == 0) {
-            new ResourceDatabasePopulator(new ClassPathResource("db/migration/V24__autonomous_draft_workflow.sql")).execute(ds);
-        }
+            // V33 只加一列，不建表：按列存在性补齐，不能靠上面的建表守卫。
+            com.csust.eyediagnosis.integration.DiagnosisTaskSchemaFixture.apply(ds, jdbc);
+            // V16 alters an existing table, so it is keyed on its own column rather than on table existence.
+            if (jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() "
+                    + "AND table_name='t_patient_draft_message' AND column_name='startedAt'", Integer.class) == 0) {
+                new ResourceDatabasePopulator(new ClassPathResource("db/migration/V23__patient_draft_message_timing.sql")).execute(ds);
+            }
+            if (jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() "
+                    + "AND table_name='t_patient_draft_run' AND column_name='workflowVersion'", Integer.class) == 0) {
+                new ResourceDatabasePopulator(new ClassPathResource("db/migration/V24__autonomous_draft_workflow.sql")).execute(ds);
+            }
+        });
         jdbc.update("DELETE FROM t_patient_draft_message");
         jdbc.update("DELETE FROM t_patient_draft_version");
         jdbc.update("DELETE FROM t_patient_evidence_version");
@@ -106,9 +108,10 @@ class PatientDraftTest {
                 .setCalibrationStatus("NOT_CALIBRATED").setQualityScore(80).build();
         String snapshot = InferenceSnapshot.write(new InferenceSnapshot.Identity(taskId, 42,
                 "diagnosis-task/private-image", "v1", "b".repeat(64), "png"), response);
-        jdbc.update("INSERT INTO t_diagnosis_task (taskId,userId,idempotencyKey,requestDigest,imageDigest,objectKey,objectVersion,imageFormat,status,inferenceSnapshot,createdAt,updatedAt) VALUES (?,42,?,?,?,?,'v1','png','WAITING_REVIEW',?,NOW(6),NOW(6))",
+        jdbc.update("INSERT INTO t_diagnosis_task (taskId,userId,idempotencyKey,requestDigest,imageDigest,objectKey,objectVersion,imageFormat,status,inferenceSnapshot,createdAt,updatedAt) VALUES (?,42,?,?,?,?,'v1','png','WAITING_REVIEW',?," + LegacyGateSupport.now() + "," + LegacyGateSupport.now() + ")",
                 taskId, taskId, "a".repeat(64), "b".repeat(64), "diagnosis-task/private-image", snapshot);
-        jdbc.update("INSERT INTO t_controlled_reference (id,title,source,fileName,documentVersion,fileContent,isTest,visibility,reviewStatus,diseaseCodes,topicCodes,reviewedBy,uploadedBy) VALUES (?,'Synthetic reference','synthetic.invalid','test.txt',?,?,0,'CURATED_PUBLIC','APPROVED',JSON_ARRAY('GLAUCOMA'),JSON_ARRAY('PATIENT_EXPLANATION'),2,1)",
+        jdbc.update("INSERT INTO t_controlled_reference (id,title,source,fileName,documentVersion,fileContent,isTest,visibility,reviewStatus,diseaseCodes,topicCodes,reviewedBy,uploadedBy) VALUES (?,'Synthetic reference','synthetic.invalid','test.txt',?,?,0,'CURATED_PUBLIC','APPROVED',"
+                + LegacyGateSupport.jsonArray(ds, "GLAUCOMA") + "," + LegacyGateSupport.jsonArray(ds, "PATIENT_EXPLANATION") + ",2,1)",
                 documentId, "c".repeat(64), new byte[]{1});
         jdbc.update("INSERT INTO t_controlled_reference_chunk VALUES (?,0,?,?)", documentId, EXCERPT,
                 HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(EXCERPT.getBytes(StandardCharsets.UTF_8))));

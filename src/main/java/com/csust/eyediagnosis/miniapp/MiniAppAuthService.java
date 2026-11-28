@@ -1,6 +1,7 @@
 package com.csust.eyediagnosis.miniapp;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.csust.eyediagnosis.common.InsertRaceGuard;
 import com.csust.eyediagnosis.constant.AuthConstant;
 import com.csust.eyediagnosis.exception.BusinessException;
 import com.csust.eyediagnosis.exception.ErrorCode;
@@ -40,6 +41,7 @@ public class MiniAppAuthService {
     private final PasswordService passwordService;
     private final MiniAppTokenService tokenService;
     private final TransactionTemplate transactions;
+    private final InsertRaceGuard insertRaceGuard;
     private final SecureRandom random = new SecureRandom();
 
     public MiniAppAuthService(WeChatMiniAppProperties properties,
@@ -48,7 +50,8 @@ public class MiniAppAuthService {
                               UserMapper userMapper,
                               PasswordService passwordService,
                               MiniAppTokenService tokenService,
-                              PlatformTransactionManager transactionManager) {
+                              PlatformTransactionManager transactionManager,
+                              InsertRaceGuard insertRaceGuard) {
         this.properties = properties;
         this.weChatClient = weChatClient;
         this.bindingMapper = bindingMapper;
@@ -56,6 +59,7 @@ public class MiniAppAuthService {
         this.passwordService = passwordService;
         this.tokenService = tokenService;
         this.transactions = new TransactionTemplate(transactionManager);
+        this.insertRaceGuard = insertRaceGuard;
     }
 
     /**
@@ -143,14 +147,16 @@ public class MiniAppAuthService {
             user.setUserPassword(passwordService.encode(randomToken(32)));
             user.setUserName("微信用户");
             user.setUserRole(UserRole.USER.getValue());
-            try {
-                if (userMapper.insert(user) == 1) {
-                    return user;
-                }
-            } catch (DuplicateKeyException collision) {
-                // userAccount 是唯一键：预检看不到并发事务尚未提交的行，只能靠插入本身仲裁。
-                log.debug("微信账号 userAccount 冲突, 换后缀重试, attempt={}", attempt);
+            // 外层是事务（resolveUser 跑在 TransactionTemplate 里），重试插入必须走
+            // savepoint：PostgreSQL 上第一次撞键后事务即中止，不包 savepoint 的话
+            // 换后缀的第二次插入只会拿到 25P02，三次都白试。
+            java.util.concurrent.atomic.AtomicInteger affected = new java.util.concurrent.atomic.AtomicInteger();
+            if (insertRaceGuard.tryInsert(() -> affected.set(userMapper.insert(user)))
+                    && affected.get() == 1) {
+                return user;
             }
+            // userAccount 是唯一键：预检看不到并发事务尚未提交的行，只能靠插入本身仲裁。
+            log.debug("微信账号 userAccount 冲突或未写入, 换后缀重试, attempt={}", attempt);
         }
         throw new BusinessException(ErrorCode.SYSTEM_ERROR, "创建微信账号失败");
     }

@@ -132,7 +132,7 @@ public class NewsIngestionService {
     public void registerSourceConfig(String source, long sourceConfigVersion, String query, LocalDate initialCursor) {
         validateSourceAndConfig(source, sourceConfigVersion, query);
         transactions.executeWithoutResult(status -> {
-            jdbc.update("INSERT IGNORE INTO t_news_source (source, enabled) VALUES (?, 1)", source);
+            jdbc.update("INSERT INTO t_news_source (source, enabled) VALUES (?, 1) ON CONFLICT (source) DO NOTHING", source);
             CursorRow cursor = lockOrCreateCursorRow(source, sourceConfigVersion, query.trim(), initialCursor);
             if (initialCursor != null && cursor.committedCursor == null) {
                 if (Boolean.TRUE.equals(jdbc.queryForObject("""
@@ -163,7 +163,7 @@ public class NewsIngestionService {
             // Share the scheduler/claim source mutex so ownership cannot change during enqueue.
             jdbc.update("""
                     INSERT INTO t_news_source (source, enabled) VALUES (?, 1)
-                    ON DUPLICATE KEY UPDATE source = VALUES(source)
+                    ON CONFLICT (source) DO UPDATE SET source = EXCLUDED.source
                     """, source);
             insertWindow(taskId, source, sourceConfigVersion, trimmedQuery, startOn, endBefore, maxAttempts, "MANUAL");
             CursorRow cursor = lockOrCreateCursorRow(source, sourceConfigVersion, trimmedQuery, null);
@@ -206,12 +206,12 @@ public class NewsIngestionService {
             throw new IllegalArgumentException("Invalid retry attempt count");
         }
         return Boolean.TRUE.equals(auditedTaskTransactions.execute(status -> {
-            jdbc.update("INSERT IGNORE INTO t_news_source (source, enabled) VALUES (?, 1)", task.source());
+            jdbc.update("INSERT INTO t_news_source (source, enabled) VALUES (?, 1) ON CONFLICT (source) DO NOTHING", task.source());
             int reopened = jdbc.update("""
                     UPDATE t_news_collection_task
                     SET status = 'PENDING', maxAttempts = attemptCount + ?, nextAttemptAt = UTC_TIMESTAMP(6)
                     WHERE taskId = ? AND source = ? AND sourceConfigVersion = ?
-                      AND BINARY queryText = BINARY ? AND windowStartOn = ? AND windowEndBefore = ?
+                      AND queryText = ? AND windowStartOn = ? AND windowEndBefore = ?
                       AND status = 'FAILED' AND generation = ?
                     """, extraAttempts, task.taskId(), task.source(), task.sourceConfigVersion(), task.query(),
                     task.windowStartOn().toString(), task.windowEndBefore().toString(), task.generation());
@@ -230,7 +230,7 @@ public class NewsIngestionService {
         transactions.executeWithoutResult(status -> jdbc.update("""
                 INSERT INTO t_news_source (source, enabled)
                 VALUES (?, ?)
-                ON DUPLICATE KEY UPDATE enabled = VALUES(enabled)
+                ON CONFLICT (source) DO UPDATE SET enabled = EXCLUDED.enabled
                 """, source, enabled ? 1 : 0));
         return enabled;
     }
@@ -258,12 +258,16 @@ public class NewsIngestionService {
         try {
             jdbc.update("""
                     INSERT INTO t_news_worker_poll (workerId, lastPollAt, lastClaimAt, lastTaskId)
-                    VALUES (?, UTC_TIMESTAMP(6), IF(? IS NULL, NULL, UTC_TIMESTAMP(6)), ?)
-                    ON DUPLICATE KEY UPDATE lastPollAt = GREATEST(lastPollAt, VALUES(lastPollAt)),
-                        lastTaskId = IF(lastClaimAt IS NULL OR VALUES(lastClaimAt) >= lastClaimAt,
-                                        COALESCE(VALUES(lastTaskId), lastTaskId), lastTaskId),
-                        lastClaimAt = GREATEST(COALESCE(lastClaimAt, VALUES(lastClaimAt)),
-                                              COALESCE(VALUES(lastClaimAt), lastClaimAt))
+                    VALUES (?, UTC_TIMESTAMP(6),
+                            CASE WHEN ?::text IS NULL THEN NULL::timestamptz ELSE UTC_TIMESTAMP(6) END, ?)
+                    ON CONFLICT (workerId) DO UPDATE SET
+                        lastPollAt = GREATEST(t_news_worker_poll.lastPollAt, EXCLUDED.lastPollAt),
+                        lastTaskId = CASE WHEN t_news_worker_poll.lastClaimAt IS NULL
+                                           OR EXCLUDED.lastClaimAt >= t_news_worker_poll.lastClaimAt
+                                          THEN COALESCE(EXCLUDED.lastTaskId, t_news_worker_poll.lastTaskId)
+                                          ELSE t_news_worker_poll.lastTaskId END,
+                        lastClaimAt = GREATEST(COALESCE(t_news_worker_poll.lastClaimAt, EXCLUDED.lastClaimAt),
+                                               COALESCE(EXCLUDED.lastClaimAt, t_news_worker_poll.lastClaimAt))
                     """, workerId, taskId, taskId);
         } catch (DataAccessException ex) {
             log.warn("News worker poll observation failed: {}", ex.getClass().getSimpleName());
@@ -486,7 +490,7 @@ public class NewsIngestionService {
                         UPDATE t_news_collection_task
                         SET status = 'RETRY_SCHEDULED',
                             lastFailureCode = ?,
-                            nextAttemptAt = DATE_ADD(UTC_TIMESTAMP(6), INTERVAL ? MICROSECOND)
+                            nextAttemptAt = UTC_TIMESTAMP(6) + (? * interval '1 microsecond')
                         WHERE taskId = ?
                         """, fail.code().name(), backoffMicros, taskId);
             } else {
@@ -692,7 +696,7 @@ public class NewsIngestionService {
                     attemptCount = attemptCount + 1,
                     leaseTokenHash = ?,
                     leaseWorkerId = ?,
-                    leaseExpiresAt = DATE_ADD(UTC_TIMESTAMP(6), INTERVAL ? MICROSECOND)
+                    leaseExpiresAt = UTC_TIMESTAMP(6) + (? * interval '1 microsecond')
                 WHERE taskId = ?
                 """, nextGeneration, leaseTokenHash, worker.workerId(), leaseMicros, candidate.taskId);
 
@@ -812,8 +816,9 @@ public class NewsIngestionService {
     private CursorRow lockOrCreateCursorRow(String source, long sourceConfigVersion,
                                           String queryText, LocalDate initialCursor) {
         jdbc.update("""
-                INSERT IGNORE INTO t_news_source_cursor (source, sourceConfigVersion, queryText, committedCursor)
+                INSERT INTO t_news_source_cursor (source, sourceConfigVersion, queryText, committedCursor)
                 VALUES (?, ?, ?, ?)
+                ON CONFLICT (source, sourceConfigVersion) DO NOTHING
                 """, source, sourceConfigVersion, queryText, initialCursor);
         CursorRow cursor = jdbc.queryForObject("""
                 SELECT queryText, DATE_FORMAT(committedCursor, '%Y-%m-%d') AS committedCursor
@@ -871,9 +876,9 @@ public class NewsIngestionService {
                     INSERT INTO t_news_material
                         (source, sourceRecordId, latestContentDigest, firstSeenAt, lastSeenAt)
                     VALUES (?, ?, ?, ?, ?)
-                    ON DUPLICATE KEY UPDATE
-                        latestContentDigest = VALUES(latestContentDigest),
-                        lastSeenAt = VALUES(lastSeenAt)
+                    ON CONFLICT (source, sourceRecordId) DO UPDATE SET
+                        latestContentDigest = EXCLUDED.latestContentDigest,
+                        lastSeenAt = EXCLUDED.lastSeenAt
                     """, upsertArgs);
         }
 
@@ -912,11 +917,12 @@ public class NewsIngestionService {
                 });
             }
             jdbc.batchUpdate("""
-                    INSERT IGNORE INTO t_news_material_revision
+                    INSERT INTO t_news_material_revision
                         (materialId, source, sourceRecordId, contentDigest, url, title, language,
                          publishedOn, updatedOn, pmid, doi, abstractText, abstractLicense,
                          trialJson, canonicalJson, firstTaskId, firstGeneration, visibleAt)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (source, sourceRecordId, contentDigest) DO NOTHING
                     """, revArgs);
         }
 
@@ -1036,7 +1042,10 @@ public class NewsIngestionService {
                 rs.getString("leaseWorkerId"),
                 rs.getInt("attemptCount"),
                 rs.getInt("maxAttempts"),
-                rs.getInt("leaseActive") == 1
+                // 这个列是布尔表达式：MySQL 返回 0/1，PostgreSQL 返回 boolean，
+                // 按 int 读在 PG 上直接抛「Bad value for type int : t」。
+                // getBoolean 两种都认（pgjdbc 会把 int2/int4 读成 != 0）。
+                rs.getBoolean("leaseActive")
         );
     }
 

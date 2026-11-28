@@ -146,11 +146,11 @@ public class NewsCollectionScheduler {
         jdbc.update("""
                 INSERT INTO t_news_collection_schedule
                     (source, sourceConfigVersion, baselineCursor, evaluatedVersion, lastRunAt, nextRunAt, status, relatedTaskId)
-                VALUES (?, ?, ?, ?, UTC_TIMESTAMP(6), TIMESTAMPADD(MINUTE, ?, UTC_TIMESTAMP(6)), ?, ?)
-                ON DUPLICATE KEY UPDATE sourceConfigVersion = VALUES(sourceConfigVersion),
-                    baselineCursor = VALUES(baselineCursor), evaluatedVersion = VALUES(evaluatedVersion),
-                    lastRunAt = VALUES(lastRunAt), nextRunAt = VALUES(nextRunAt),
-                    status = VALUES(status), relatedTaskId = VALUES(relatedTaskId)
+                VALUES (?, ?, ?, ?, UTC_TIMESTAMP(6), UTC_TIMESTAMP(6) + (? * interval '1 minute'), ?, ?)
+                ON CONFLICT (source) DO UPDATE SET sourceConfigVersion = EXCLUDED.sourceConfigVersion,
+                    baselineCursor = EXCLUDED.baselineCursor, evaluatedVersion = EXCLUDED.evaluatedVersion,
+                    lastRunAt = EXCLUDED.lastRunAt, nextRunAt = EXCLUDED.nextRunAt,
+                    status = EXCLUDED.status, relatedTaskId = EXCLUDED.relatedTaskId
                 """, policy.source(), state.adoptedVersion(), state.baseline(), policy.sourceConfigVersion(),
                 policy.intervalMinutes(), status.name(), taskId);
     }

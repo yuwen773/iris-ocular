@@ -67,7 +67,7 @@ public class ControlledReferenceService {
             var chunks = chunker.chunk(content, Map.of());
             String id = UUID.randomUUID().toString();
             return transactions.execute(status -> {
-                jdbc.update("INSERT INTO t_controlled_reference (id,title,source,fileName,documentVersion,fileContent,isTest,diseaseCodes,topicCodes,uploadedBy) VALUES (?,?,?,?,?,?,?,JSON_ARRAY(),JSON_ARRAY(),?)",
+                jdbc.update("INSERT INTO t_controlled_reference (id,title,source,fileName,documentVersion,fileContent,isTest,diseaseCodes,topicCodes,uploadedBy) VALUES (?,?,?,?,?,?,?,'[]','[]',?)",
                         id, title.trim(), source.trim(), name, digest(bytes), bytes, isTest, actor.getId());
                 for (int i = 0; i < chunks.size(); i++) {
                     String text = chunks.get(i).getText();
@@ -172,7 +172,7 @@ public class ControlledReferenceService {
                 rs.getString("documentVersion"), rs.getLong("governanceVersion"), rs.getBoolean("isTest"),
                 rs.getString("visibility"), rs.getString("reviewStatus"), readCodes(rs.getString("diseaseCodes")),
                 readCodes(rs.getString("topicCodes")), rs.getBoolean("enabled"), rs.getLong("uploadedBy"),
-                rs.getObject("reviewedBy", Long.class), rs.getObject("reviewedAt", LocalDateTime.class), rs.getString("reviewNote"));
+                rs.getObject("reviewedBy", Long.class), com.csust.eyediagnosis.common.UtcTimestamps.read(rs, "reviewedAt"), rs.getString("reviewNote"));
     }
 
     private List<String> readCodes(String value) {

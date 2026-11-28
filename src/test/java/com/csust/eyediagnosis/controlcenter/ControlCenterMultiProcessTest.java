@@ -256,7 +256,7 @@ class ControlCenterMultiProcessTest {
                 Child child = spawn(List.of("approve", String.valueOf(approval.id()),
                                 "mp-7-request", String.valueOf(APPROVER_ID),
                                 "--spring.datasource.hikari.connection-init-sql="
-                                        + "SET SESSION innodb_lock_wait_timeout=2"),
+                                        + "SET lock_timeout = 2000"),
                         List.of());
                 Outcome outcome = child.awaitOutcome();
                 assertEquals("LOCK_TIMEOUT", outcome.status(),

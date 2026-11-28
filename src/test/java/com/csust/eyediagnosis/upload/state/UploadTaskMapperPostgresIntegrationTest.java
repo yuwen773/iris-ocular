@@ -1,5 +1,6 @@
 package com.csust.eyediagnosis.upload.state;
 
+import com.csust.eyediagnosis.integration.LegacyGateSupport;
 import com.csust.eyediagnosis.mapper.UploadTaskMapper;
 import com.csust.eyediagnosis.model.entity.UploadTask;
 import org.apache.ibatis.builder.xml.XMLMapperBuilder;
@@ -11,12 +12,11 @@ import org.apache.ibatis.session.SqlSession;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.apache.ibatis.session.SqlSessionFactoryBuilder;
 import org.apache.ibatis.transaction.jdbc.JdbcTransactionFactory;
-import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.util.List;
@@ -26,41 +26,34 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * 针对 {@code UploadTaskMapper.xml} 中"保留状态"过滤的真实 MySQL 回归测试。
+ * {@code UploadTaskMapper.xml} 里「保留状态」过滤的真实 PostgreSQL 回归测试。
  *
  * <p>这个过滤曾经写成 {@code status IN (1, 3)}，而实际落库的恒为 PERSISTED(2)，
  * 于是补偿对账会认为用户的所有图片都是孤儿并将其删除。缺陷在 SQL 里，
- * 纯 Mockito 单测覆盖不到，因此这里连真实 MySQL 跑一遍。
+ * 纯 Mockito 单测覆盖不到，因此这里连真实数据库跑一遍。
  *
- * <p>需要设置 {@code FLYWAY_TEST_URL} / {@code FLYWAY_TEST_USERNAME} /
- * {@code FLYWAY_TEST_PASSWORD}（可选 {@code FLYWAY_TEST_SCHEMA}，默认 {@code diagnosis_ci}）；
- * 未设置时整类跳过。
+ * <p>隔离库由 {@code BUSINESS_TEST_URL} 指定（库名必须叫 {@code business_test}）：
+ * 未设置时整类跳过，设置了但指向别的库时直接失败。schema 由 {@code db/postgresql}
+ * 的 Flyway 迁移建立——与生产走同一份迁移历史，不再借用已退役的 MySQL 线。
  */
-class UploadTaskMapperMySqlIntegrationTest {
+class UploadTaskMapperPostgresIntegrationTest {
 
-    private static final String NAMESPACE = "com.csust.eyediagnosis.mapper.UploadTaskMapper";
     private static final long TEST_USER_ID = 9_999_991L;
 
     private SqlSessionFactory sqlSessionFactory;
 
     @BeforeEach
     void setUp() throws Exception {
-        String url = System.getenv("FLYWAY_TEST_URL");
-        Assumptions.assumeTrue(url != null && !url.isBlank(),
-                "Set FLYWAY_TEST_URL to run the real MySQL upload-task gate");
-
-        String schema = envOrDefault("FLYWAY_TEST_SCHEMA", "diagnosis_ci");
-        Flyway.configure()
-                .dataSource(url, System.getenv("FLYWAY_TEST_USERNAME"), System.getenv("FLYWAY_TEST_PASSWORD"))
-                .schemas(schema)
-                .locations("classpath:db/migration", "classpath:db/callback")
-                .load()
-                .migrate();
+        String url = LegacyGateSupport.assumeIsolated(System.getenv("BUSINESS_TEST_URL"), "business_test");
+        DataSource dataSource = LegacyGateSupport.dataSource(url);
+        LegacyGateSupport.ensureSchema(url, dataSource, List.of(), () -> {
+            throw new IllegalStateException("BUSINESS_TEST_URL must point at PostgreSQL");
+        });
 
         Configuration configuration = new Configuration(new Environment(
                 "upload-task-it", new JdbcTransactionFactory(),
-                new UnpooledDataSource("com.mysql.cj.jdbc.Driver", url,
-                        System.getenv("FLYWAY_TEST_USERNAME"), System.getenv("FLYWAY_TEST_PASSWORD"))));
+                new UnpooledDataSource("org.postgresql.Driver", LegacyGateSupport.jdbcUrl(url),
+                        LegacyGateSupport.credentials(url)[0], LegacyGateSupport.credentials(url)[1])));
         configuration.setMapUnderscoreToCamelCase(false);
         new XMLMapperBuilder(
                 Resources.getResourceAsStream("mapper/UploadTaskMapper.xml"),
@@ -153,10 +146,5 @@ class UploadTaskMapperMySqlIntegrationTest {
             session.commit();
             return affected;
         }
-    }
-
-    private static String envOrDefault(String name, String fallback) {
-        String value = System.getenv(name);
-        return value == null || value.isBlank() ? fallback : value;
     }
 }

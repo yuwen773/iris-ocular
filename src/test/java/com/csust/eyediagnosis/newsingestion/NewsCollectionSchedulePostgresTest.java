@@ -4,21 +4,17 @@ import com.csust.eyediagnosis.config.JsonConfig;
 import com.csust.eyediagnosis.constant.AuthConstant;
 import com.csust.eyediagnosis.model.entity.User;
 import com.csust.eyediagnosis.newsworkbench.NewsWorkbenchModels.RetryTaskRequest;
+import com.csust.eyediagnosis.integration.LegacyGateSupport;
 import com.csust.eyediagnosis.newsworkbench.NewsWorkbenchService;
-import org.flywaydb.core.Flyway;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
-import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -28,15 +24,24 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-class NewsCollectionScheduleMySqlIntegrationTest {
+/**
+ * 自动采集调度的真实 PostgreSQL 回归：开关与初始游标闸门、双实例竞争只落一窗一审、
+ * 审计写失败回滚整个入队而不影响另一个信源。
+ *
+ * <p>原套件跑在一次性 MySQL 库上（原类名 {@code NewsCollectionScheduleMySqlIntegrationTest}）。
+ * 迁移只改方言：日期算术换成 PG 的 {@code CURRENT_DATE - 5}、时钟换成 {@code now()}、
+ * {@code SIGNAL SQLSTATE} 触发器换成 {@link LegacyGateSupport#createFailTriggerLike}（条件仍是
+ * 「只让 auto-pubmed- 前缀的任务审计失败」）。断言一条未改。
+ *
+ * <p>库由 {@code BUSINESS_TEST_URL} 指定（库名必须叫 {@code business_test}）。
+ */
+class NewsCollectionSchedulePostgresTest {
 
     private static final String SOURCE = "pubmed";
     private static final NewsWorkerIdentity WORKER = new NewsWorkerIdentity("worker-a", Set.of(SOURCE));
     private static final NewsWireCodec CODEC = new NewsWireCodec(JsonConfig.createNewsProtocolObjectMapper());
-    private static String schema;
-    private static JdbcTemplate admin;
     private static JdbcTemplate jdbc;
-    private static DriverManagerDataSource dataSource;
+    private static javax.sql.DataSource dataSource;
 
     private NewsIngestionProperties ingestionProperties;
     private NewsCollectionScheduleProperties scheduleProperties;
@@ -47,30 +52,19 @@ class NewsCollectionScheduleMySqlIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        String url = System.getenv("FLYWAY_TEST_URL");
-        Assumptions.assumeTrue(url != null && !url.isBlank(), "Requires the MySQL L2 harness");
-        if (jdbc == null) {
-            String username = System.getenv("FLYWAY_TEST_USERNAME");
-            String password = System.getenv("FLYWAY_TEST_PASSWORD");
-            schema = "diagnosis_ci_news_" + UUID.randomUUID().toString().replace("-", "");
-            admin = new JdbcTemplate(new DriverManagerDataSource(url, username, password));
-            admin.execute("CREATE DATABASE `" + schema + "`");
-            int params = url.indexOf('?');
-            String base = params < 0 ? url : url.substring(0, params);
-            String testUrl = base.substring(0, base.lastIndexOf('/') + 1) + schema
-                    + (params < 0 ? "" : url.substring(params));
-            dataSource = new DriverManagerDataSource(testUrl, username, password);
-            Flyway.configure().dataSource(dataSource).locations("classpath:db/migration", "classpath:db/callback")
-                    .load().migrate();
-            jdbc = new JdbcTemplate(dataSource);
-        }
+        String url = LegacyGateSupport.assumeIsolated(System.getenv("BUSINESS_TEST_URL"), "business_test");
+        dataSource = LegacyGateSupport.dataSource(url);
+        LegacyGateSupport.ensureSchema(url, dataSource, List.of(), () -> {
+            throw new IllegalStateException("BUSINESS_TEST_URL must point at PostgreSQL");
+        });
+        jdbc = new JdbcTemplate(dataSource);
         for (String table : List.of("t_news_worker_poll", "t_news_collection_task_event", "t_news_worker_receipt",
                 "t_news_collection_lease", "t_news_collection_task", "t_news_collection_schedule",
                 "t_news_source_cursor")) {
             jdbc.execute("DELETE FROM " + table);
         }
         jdbc.update("UPDATE t_news_source SET enabled = 1");
-        initial = jdbc.queryForObject("SELECT DATE_SUB(UTC_DATE(), INTERVAL 5 DAY)",
+        initial = jdbc.queryForObject("SELECT CURRENT_DATE - 5",
                 (rs, row) -> rs.getObject(1, LocalDate.class));
         ingestionProperties = new NewsIngestionProperties();
         ingestionProperties.setEnabled(true);
@@ -80,13 +74,6 @@ class NewsCollectionScheduleMySqlIntegrationTest {
         manager = new DataSourceTransactionManager(dataSource);
         ingestion = new NewsIngestionService(jdbc, manager, ingestionProperties, CODEC);
         scheduler = new NewsCollectionScheduler(jdbc, manager, ingestionProperties, scheduleProperties, ingestion);
-    }
-
-    @AfterAll
-    static void dropSchema() {
-        if (admin != null && schema != null) {
-            admin.execute("DROP DATABASE IF EXISTS `" + schema + "`");
-        }
     }
 
     @Test
@@ -120,8 +107,7 @@ class NewsCollectionScheduleMySqlIntegrationTest {
     @Test
     void twoInstancesAndRestartCreateOneWindowAndOneAudit() throws Exception {
         initialize();
-        DriverManagerDataSource secondSource = new DriverManagerDataSource(
-                dataSource.getUrl(), dataSource.getUsername(), dataSource.getPassword());
+        var secondSource = LegacyGateSupport.dataSource(System.getenv("BUSINESS_TEST_URL"));
         var secondJdbc = new JdbcTemplate(secondSource);
         var secondManager = new DataSourceTransactionManager(secondSource);
         var secondIngestion = new NewsIngestionService(secondJdbc, secondManager, ingestionProperties, CODEC);
@@ -253,14 +239,8 @@ class NewsCollectionScheduleMySqlIntegrationTest {
         initialize();
         ingestion.registerSourceConfig("europe-pmc", 1, "glaucoma", initial);
         scheduleProperties.setSources(List.of(policy(SOURCE, 1), policy("europe-pmc", 1)));
-        jdbc.execute("""
-                CREATE TRIGGER reject_pubmed_audit BEFORE INSERT ON t_news_collection_task_event
-                FOR EACH ROW BEGIN
-                    IF NEW.taskId LIKE 'auto-pubmed-%' THEN
-                        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'audit rejected by test';
-                    END IF;
-                END
-                """);
+        LegacyGateSupport.createFailTriggerLike(jdbc, "reject_pubmed_audit", "INSERT",
+                "t_news_collection_task_event", "taskId", "auto-pubmed-%", "audit rejected by test");
         try {
             scheduler.tick();
             assertEquals(1, automaticTasks());
@@ -270,7 +250,7 @@ class NewsCollectionScheduleMySqlIntegrationTest {
                     "SELECT COUNT(*) FROM t_news_collection_schedule WHERE source = 'pubmed'", Integer.class));
             assertEquals(initial, cursor(1));
         } finally {
-            jdbc.execute("DROP TRIGGER reject_pubmed_audit");
+            LegacyGateSupport.dropFailTrigger(jdbc, "reject_pubmed_audit", "t_news_collection_task_event");
         }
         scheduler.tick();
         assertEquals(2, automaticTasks());
@@ -306,7 +286,7 @@ class NewsCollectionScheduleMySqlIntegrationTest {
     }
 
     private void makeDue() {
-        jdbc.update("UPDATE t_news_collection_schedule SET nextRunAt = UTC_TIMESTAMP(6)");
+        jdbc.update("UPDATE t_news_collection_schedule SET nextRunAt = now()");
     }
 
     private String decision() {

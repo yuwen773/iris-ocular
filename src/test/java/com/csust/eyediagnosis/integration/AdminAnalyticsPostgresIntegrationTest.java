@@ -9,52 +9,42 @@ import com.csust.eyediagnosis.model.vo.stats.ReasonStatVO;
 import com.csust.eyediagnosis.model.vo.stats.StatusStatVO;
 import com.csust.eyediagnosis.service.AdminAnalyticsService;
 import com.csust.eyediagnosis.service.impl.AdminAnalyticsServiceImpl;
-import org.flywaydb.core.Flyway;
-import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.mybatis.spring.SqlSessionTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import javax.sql.DataSource;
 import java.util.List;
-import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * 分析聚合的真实 SQL 语义。
+ * 分析聚合的真实 SQL 语义（PostgreSQL）。
  *
  * <p>Mockito 只能验证装配，验证不了 {@code GROUP BY}、窗口函数分位、
- * {@code AVG(CASE WHEN ...)} 与 NULL 分组。这里打真 MySQL 8，用合成数据
- * 覆盖 B1 的四条边界：历史复核、量纲未知、两套原因过滤、契约外取值。
+ * {@code AVG(CASE WHEN ...)} 与 NULL 分组。这里打真实 PostgreSQL，
+ * 用合成数据覆盖 B1 的四条边界：历史复核、量纲未知、两套原因过滤、契约外取值。
  *
- * <p>需要 {@code FLYWAY_TEST_URL}（指向可建库的 MySQL 8 账号）；
- * 未设置时整类跳过，与既有集成测试一致。
+ * <p>原套件用 MySQL 的 {@code INTERVAL 1 DAY} 造时间差；PG 写成
+ * {@code INTERVAL '1 day'}——只改方言，断言的读数与阈值一字未动。
  */
-class AdminAnalyticsMySqlIntegrationTest {
+class AdminAnalyticsPostgresIntegrationTest {
 
     @Test
     void 分析读数在真实数据库上的口径() throws Exception {
-        String url = System.getenv("FLYWAY_TEST_URL");
-        Assumptions.assumeTrue(url != null && !url.isBlank(),
-                "Set FLYWAY_TEST_URL for the analytics SQL gate");
-        String username = System.getenv("FLYWAY_TEST_USERNAME");
-        String password = System.getenv("FLYWAY_TEST_PASSWORD");
-        String schema = "diagnosis_ci_analytics_" + UUID.randomUUID().toString().replace("-", "");
+        String url = LegacyGateSupport.assumeIsolated(System.getenv("BUSINESS_TEST_URL"), "business_test");
+        DataSource dataSource = LegacyGateSupport.dataSource(url);
+        LegacyGateSupport.ensureSchema(url, dataSource, List.of(), () -> {
+            throw new IllegalStateException("BUSINESS_TEST_URL must point at PostgreSQL");
+        });
 
-        JdbcTemplate admin = new JdbcTemplate(new DriverManagerDataSource(url, username, password));
-        admin.execute("CREATE DATABASE `" + schema + "`");
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         try {
-            String databaseUrl = url.replaceFirst("(?<=/)[^/?]+(?=\\?|$)", schema);
-            DriverManagerDataSource dataSource = new DriverManagerDataSource(databaseUrl, username, password);
-            Flyway.configure().dataSource(dataSource)
-                    .locations("classpath:db/migration", "classpath:db/callback")
-                    .load().migrate();
-
-            JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+            jdbc.update("DELETE FROM t_diagnosis");
+            jdbc.update("DELETE FROM t_user WHERE id IN (7,8)");
             seed(jdbc);
 
             MybatisConfiguration config = new MybatisConfiguration();
@@ -78,7 +68,8 @@ class AdminAnalyticsMySqlIntegrationTest {
             assertQuality(vo);
             assertStatuses(vo);
         } finally {
-            admin.execute("DROP DATABASE `" + schema + "`");
+            jdbc.update("DELETE FROM t_diagnosis");
+            jdbc.update("DELETE FROM t_user WHERE id IN (7,8)");
         }
     }
 
@@ -106,14 +97,14 @@ class AdminAnalyticsMySqlIntegrationTest {
                 + " humanReviewStatus, humanReviewerId, humanReviewedAt, qualityScore, qualityReasons, "
                 + " oodStatus, calibrationStatus, createTime, isDelete) VALUES "
                 + "('url-a', 1, '正常', 90,   0, NULL,             'm1', 'AI_ONLY',        NULL, NULL,                       100, NULL,            'NOT_EVALUATED', 'NOT_CALIBRATED', NOW(), 0), "
-                + "('url-b', 1, '正常', 0.74, 0, NULL,             'm1', 'AI_ONLY',        NULL, NULL,                        80, 'blur,contrast', 'NOT_EVALUATED', 'NOT_CALIBRATED', NOW() - INTERVAL 1 DAY, 0), "
-                + "('url-c', 1, NULL,   120,  1, 'QUALITY_FAIL',   'm1', 'AWAITING_REVIEW',NULL, NULL,                      NULL, NULL,            'NOT_EVALUATED', 'NOT_CALIBRATED', NOW() - INTERVAL 2 DAY, 0), "
-                + "('url-d', 1, NULL,   NULL, 1, 'ok',             'm1', 'REVIEWED',        7, NOW() - INTERVAL 1 DAY,     NULL, 'weird',         'NOT_EVALUATED', 'NOT_CALIBRATED', NOW() - INTERVAL 5 DAY, 0), "
-                + "('url-e', 1, '正常', 40,   0, 'LOW_CONFIDENCE', 'm1', 'OVERRIDDEN',      7, NOW() - INTERVAL 2 DAY,       75, NULL,            'NOT_EVALUATED', 'NOT_CALIBRATED', NOW() - INTERVAL 3 DAY, 0), "
-                + "('url-f', 1, '正常', 70,   0, NULL,             'm1', 'APPROVED',     NULL, NULL,                        50, NULL,            'NOT_EVALUATED', 'NOT_CALIBRATED', NOW() - INTERVAL 6 DAY, 0), "
-                + "('url-g', 1, '正常', 55,   0, NULL,             'm1', 'REVIEWED',        8, NULL,                        25, NULL,            'NOT_EVALUATED', 'NOT_CALIBRATED', NOW() - INTERVAL 7 DAY, 0), "
-                + "('url-h', 1, '正常', 55,   0, NULL,             NULL, 'AI_ONLY',        NULL, NULL,                         0, NULL,            'NOT_EVALUATED', 'NOT_CALIBRATED', NOW() - INTERVAL 8 DAY, 0), "
-                + "('url-i', 1, NULL,   1,    0, NULL,             'm1', 'AI_ONLY',        NULL, NULL,                       100, NULL,            'WEIRD',         NULL,             NOW() - INTERVAL 9 DAY, 0)");
+                + "('url-b', 1, '正常', 0.74, 0, NULL,             'm1', 'AI_ONLY',        NULL, NULL,                        80, 'blur,contrast', 'NOT_EVALUATED', 'NOT_CALIBRATED', NOW() - INTERVAL '1 day', 0), "
+                + "('url-c', 1, NULL,   120,  1, 'QUALITY_FAIL',   'm1', 'AWAITING_REVIEW',NULL, NULL,                      NULL, NULL,            'NOT_EVALUATED', 'NOT_CALIBRATED', NOW() - INTERVAL '2 days', 0), "
+                + "('url-d', 1, NULL,   NULL, 1, 'ok',             'm1', 'REVIEWED',        7, NOW() - INTERVAL '1 day',     NULL, 'weird',         'NOT_EVALUATED', 'NOT_CALIBRATED', NOW() - INTERVAL '5 days', 0), "
+                + "('url-e', 1, '正常', 40,   0, 'LOW_CONFIDENCE', 'm1', 'OVERRIDDEN',      7, NOW() - INTERVAL '2 days',       75, NULL,            'NOT_EVALUATED', 'NOT_CALIBRATED', NOW() - INTERVAL '3 days', 0), "
+                + "('url-f', 1, '正常', 70,   0, NULL,             'm1', 'APPROVED',     NULL, NULL,                        50, NULL,            'NOT_EVALUATED', 'NOT_CALIBRATED', NOW() - INTERVAL '6 days', 0), "
+                + "('url-g', 1, '正常', 55,   0, NULL,             'm1', 'REVIEWED',        8, NULL,                        25, NULL,            'NOT_EVALUATED', 'NOT_CALIBRATED', NOW() - INTERVAL '7 days', 0), "
+                + "('url-h', 1, '正常', 55,   0, NULL,             NULL, 'AI_ONLY',        NULL, NULL,                         0, NULL,            'NOT_EVALUATED', 'NOT_CALIBRATED', NOW() - INTERVAL '8 days', 0), "
+                + "('url-i', 1, NULL,   1,    0, NULL,             'm1', 'AI_ONLY',        NULL, NULL,                       100, NULL,            'WEIRD',         NULL,             NOW() - INTERVAL '9 days', 0)");
     }
 
     private static void assertWindow(AdminAnalyticsVO vo) {

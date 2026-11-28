@@ -5,6 +5,7 @@ import com.csust.eyediagnosis.grpc.DiagnosisGrpcClient;
 import com.csust.eyediagnosis.grpc.DiagnosisProto;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
+import com.csust.eyediagnosis.integration.LegacyGateSupport;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.mock.web.MockMultipartFile;
@@ -22,9 +23,16 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 class DiagnosisTaskRecoveryTest {
+    /** PostgreSQL 侧先建库；MySQL 侧保留各测试自己的建表路径（schema 由 ApiTest 的 BeforeEach 建）。 */
+    @org.junit.jupiter.api.BeforeEach
+    void ensureSchemaWhenConfigured() {
+        String url = System.getenv("ISSUE17_TEST_URL");
+        if (!LegacyGateSupport.isIsolated(url, "issue17_test")) return;
+        LegacyGateSupport.ensureSchema(url, LegacyGateSupport.dataSource(url), java.util.List.of(), () -> { });
+    }
     @Test
     void simultaneousExecutorsOnlyOneCanClaimTask() throws Exception {
-        var jdbc = new JdbcTemplate(new DriverManagerDataSource(System.getenv("ISSUE17_TEST_URL"), "issue17", "issue17"));
+        var jdbc = new JdbcTemplate(LegacyGateSupport.dataSource(System.getenv("ISSUE17_TEST_URL")));
         byte[] bytes = image();
         var storage = mock(DiagnosisTaskStorage.class);
         when(storage.upload(anyString(), any(), anyString())).thenReturn("v1");
@@ -55,7 +63,7 @@ class DiagnosisTaskRecoveryTest {
     @Test
     void resultCannotCommitAfterLeaseExpiresWhileWaitingForRowLock() throws Exception {
         String url = System.getenv("ISSUE17_TEST_URL");
-        var base = new DriverManagerDataSource(url, "issue17", "issue17");
+        var base = LegacyGateSupport.dataSource(url);
         var jdbc = new JdbcTemplate(base);
         var armed = new java.util.concurrent.atomic.AtomicBoolean();
         var waiting = new CountDownLatch(1);
@@ -89,7 +97,7 @@ class DiagnosisTaskRecoveryTest {
             assertTrue(entered.await(15, TimeUnit.SECONDS));
             try (var lock = base.getConnection()) {
                 lock.setAutoCommit(false);
-                try (var update = lock.prepareStatement("UPDATE t_diagnosis_task SET leaseUntil=TIMESTAMPADD(SECOND,1,CURRENT_TIMESTAMP(6)) WHERE taskId=?")) {
+                try (var update = lock.prepareStatement("UPDATE t_diagnosis_task SET leaseUntil=" + LegacyGateSupport.timestampPlusSeconds(base, 1) + " WHERE taskId=?")) {
                     update.setString(1, task.taskId()); update.executeUpdate();
                 }
                 release.countDown();
@@ -100,7 +108,7 @@ class DiagnosisTaskRecoveryTest {
                 // 执行顺序，1.6s 的边距在机器有负载时会翻成「租约还没过期」，
                 // 让这条医疗安全断言变成随机红绿灯。改到过去，两种取值顺序都对。
                 try (var expire = lock.prepareStatement(
-                        "UPDATE t_diagnosis_task SET leaseUntil=TIMESTAMPADD(SECOND,-5,CURRENT_TIMESTAMP(6)) WHERE taskId=?")) {
+                        "UPDATE t_diagnosis_task SET leaseUntil=" + LegacyGateSupport.timestampPlusSeconds(base, -5) + " WHERE taskId=?")) {
                     expire.setString(1, task.taskId()); expire.executeUpdate();
                 }
                 lock.commit();
@@ -115,7 +123,7 @@ class DiagnosisTaskRecoveryTest {
     }
     @Test
     void scheduledTickReturnsWhileInferenceIsBlockedAndDoesNotQueueDuplicates() throws Exception {
-        var jdbc = new JdbcTemplate(new DriverManagerDataSource(System.getenv("ISSUE17_TEST_URL"), "issue17", "issue17"));
+        var jdbc = new JdbcTemplate(LegacyGateSupport.dataSource(System.getenv("ISSUE17_TEST_URL")));
         byte[] bytes = image();
         var storage = mock(DiagnosisTaskStorage.class);
         when(storage.upload(anyString(), any(), anyString())).thenReturn("v1");
@@ -144,7 +152,7 @@ class DiagnosisTaskRecoveryTest {
     }
     @Test
     void unknownInternalStatesAreNeverClaimed() throws Exception {
-        var jdbc = new JdbcTemplate(new DriverManagerDataSource(System.getenv("ISSUE17_TEST_URL"), "issue17", "issue17"));
+        var jdbc = new JdbcTemplate(LegacyGateSupport.dataSource(System.getenv("ISSUE17_TEST_URL")));
         byte[] bytes = image();
         var storage = mock(DiagnosisTaskStorage.class);
         when(storage.upload(anyString(), any(), anyString())).thenReturn("v1");
@@ -166,7 +174,7 @@ class DiagnosisTaskRecoveryTest {
 
     @Test
     void unevaluatedOodIsRestrictedButPreservesBoundSnapshot() throws Exception {
-        var jdbc = new JdbcTemplate(new DriverManagerDataSource(System.getenv("ISSUE17_TEST_URL"), "issue17", "issue17"));
+        var jdbc = new JdbcTemplate(LegacyGateSupport.dataSource(System.getenv("ISSUE17_TEST_URL")));
         byte[] bytes = image();
         var storage = mock(DiagnosisTaskStorage.class);
         when(storage.upload(anyString(), any(), anyString())).thenReturn("v1");
@@ -187,7 +195,7 @@ class DiagnosisTaskRecoveryTest {
     @Test
     void processDeathAroundReservationAndResultCommitRecoversConservatively() throws Exception {
         String url = System.getenv("ISSUE17_TEST_URL");
-        var jdbc = new JdbcTemplate(new DriverManagerDataSource(url, "issue17", "issue17"));
+        var jdbc = new JdbcTemplate(LegacyGateSupport.dataSource(url));
         byte[] bytes = image();
         var storage = mock(DiagnosisTaskStorage.class);
         when(storage.upload(anyString(), any(), anyString())).thenReturn("v1");
@@ -217,7 +225,7 @@ class DiagnosisTaskRecoveryTest {
     @Test
     void explicitInvalidArgumentDoesNotRetry() throws Exception {
         String url = System.getenv("ISSUE17_TEST_URL");
-        var jdbc = new JdbcTemplate(new DriverManagerDataSource(url, "issue17", "issue17"));
+        var jdbc = new JdbcTemplate(LegacyGateSupport.dataSource(url));
         byte[] bytes = image();
         var storage = mock(DiagnosisTaskStorage.class);
         when(storage.upload(anyString(), any(), anyString())).thenReturn("v1");
@@ -236,16 +244,16 @@ class DiagnosisTaskRecoveryTest {
     @org.junit.jupiter.api.BeforeEach
     void prepareDatabase() {
         String url = System.getenv("ISSUE17_TEST_URL");
-        Assumptions.assumeTrue(url != null && url.matches("jdbc:mysql://127\\.0\\.0\\.1:[0-9]+/issue17_test"));
-        var dataSource = new DriverManagerDataSource(url, "issue17", "issue17");
+        Assumptions.assumeTrue(url != null && LegacyGateSupport.isIsolated(url, "issue17_test"));
+        var dataSource = LegacyGateSupport.dataSource(url);
         var jdbc = new JdbcTemplate(dataSource);
-        com.csust.eyediagnosis.integration.DiagnosisTaskSchemaFixture.apply(dataSource, jdbc);
+        LegacyGateSupport.ensureSchema(url, dataSource, java.util.List.of(), () -> com.csust.eyediagnosis.integration.DiagnosisTaskSchemaFixture.apply(dataSource, jdbc));
     }
     @Test
     void failuresAndUncertainCallsRespectTheBudget() throws Exception {
         String url = System.getenv("ISSUE17_TEST_URL");
-        Assumptions.assumeTrue(url != null && url.matches("jdbc:mysql://127\\.0\\.0\\.1:[0-9]+/issue17_test"));
-        var jdbc = new JdbcTemplate(new DriverManagerDataSource(url, "issue17", "issue17"));
+        Assumptions.assumeTrue(url != null && LegacyGateSupport.isIsolated(url, "issue17_test"));
+        var jdbc = new JdbcTemplate(LegacyGateSupport.dataSource(url));
         byte[] bytes = image();
         var storage = mock(DiagnosisTaskStorage.class);
         when(storage.upload(anyString(), any(), anyString())).thenReturn("v1");
@@ -269,8 +277,8 @@ class DiagnosisTaskRecoveryTest {
     @Test
     void changedObjectAndRejectionAreRestrictedWithoutRetry() throws Exception {
         String url = System.getenv("ISSUE17_TEST_URL");
-        Assumptions.assumeTrue(url != null && url.matches("jdbc:mysql://127\\.0\\.0\\.1:[0-9]+/issue17_test"));
-        var jdbc = new JdbcTemplate(new DriverManagerDataSource(url, "issue17", "issue17"));
+        Assumptions.assumeTrue(url != null && LegacyGateSupport.isIsolated(url, "issue17_test"));
+        var jdbc = new JdbcTemplate(LegacyGateSupport.dataSource(url));
         byte[] bytes = image();
         var storage = mock(DiagnosisTaskStorage.class);
         when(storage.upload(anyString(), any(), anyString())).thenReturn("v1");
@@ -301,8 +309,8 @@ class DiagnosisTaskRecoveryTest {
     @Test
     void expiredExecutorCannotReplaceRecoveredSnapshot() throws Exception {
         String url = System.getenv("ISSUE17_TEST_URL");
-        Assumptions.assumeTrue(url != null && url.matches("jdbc:mysql://127\\.0\\.0\\.1:[0-9]+/issue17_test"));
-        var jdbc = new JdbcTemplate(new DriverManagerDataSource(url, "issue17", "issue17"));
+        Assumptions.assumeTrue(url != null && LegacyGateSupport.isIsolated(url, "issue17_test"));
+        var jdbc = new JdbcTemplate(LegacyGateSupport.dataSource(url));
         byte[] bytes = image();
         var storage = mock(DiagnosisTaskStorage.class);
         when(storage.upload(anyString(), any(), anyString())).thenReturn("v1");

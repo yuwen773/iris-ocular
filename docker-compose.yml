@@ -3,10 +3,41 @@ name: eye-diagnosis
 # 持续开发服务（不是测试资源）：数据库卷必须长期保留。
 # 测试入口用 scripts/lib/docker-test-harness.sh 的 eye.* 标签区分所有权；
 # scripts/docker-test-resources.sh 把本 compose 项目整体列为 PROTECTED_DEV。
+#
+# 2026-11 数据库迁移后：PostgreSQL 18 + pgvector 是默认数据服务；
+# Chroma 只在 legacy-chroma profile 下作为迁移对照工具启动，不再是运行依赖。
 services:
+  postgres:
+    image: pgvector/pgvector:pg18@sha256:38681dc6eaf55308e2a4c6de392d131652dcfac70e1263e35cd9b5ea3fe39782
+    pull_policy: missing
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: iris
+      POSTGRES_PASSWORD: ${IRIS_DB_SUPERUSER_PASSWORD:-iris-dev-superuser}
+      IRIS_MIGRATOR_PASSWORD: ${IRIS_DB_MIGRATOR_PASSWORD:-iris-dev-migrator}
+      IRIS_APP_PASSWORD: ${IRIS_DB_APP_PASSWORD:-iris-dev-app}
+    # PostgreSQL 18 官方镜像把 PGDATA 放在 /var/lib/postgresql/18/docker，
+    # 规范挂载点是 /var/lib/postgresql（不是 17 及之前的 /var/lib/postgresql/data）。
+    volumes:
+      - postgres-data:/var/lib/postgresql
+      - ./scripts/postgresql/bootstrap-roles.sql:/opt/iris/bootstrap-roles.sql:ro
+      - ./scripts/postgresql/docker-init/10-bootstrap.sh:/docker-entrypoint-initdb.d/10-bootstrap.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d iris"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    labels:
+      eye.owner: eye-diagnosis
+      eye.kind: dev-service
+      eye.protected: "true"
+
   chroma:
+    # 迁移对照工具：只在显式 `docker compose --profile legacy-chroma up` 时启动。
+    # 生产与测试都不再依赖它；旧数据卷不删除（migration 对照与回滚核查要用）。
+    profiles: ["legacy-chroma"]
     image: ghcr.io/chroma-core/chroma:1.0.0
-    # 本地已有该镜像时不再重复拉取；CI 的 services 不走这里。
     pull_policy: missing
     ports:
       - "8000:8000"
@@ -20,6 +51,11 @@ services:
       eye.protected: "true"
 
 volumes:
+  postgres-data:
+    labels:
+      eye.owner: eye-diagnosis
+      eye.kind: dev-service
+      eye.protected: "true"
   chroma-data:
     labels:
       eye.owner: eye-diagnosis

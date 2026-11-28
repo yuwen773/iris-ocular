@@ -47,7 +47,7 @@ def main():
         'evidenceKind': 'SYNTHETIC_UPSTREAM_REAL_PROVIDER',
         'runs': query('SELECT taskId,status,stopReason,callCount,supplementCount,rewriteCount FROM t_patient_draft_run ORDER BY startedAt'),
         'drafts': query('SELECT taskId,version,evidenceVersion FROM t_patient_draft_version ORDER BY taskId,version'),
-        'evidence': query('SELECT taskId,version,JSON_LENGTH(citations) AS citationCount FROM t_patient_evidence_version ORDER BY taskId,version'),
+        'evidence': query('SELECT taskId,version,CASE WHEN jsonb_typeof(citations) = 'array' THEN jsonb_array_length(citations) ELSE 0 END AS citationCount FROM t_patient_evidence_version ORDER BY taskId,version'),
         'publicEvents': query('SELECT runId,seq,type,actor,visibility,payloadJson FROM t_agent_collab_event ORDER BY runId,seq'),
         'sideEffects': query('SELECT (SELECT COUNT(*) FROM t_doctor_review) AS reviewCount,(SELECT COUNT(*) FROM t_patient_authorization) AS authorizationCount,(SELECT COUNT(*) FROM t_diagnosis) AS diagnosisCount'),
     }

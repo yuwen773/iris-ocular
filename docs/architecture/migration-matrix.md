@@ -1,4 +1,14 @@
-# Flyway 迁移矩阵（Java 线）
+# Flyway 迁移矩阵（Java 线 · 历史 MySQL 线）
+
+> **2026-11-28 起 Java 线已迁到 PostgreSQL 18 + pgvector**，独立迁移历史在
+> `src/main/resources/db/postgresql/V*.sql`（当前 V7），入口 `scripts/verify-pg.sh`。
+> `db/migration/V*.sql` 只保留为历史记录，本文件描述的 MySQL 版本与升级路径**仅对迁移前的
+> 旧库有效**；新部署与升级不要按本文件操作，见
+> `docs/architecture/postgresql-pgvector-migration-report-2026-11-28.md`。
+>
+> **本文件引用的 `FlywayMySqlIntegrationTest` 已删除**（2026-11-28 M7 轮次：它断言的对象是退役的
+> MySQL 历史 `db/migration`，业务套件已整体重新基线到 PG 线）。下面提到它的方法名与演练命令
+> 只作历史记录；要复跑旧历史，请从迁移前的 tag/提交里取出该套件。
 
 本文件记录 `codex/realtime-product-acceptance` 与 `master` 的迁移历史整合方式。执行任何数据库升级前，先按目标库的 `flyway_schema_history` 对照本矩阵。
 

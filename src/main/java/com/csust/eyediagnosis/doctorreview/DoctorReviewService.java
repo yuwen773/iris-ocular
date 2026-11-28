@@ -63,7 +63,7 @@ public class DoctorReviewService {
             lockTask(frozen.taskId());
             Frozen current = freeze(frozen.taskId());
             if (!current.equals(frozen)) throw new ReviewConflict("任务材料已变化，请重新分配");
-            var doctors = jdbc.queryForList("SELECT id FROM t_user WHERE id=? AND BINARY userRole=BINARY 'doctor' AND isDelete=0 FOR UPDATE", doctorId);
+            var doctors = jdbc.queryForList("SELECT id FROM t_user WHERE id=? AND userRole= 'doctor' AND isDelete=0 FOR UPDATE", doctorId);
             if (doctors.size() != 1 || doctorId == current.owner()) throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "须分配给非患者本人的医生");
             var existing = jdbc.query("SELECT * FROM t_doctor_review WHERE taskId=? FOR UPDATE", this::map, current.taskId());
             if (!existing.isEmpty()) {
@@ -197,7 +197,7 @@ public class DoctorReviewService {
         } catch (ControlledEvidenceRetriever.EvidenceUnavailable | ReviewConflict invalid) {
             if (restrictInvalid) transactions.executeWithoutResult(tx -> {
                 jdbc.queryForList("SELECT taskId FROM t_diagnosis_task WHERE taskId=? AND userId=? FOR UPDATE", canonicalId, owner);
-                jdbc.update("UPDATE t_diagnosis_task SET status='RESTRICTED',version=version+1,updatedAt=CURRENT_TIMESTAMP(6) WHERE taskId=? AND userId=? AND BINARY status<>BINARY 'RESTRICTED'", canonicalId, owner);
+                jdbc.update("UPDATE t_diagnosis_task SET status='RESTRICTED',version=version+1,updatedAt=CURRENT_TIMESTAMP(6) WHERE taskId=? AND userId=? AND status<> 'RESTRICTED'", canonicalId, owner);
             });
             return null;
         }
@@ -256,7 +256,7 @@ public class DoctorReviewService {
         } catch (Exception e) { throw new ReviewConflict("推理快照无效"); }
         return new Frozen(id, ((Number) task.get("userId")).longValue(), ((Number) task.get("version")).longValue(),
                 ((Number) draft.get("version")).intValue(), evidenceVersion,
-                new Materials(inferenceDigest, digest(encode(input)), disease, tree((String) draft.get("draft")), citations.getFirst(), messages));
+                new Materials(inferenceDigest, digest(encode(input)), disease, tree(Objects.toString(draft.get("draft"))), citations.getFirst(), messages));
     }
 
     private void authorize(User doctor, Detail review) {

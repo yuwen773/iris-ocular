@@ -87,7 +87,8 @@ public class ProductAcceptanceServer {
         ReflectionTestUtils.setField(users, "passwordService", new com.csust.eyediagnosis.security.PasswordService());
         var queue = new SessionMessageQueue(2);
         var messageWriter = new com.csust.eyediagnosis.agent.service.ChatMessageWriter(
-                mappers.getMapper(AgentSessionMapper.class), mappers.getMapper(AgentMessageMapper.class), new AgentConstants());
+                mappers.getMapper(AgentSessionMapper.class), mappers.getMapper(AgentMessageMapper.class), new AgentConstants(),
+                new com.csust.eyediagnosis.common.InsertRaceGuard(null));
         var history = new ChatHistoryService(mappers.getMapper(AgentSessionMapper.class), mappers.getMapper(AgentMessageMapper.class), JSON, queue, messageWriter);
         history.setTitleGenerationService(org.mockito.Mockito.mock(com.csust.eyediagnosis.agent.service.TitleGenerationService.class));
         var storage = new DiagnosisTaskStorage() {

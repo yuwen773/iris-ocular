@@ -106,10 +106,10 @@ public class NewsCurationService {
                 INSERT INTO t_news_curation_budget
                     (budgetDate, scope, maxCalls, maxTokens, maxCostMicros)
                 VALUES (?, ?, ?, ?, ?)
-                ON DUPLICATE KEY UPDATE
-                    maxCalls = VALUES(maxCalls),
-                    maxTokens = VALUES(maxTokens),
-                    maxCostMicros = VALUES(maxCostMicros)
+                ON CONFLICT (budgetDate, scope) DO UPDATE SET
+                    maxCalls = EXCLUDED.maxCalls,
+                    maxTokens = EXCLUDED.maxTokens,
+                    maxCostMicros = EXCLUDED.maxCostMicros
                 """, budgetDate.toString(), normalizedScope, maxCalls, maxTokens, maxCostMicros));
     }
 
@@ -562,16 +562,20 @@ public class NewsCurationService {
         NewsCurationModels.LifetimeBudget lifetime = lockLifetimeBudget();
         String logical = prepared == null ? null : prepared.logicalCallSha256();
 
-        List<ReceiptRow> existingReceipts = jdbc.query("""
-                SELECT callId, materialRevisionId, policyVersion, attemptNo,
-                       DATE_FORMAT(budgetDate, '%Y-%m-%d') AS budgetDate, budgetScope,
-                       state, reservedTokens, reservedCostMicros, callIdentityJson
-                FROM t_news_model_call_receipt
-                WHERE materialRevisionId = ? AND policyVersion = ?
-                   AND ((? IS NULL AND logicalCallSha256 IS NULL) OR logicalCallSha256 = ?)
-                ORDER BY attemptNo ASC
-                FOR UPDATE
-                """, (rs, rowNum) -> mapReceiptRow(rs), revision.revisionId(), policyVersion, logical, logical);
+        // 这里不能写「? IS NULL」：PostgreSQL 无法从未定型参数推断类型（could not
+        // determine data type of parameter），而 MySQL 又不认 PG 的 ?::text 写法。
+        // 两边都合法的做法是：空/非空两个分支各写一段谓词，在 Java 侧选，参数也随之少一个。
+        // 拼接而不是 formatted()：DATE_FORMAT 里的 %Y 会被 String.format 当成转换符。
+        String receiptPredicate = logical == null ? "logicalCallSha256 IS NULL" : "logicalCallSha256 = ?";
+        String receiptSql = "SELECT callId, materialRevisionId, policyVersion, attemptNo, "
+                + "DATE_FORMAT(budgetDate, '%Y-%m-%d') AS budgetDate, budgetScope, "
+                + "state, reservedTokens, reservedCostMicros, callIdentityJson "
+                + "FROM t_news_model_call_receipt "
+                + "WHERE materialRevisionId = ? AND policyVersion = ? "
+                + "AND " + receiptPredicate + " "
+                + "ORDER BY attemptNo ASC FOR UPDATE";
+        List<ReceiptRow> existingReceipts = jdbc.query(receiptSql,
+                (rs, rowNum) -> mapReceiptRow(rs), receiptArgs(revision.revisionId(), policyVersion, logical));
 
         Optional<NewsCurationModels.CurationResult> existingCandidate = prepared != null ? Optional.empty() : jdbc.query("""
                 SELECT callId, status, decision, evidenceTier, relevanceScore,
@@ -655,7 +659,7 @@ public class NewsCurationService {
                      budgetDate, budgetScope, provider, modelName, promptSha256, state,
                      reservedTokens, reservedCostMicros, logicalCallSha256, callIdentityJson, reservedAt, deadlineAt)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'RESERVED', ?, ?, ?, ?, UTC_TIMESTAMP(6),
-                        DATE_ADD(UTC_TIMESTAMP(6), INTERVAL ? MICROSECOND))
+                        UTC_TIMESTAMP(6) + (? * interval '1 microsecond'))
                 """,
                 callId, idempotencyKey, revision.revisionId(), policyVersion, nextAttempt,
                 budgetDate.toString(), budgetScope, request.provider(), request.modelName(),
@@ -934,20 +938,20 @@ public class NewsCurationService {
                      suggestedTitle, suggestedSummary, category, limitationsJson, claimsJson,
                      violationsJson, evidenceSnapshotJson, evidenceSnapshotSha256)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON DUPLICATE KEY UPDATE
-                    callId = VALUES(callId),
-                    status = VALUES(status),
-                    decision = VALUES(decision),
-                    evidenceTier = VALUES(evidenceTier),
-                    relevanceScore = VALUES(relevanceScore),
-                    suggestedTitle = VALUES(suggestedTitle),
-                    suggestedSummary = VALUES(suggestedSummary),
-                    category = VALUES(category),
-                    limitationsJson = VALUES(limitationsJson),
-                    claimsJson = VALUES(claimsJson),
-                    violationsJson = VALUES(violationsJson),
-                    evidenceSnapshotJson = VALUES(evidenceSnapshotJson),
-                    evidenceSnapshotSha256 = VALUES(evidenceSnapshotSha256)
+                ON CONFLICT (activekey) DO UPDATE SET
+                    callId = EXCLUDED.callId,
+                    status = EXCLUDED.status,
+                    decision = EXCLUDED.decision,
+                    evidenceTier = EXCLUDED.evidenceTier,
+                    relevanceScore = EXCLUDED.relevanceScore,
+                    suggestedTitle = EXCLUDED.suggestedTitle,
+                    suggestedSummary = EXCLUDED.suggestedSummary,
+                    category = EXCLUDED.category,
+                    limitationsJson = EXCLUDED.limitationsJson,
+                    claimsJson = EXCLUDED.claimsJson,
+                    violationsJson = EXCLUDED.violationsJson,
+                    evidenceSnapshotJson = EXCLUDED.evidenceSnapshotJson,
+                    evidenceSnapshotSha256 = EXCLUDED.evidenceSnapshotSha256
                 """,
                 snapshot.materialId(), snapshot.materialRevisionId(), snapshot.source(),
                 snapshot.sourceRecordId(), snapshot.contentDigest(), policyVersion, callId,
@@ -966,12 +970,12 @@ public class NewsCurationService {
                     (materialId, materialRevisionId, source, sourceRecordId, contentDigest,
                      policyVersion, callId, status, evidenceTier, evidenceSnapshotJson, evidenceSnapshotSha256)
                 VALUES (?, ?, ?, ?, ?, ?, ?, 'NEEDS_RECONCILIATION', ?, ?, ?)
-                ON DUPLICATE KEY UPDATE
-                    callId = VALUES(callId),
+                ON CONFLICT (activekey) DO UPDATE SET
+                    callId = EXCLUDED.callId,
                     status = 'NEEDS_RECONCILIATION',
-                    evidenceTier = VALUES(evidenceTier),
-                    evidenceSnapshotJson = VALUES(evidenceSnapshotJson),
-                    evidenceSnapshotSha256 = VALUES(evidenceSnapshotSha256)
+                    evidenceTier = EXCLUDED.evidenceTier,
+                    evidenceSnapshotJson = EXCLUDED.evidenceSnapshotJson,
+                    evidenceSnapshotSha256 = EXCLUDED.evidenceSnapshotSha256
                 """,
                 snapshot.materialId(), snapshot.materialRevisionId(), snapshot.source(),
                 snapshot.sourceRecordId(), snapshot.contentDigest(), policyVersion, callId,
@@ -993,15 +997,17 @@ public class NewsCurationService {
         jdbc.update("""
                 INSERT INTO t_news_curation_budget_guard (budgetDate, maxCalls, maxTokens, maxCostMicros)
                 VALUES (?, ?, ?, ?)
-                ON DUPLICATE KEY UPDATE maxCalls = LEAST(maxCalls, VALUES(maxCalls)),
-                    maxTokens = LEAST(maxTokens, VALUES(maxTokens)),
-                    maxCostMicros = LEAST(maxCostMicros, VALUES(maxCostMicros))
+                ON CONFLICT (budgetDate) DO UPDATE SET
+                    maxCalls = LEAST(t_news_curation_budget_guard.maxCalls, EXCLUDED.maxCalls),
+                    maxTokens = LEAST(t_news_curation_budget_guard.maxTokens, EXCLUDED.maxTokens),
+                    maxCostMicros = LEAST(t_news_curation_budget_guard.maxCostMicros, EXCLUDED.maxCostMicros)
                 """, budgetDate, Math.max(0, properties.getDailyMaxCalls()), Math.max(0L, properties.getDailyMaxTokens()),
                 Math.max(0L, properties.getDailyMaxCostMicros()));
         jdbc.update("""
-                INSERT IGNORE INTO t_news_curation_budget
+                INSERT INTO t_news_curation_budget
                     (budgetDate, scope, maxCalls, maxTokens, maxCostMicros)
                 VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT (budgetDate, scope) DO NOTHING
                 """,
                 budgetDate.toString(),
                 scope,
@@ -1011,7 +1017,7 @@ public class NewsCurationService {
     }
 
     private void ensureCircuitRowExists(String scope) {
-        jdbc.update("INSERT IGNORE INTO t_news_curation_circuit (scope) VALUES (?)", scope);
+        jdbc.update("INSERT INTO t_news_curation_circuit (scope) VALUES (?) ON CONFLICT (scope) DO NOTHING", scope);
     }
 
     /**
@@ -1024,16 +1030,16 @@ public class NewsCurationService {
         jdbc.update("""
                 INSERT INTO t_news_curation_lifetime_budget (id, maxCalls, maxTokens, maxCostMicros, note)
                 VALUES (1, ?, ?, ?, ?)
-                ON DUPLICATE KEY UPDATE
-                    maxCalls = CASE WHEN maxCalls = 0 THEN VALUES(maxCalls)
-                                    WHEN VALUES(maxCalls) = 0 THEN maxCalls
-                                    ELSE LEAST(maxCalls, VALUES(maxCalls)) END,
-                    maxTokens = CASE WHEN maxTokens = 0 THEN VALUES(maxTokens)
-                                     WHEN VALUES(maxTokens) = 0 THEN maxTokens
-                                     ELSE LEAST(maxTokens, VALUES(maxTokens)) END,
-                    maxCostMicros = CASE WHEN maxCostMicros = 0 THEN VALUES(maxCostMicros)
-                                         WHEN VALUES(maxCostMicros) = 0 THEN maxCostMicros
-                                         ELSE LEAST(maxCostMicros, VALUES(maxCostMicros)) END
+                ON CONFLICT (id) DO UPDATE SET
+                    maxCalls = CASE WHEN t_news_curation_lifetime_budget.maxCalls = 0 THEN EXCLUDED.maxCalls
+                                    WHEN EXCLUDED.maxCalls = 0 THEN t_news_curation_lifetime_budget.maxCalls
+                                    ELSE LEAST(t_news_curation_lifetime_budget.maxCalls, EXCLUDED.maxCalls) END,
+                    maxTokens = CASE WHEN t_news_curation_lifetime_budget.maxTokens = 0 THEN EXCLUDED.maxTokens
+                                     WHEN EXCLUDED.maxTokens = 0 THEN t_news_curation_lifetime_budget.maxTokens
+                                     ELSE LEAST(t_news_curation_lifetime_budget.maxTokens, EXCLUDED.maxTokens) END,
+                    maxCostMicros = CASE WHEN t_news_curation_lifetime_budget.maxCostMicros = 0 THEN EXCLUDED.maxCostMicros
+                                         WHEN EXCLUDED.maxCostMicros = 0 THEN t_news_curation_lifetime_budget.maxCostMicros
+                                         ELSE LEAST(t_news_curation_lifetime_budget.maxCostMicros, EXCLUDED.maxCostMicros) END
                 """,
                 Math.max(0, properties.getLifetimeMaxCalls()),
                 Math.max(0L, properties.getLifetimeMaxTokens()),
@@ -1205,9 +1211,20 @@ public class NewsCurationService {
                 rs.getLong("maxCostMicros"),
                 rs.getLong("usedCostMicros"),
                 rs.getLong("reservedCostMicros"),
-                rs.getInt("circuitBroken") == 1,
+                rs.getBoolean("circuitBroken"),
                 rs.getString("circuitReason")
         );
+    }
+
+    /**
+     * 回执查询的绑定参数：{@code logical} 为空时 SQL 里没有第三个占位符。
+     * 空分支写成 {@code IS NULL} 字面量，是为了不依赖任何一个数据库的
+     * 参数类型推断或方言转换（PG 要求 `?::text`，MySQL 不认 `::`）。
+     */
+    private static Object[] receiptArgs(long materialRevisionId, String policyVersion, String logical) {
+        return logical == null
+                ? new Object[]{materialRevisionId, policyVersion}
+                : new Object[]{materialRevisionId, policyVersion, logical};
     }
 
     private static ReceiptRow mapReceiptRow(ResultSet rs) throws SQLException {
@@ -1527,7 +1544,9 @@ public class NewsCurationService {
         String snapshotSha256 = NewsMaterialCanonicalizer.sha256Hex(
                 snapshotJson.getBytes(StandardCharsets.UTF_8));
         String overlayJson = writeJson(overlay.attributes());
-        jdbc.update("""
+        // RETURNING id 代替 MySQL 的 LAST_INSERT_ID()：后者在 PostgreSQL 上不存在，
+        // 而 lastval() 依赖会话内最近一次序列取值，并发写入时会取到别人的 id。
+        Long newId = jdbc.queryForObject("""
                         INSERT INTO t_news_curation_candidate
                             (materialId, materialRevisionId, source, sourceRecordId, contentDigest,
                              policyVersion, callId, status, decision, evidenceTier, relevanceScore,
@@ -1536,7 +1555,8 @@ public class NewsCurationService {
                              evidenceVerificationJson, evidenceVerificationSha256, materializedAt, materializedBy,
                              draftTemplateVersion, structuredContentJson, researchValueScore)
                         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP(6),?,?,?,?)
-                        """,
+                        RETURNING id
+                        """, Long.class,
                 snapshot.materialId(), snapshot.materialRevisionId(), snapshot.source(),
                 snapshot.sourceRecordId(), snapshot.contentDigest(), policy, callId, candidateStatus,
                 decision, snapshot.evidenceTier().name(), validated.path("relevanceScore").isInt()
@@ -1547,7 +1567,7 @@ public class NewsCurationService {
                 NewsEditorialDraft.TEMPLATE_VERSION, hasContent ? writeJson(content) : null,
                 validated.path("researchValueScore").isInt()
                         ? validated.path("researchValueScore").intValue() : null);
-        long newId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        if (newId == null) throw new IllegalStateException("CANDIDATE_INSERT_NO_ID");
         if (supersededFromStatus != null) {
             int linked = jdbc.update("""
                     UPDATE t_news_curation_candidate SET supersededByCandidateId = ?

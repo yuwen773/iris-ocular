@@ -74,39 +74,39 @@ public interface AdminStatsMapper {
             + "WHERE isDelete = 0 AND createTime >= #{from} AND confidence IS NOT NULL")
     Double avgConfidenceSince(@Param("from") Date from);
 
-    @Select("SELECT result AS name, COUNT(*) AS `value` FROM t_diagnosis "
+    @Select("SELECT result AS name, COUNT(*) AS value FROM t_diagnosis "
             + "WHERE isDelete = 0 AND createTime >= #{from} AND result IS NOT NULL AND result <> '' "
-            + "GROUP BY result ORDER BY `value` DESC LIMIT 12")
+            + "GROUP BY result ORDER BY value DESC LIMIT 12")
     List<StatBucket> diagnosisDistributionSince(@Param("from") Date from);
 
-    @Select("SELECT humanReviewStatus AS name, COUNT(*) AS `value` FROM t_diagnosis "
+    @Select("SELECT humanReviewStatus AS name, COUNT(*) AS value FROM t_diagnosis "
             + "WHERE isDelete = 0 AND createTime >= #{from} "
-            + "GROUP BY humanReviewStatus ORDER BY `value` DESC")
+            + "GROUP BY humanReviewStatus ORDER BY value DESC")
     List<StatBucket> reviewDistributionSince(@Param("from") Date from);
 
     /** 每日判读数（左闭右开区间，用于上一个等长窗口的环比）。 */
-    @Select("SELECT DATE_FORMAT(createTime, '%Y-%m-%d') AS day, COUNT(*) AS `value` FROM t_diagnosis "
+    @Select("SELECT DATE_FORMAT(createTime, '%Y-%m-%d') AS day, COUNT(*) AS value FROM t_diagnosis "
             + "WHERE isDelete = 0 AND createTime >= #{from} AND createTime < #{to} "
             + "GROUP BY DATE_FORMAT(createTime, '%Y-%m-%d') ORDER BY day")
     List<StatDayCount> diagnosisDailyBetween(@Param("from") Date from, @Param("to") Date to);
 
-    @Select("SELECT DATE_FORMAT(createTime, '%Y-%m-%d') AS day, COUNT(*) AS `value` FROM t_user "
+    @Select("SELECT DATE_FORMAT(createTime, '%Y-%m-%d') AS day, COUNT(*) AS value FROM t_user "
             + "WHERE isDelete = 0 AND createTime >= #{from} AND createTime < #{to} "
             + "GROUP BY DATE_FORMAT(createTime, '%Y-%m-%d') ORDER BY day")
     List<StatDayCount> userDailyBetween(@Param("from") Date from, @Param("to") Date to);
 
-    @Select("SELECT DATE_FORMAT(createTime, '%Y-%m-%d') AS day, COUNT(*) AS `value` FROM t_diagnosis "
+    @Select("SELECT DATE_FORMAT(createTime, '%Y-%m-%d') AS day, COUNT(*) AS value FROM t_diagnosis "
             + "WHERE isDelete = 0 AND createTime >= #{from} "
             + "GROUP BY DATE_FORMAT(createTime, '%Y-%m-%d') ORDER BY day")
     List<StatDayCount> diagnosisDailySince(@Param("from") Date from);
 
-    @Select("SELECT DATE_FORMAT(createTime, '%Y-%m-%d') AS day, result AS name, COUNT(*) AS `value` "
+    @Select("SELECT DATE_FORMAT(createTime, '%Y-%m-%d') AS day, result AS name, COUNT(*) AS value "
             + "FROM t_diagnosis WHERE isDelete = 0 AND createTime >= #{from} "
             + "AND result IS NOT NULL AND result <> '' "
-            + "GROUP BY DATE_FORMAT(createTime, '%Y-%m-%d'), result ORDER BY day, `value` DESC")
+            + "GROUP BY DATE_FORMAT(createTime, '%Y-%m-%d'), result ORDER BY day, value DESC")
     List<StatDayNameCount> diagnosisDailyByResultSince(@Param("from") Date from);
 
-    @Select("SELECT DATE_FORMAT(createTime, '%Y-%m-%d') AS day, COUNT(*) AS `value` FROM t_user "
+    @Select("SELECT DATE_FORMAT(createTime, '%Y-%m-%d') AS day, COUNT(*) AS value FROM t_user "
             + "WHERE isDelete = 0 AND createTime >= #{from} "
             + "GROUP BY DATE_FORMAT(createTime, '%Y-%m-%d') ORDER BY day")
     List<StatDayCount> userDailySince(@Param("from") Date from);
@@ -121,14 +121,14 @@ public interface AdminStatsMapper {
     @Select("SELECT COUNT(*) FROM t_knowledge_document WHERE isDelete = 0 AND status = 2")
     long countKnowledgeFailed();
 
-    @Select("SELECT status AS name, COUNT(*) AS `value` FROM t_knowledge_document "
-            + "WHERE isDelete = 0 GROUP BY status ORDER BY `value` DESC")
+    @Select("SELECT status AS name, COUNT(*) AS value FROM t_knowledge_document "
+            + "WHERE isDelete = 0 GROUP BY status ORDER BY value DESC")
     List<StatBucket> knowledgeByStatus();
 
     @Select("SELECT COUNT(*) FROM t_news WHERE isDelete = 0")
     long countNews();
 
-    @Select("SELECT status AS name, COUNT(*) AS `value` FROM t_news "
-            + "WHERE isDelete = 0 GROUP BY status ORDER BY `value` DESC")
+    @Select("SELECT status AS name, COUNT(*) AS value FROM t_news "
+            + "WHERE isDelete = 0 GROUP BY status ORDER BY value DESC")
     List<StatBucket> newsByStatus();
 }

@@ -54,7 +54,6 @@ class SurefireSkipGateTest(unittest.TestCase):
         """Reproduce the explicit no-env opt-in shape without hiding new skips."""
         P = "com.csust.eyediagnosis."
         self.write(P + "collaboration.ProductSchemaTest", cases=1, skipped=1)
-        self.write(P + "agent.config.VectorStoreConfigTest", cases=1, skipped=1)
         self.write(P + "agent.rag.RAGEvaluationTest", cases=2, skipped=2)
         self.write(P + "diagnosistask.DiagnosisTaskApiTest", cases=7, skipped=4)
         self.write(P + "diagnosistask.DiagnosisTaskRecoveryTest", cases=10, skipped=10)
@@ -66,18 +65,17 @@ class SurefireSkipGateTest(unittest.TestCase):
         self.write(P + "patientexplanation.PatientExplanationApiTest", cases=37, skipped=37)
         self.write(P + "patientauthorization.PatientAuthorizationApiTest", cases=37, skipped=37)
         self.write(P + "patientfollowup.PatientFollowUpApiTest", cases=37, skipped=37)
-        self.write(P + "migration.FlywayMySqlIntegrationTest", cases=7, skipped=7)
-        self.write(P + "agent.service.ToolAuditMySqlIntegrationTest", cases=1, skipped=1)
-        self.write(P + "agent.service.ToolTerminalPersistenceMySqlIntegrationTest", cases=1, skipped=1)
-        self.write(P + "poc.CoordinationMySqlTest", cases=14, skipped=14)
-        self.write(P + "upload.state.UploadTaskMapperMySqlIntegrationTest", cases=3, skipped=3)
-        self.write(P + "service.DiagnosisRunMySqlIntegrationTest", cases=8, skipped=8)
-        self.write(P + "integration.AdminAnalyticsMySqlIntegrationTest", cases=1, skipped=1)
-        self.write(P + "newsingestion.NewsIngestionMySqlIntegrationTest", cases=13, skipped=13)
-        self.write(P + "newsingestion.NewsCollectionScheduleMySqlIntegrationTest", cases=6, skipped=6)
-        self.write(P + "newscuration.NewsCurationMySqlIntegrationTest", cases=18, skipped=18)
-        self.write(P + "service.NewsEditorialPublishMySqlIntegrationTest", cases=8, skipped=8)
-        self.write(P + "newsworkbench.NewsWorkbenchMySqlIntegrationTest", cases=13, skipped=13)
+        self.write(P + "agent.service.ToolAuditPostgresIntegrationTest", cases=1, skipped=1)
+        self.write(P + "agent.service.ToolTerminalPersistencePostgresIntegrationTest", cases=1, skipped=1)
+        self.write(P + "poc.CoordinationPostgresTest", cases=14, skipped=14)
+        self.write(P + "upload.state.UploadTaskMapperPostgresIntegrationTest", cases=3, skipped=3)
+        self.write(P + "service.DiagnosisRunPostgresIntegrationTest", cases=8, skipped=8)
+        self.write(P + "integration.AdminAnalyticsPostgresIntegrationTest", cases=1, skipped=1)
+        self.write(P + "newsingestion.NewsIngestionPostgresTest", cases=13, skipped=13)
+        self.write(P + "newsingestion.NewsCollectionSchedulePostgresTest", cases=6, skipped=6)
+        self.write(P + "newscuration.NewsCurationPostgresTest", cases=18, skipped=18)
+        self.write(P + "service.NewsEditorialPublishPostgresTest", cases=8, skipped=8)
+        self.write(P + "newsworkbench.NewsWorkbenchPostgresTest", cases=13, skipped=13)
         self.write(P + "diagnosistask.CosDiagnosisTaskStorageTest", cases=1)
 
     def test_backend_unit_contract_passes_on_real_skip_shape(self):
@@ -151,7 +149,7 @@ class SurefireSkipGateTest(unittest.TestCase):
 
     def test_deleted_case_in_opt_in_suite_fails(self):
         self.backend_reports()
-        self.write("com.csust.eyediagnosis.poc.CoordinationMySqlTest", cases=13, skipped=13)
+        self.write("com.csust.eyediagnosis.poc.CoordinationPostgresTest", cases=13, skipped=13)
         self.assertEqual(1, self.verdict(CONTRACTS["backend-unit"]))
 
     def test_opt_in_suite_must_run_when_env_is_set(self):
@@ -180,28 +178,23 @@ class SurefireSkipGateTest(unittest.TestCase):
         self.write(P + "CosDiagnosisTaskStorageTest", cases=1)
         self.assertEqual(1, self.verdict(CONTRACTS["issue17"]))
 
-    def test_flyway_contract_requires_full_runs(self):
+    def test_business_contract_requires_full_runs(self):
         P = "com.csust.eyediagnosis."
-        self.write(P + "migration.FlywayMySqlIntegrationTest", cases=7)
-        self.write(P + "upload.state.UploadTaskMapperMySqlIntegrationTest", cases=3)
-        self.write(P + "agent.service.ToolAuditMySqlIntegrationTest", cases=1)
-        self.write(P + "agent.service.ToolTerminalPersistenceMySqlIntegrationTest", cases=1)
-        self.write(P + "service.DiagnosisRunMySqlIntegrationTest", cases=8)
-        self.write(P + "integration.AdminAnalyticsMySqlIntegrationTest", cases=1)
-        self.write(P + "newsingestion.NewsIngestionMySqlIntegrationTest", cases=13)
-        self.write(P + "newsingestion.NewsCollectionScheduleMySqlIntegrationTest", cases=6)
-        self.write(P + "newscuration.NewsCurationMySqlIntegrationTest", cases=18)
-        self.write(P + "service.NewsEditorialPublishMySqlIntegrationTest", cases=8)
-        self.write(P + "newsworkbench.NewsWorkbenchMySqlIntegrationTest", cases=13)
-        self.assertEqual(0, self.verdict(CONTRACTS["flyway"]))
+        self.write(P + "upload.state.UploadTaskMapperPostgresIntegrationTest", cases=3)
+        self.write(P + "agent.service.ToolAuditPostgresIntegrationTest", cases=1)
+        self.write(P + "agent.service.ToolTerminalPersistencePostgresIntegrationTest", cases=1)
+        self.write(P + "service.DiagnosisRunPostgresIntegrationTest", cases=8)
+        self.write(P + "integration.AdminAnalyticsPostgresIntegrationTest", cases=1)
+        self.write(P + "newsingestion.NewsIngestionPostgresTest", cases=13)
+        self.write(P + "newsingestion.NewsCollectionSchedulePostgresTest", cases=6)
+        self.write(P + "newscuration.NewsCurationPostgresTest", cases=18)
+        self.write(P + "service.NewsEditorialPublishPostgresTest", cases=8)
+        self.write(P + "newsworkbench.NewsWorkbenchPostgresTest", cases=13)
+        self.write(P + "poc.CoordinationPostgresTest", cases=14)
+        self.assertEqual(0, self.verdict(CONTRACTS["business"]))
 
-        self.write(P + "migration.FlywayMySqlIntegrationTest", cases=7, skipped=1)
-        self.assertEqual(1, self.verdict(CONTRACTS["flyway"]))
-
-        # 新增契约必须在被跳过时真的拦下来，而不是只作为一份“已登记”清单。
-        self.write(P + "migration.FlywayMySqlIntegrationTest", cases=7)
-        self.write(P + "integration.AdminAnalyticsMySqlIntegrationTest", cases=1, skipped=1)
-        self.assertEqual(1, self.verdict(CONTRACTS["flyway"]))
+        self.write(P + "newsingestion.NewsIngestionPostgresTest", cases=13, skipped=1)
+        self.assertEqual(1, self.verdict(CONTRACTS["business"]))
 
     def test_summary_zero_but_skipped_child_still_fails(self):
         P = "com.csust.eyediagnosis.diagnosistask."

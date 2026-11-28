@@ -1,5 +1,6 @@
 package com.csust.eyediagnosis.controlcenter.service;
 
+import com.csust.eyediagnosis.common.InsertRaceGuard;
 import com.csust.eyediagnosis.controlcenter.model.dto.ApprovalDecisionRequest;
 import com.csust.eyediagnosis.controlcenter.model.dto.PublishRequestBody;
 import com.csust.eyediagnosis.controlcenter.model.dto.RollbackRequestBody;
@@ -20,7 +21,6 @@ import com.csust.eyediagnosis.mapper.ConfigPublishRequestMapper;
 import com.csust.eyediagnosis.mapper.ConfigReleaseMapper;
 import com.csust.eyediagnosis.model.entity.User;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -75,6 +75,7 @@ public class ControlCenterReleaseTransactions {
     private final ConfigPayloadCodec codec;
     private final ControlCenterAuditService audit;
     private final ControlCenterIdempotencyService idempotency;
+    private final InsertRaceGuard insertRaceGuard;
 
     public ControlCenterReleaseTransactions(ConfigDraftMapper draftMapper,
                                             ConfigReleaseMapper releaseMapper,
@@ -83,7 +84,8 @@ public class ControlCenterReleaseTransactions {
                                             ConfigRegistry registry,
                                             ConfigPayloadCodec codec,
                                             ControlCenterAuditService audit,
-                                            ControlCenterIdempotencyService idempotency) {
+                                            ControlCenterIdempotencyService idempotency,
+                                            InsertRaceGuard insertRaceGuard) {
         this.draftMapper = draftMapper;
         this.releaseMapper = releaseMapper;
         this.pointerMapper = pointerMapper;
@@ -92,6 +94,7 @@ public class ControlCenterReleaseTransactions {
         this.codec = codec;
         this.audit = audit;
         this.idempotency = idempotency;
+        this.insertRaceGuard = insertRaceGuard;
     }
 
     // ------------------------------------------------------------------ 申请
@@ -145,9 +148,9 @@ public class ControlCenterReleaseTransactions {
         approval.setExpectedActiveReleaseId(active);
         approval.setNote(note);
         approval.setStatus(ConfigPublishRequest.STATUS_PENDING);
-        try {
-            approvalMapper.insert(approval);
-        } catch (DuplicateKeyException duplicate) {
+        // savepoint：PostgreSQL 撞键后事务即中止，(actorId, requestId) 的复核查询和
+        // 后面的审计/回填都必须在回滚到 savepoint 之后才能继续。
+        if (!insertRaceGuard.tryInsert(() -> approvalMapper.insert(approval))) {
             // (actorId, requestId) 的唯一键在 t_config_request 上已经判过一次；能走到这里
             // 说明数据被外部写坏，按冲突处理而不是静默接受。
             log.error("发布申请唯一键冲突但幂等记录未命中, actorId={}, requestId={}",

@@ -1,5 +1,6 @@
 package com.csust.eyediagnosis.service;
 
+import com.csust.eyediagnosis.integration.LegacyGateSupport;
 import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.annotation.DbType;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
@@ -43,9 +44,8 @@ import com.csust.eyediagnosis.newsingestion.NewsWorkerIdentity;
 import com.csust.eyediagnosis.service.impl.NewsServiceImpl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
-import org.flywaydb.core.Flyway;
+import java.util.UUID;
 import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mybatis.spring.SqlSessionTemplate;
@@ -62,7 +62,6 @@ import org.springframework.data.redis.core.ReactiveValueOperations;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
-import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -81,7 +80,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -98,14 +96,17 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * L2 real-MySQL + real-Redis integration suite for WP-04 editorial review, candidate evidence
- * binding, centralized service-layer publish gate, immutable content revisions, and post-commit
- * Redis cache invalidation / withdrawal visibility guarantees.
+ * WP-04 编辑审核、候选证据绑定、服务层集中发布门禁、不可变内容版本，以及事务提交后的
+ * Redis 缓存失效 / 下架可见性保证。真实 PostgreSQL + 真实 Redis。
  *
- * <p>Keeps {@code Assumptions.assumeTrue} in {@code @BeforeEach} so Surefire records exact
- * case/skip counts matching {@code scripts/check_surefire_skips.py} (8 cases).
+ * <p>原套件跑在一次性 MySQL 库上。迁移只改方言：{@code SIGNAL SQLSTATE} 触发器换成
+ * {@link LegacyGateSupport#createFailTrigger}、{@code information_schema} 断言按 schema
+ * {@code diagnosis} 取表、分页插件换成 PostgreSQL 方言。断言一条未改。
+ *
+ * <p>库由 {@code BUSINESS_TEST_URL} 指定（库名必须叫 {@code business_test}）；
+ * Redis 取 {@code SPRING_DATA_REDIS_HOST/PORT}（默认 127.0.0.1:6379）。
  */
-class NewsEditorialPublishMySqlIntegrationTest {
+class NewsEditorialPublishPostgresTest {
 
     private static final String POLICY_V1 = "news-curation-v1";
     private static final String SCOPE_GLOBAL = "GLOBAL";
@@ -115,10 +116,8 @@ class NewsEditorialPublishMySqlIntegrationTest {
     private static final String SAFE_BODY_PREFIX =
             "这是一段用于核验眼科临床资讯发布生命周期的完整正文内容，明确说明仅做科普展示而不构成诊疗依据：";
 
-    private static String schema;
-    private static JdbcTemplate admin;
     private static JdbcTemplate jdbc;
-    private static DriverManagerDataSource dataSource;
+    private static javax.sql.DataSource dataSource;
     private static LettuceConnectionFactory redisFactory;
     private static StringRedisTemplate rawRedis;
     private static FaultInjectableReactiveRedisTemplate faultRedis;
@@ -138,10 +137,8 @@ class NewsEditorialPublishMySqlIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        String url = System.getenv("FLYWAY_TEST_URL");
-        Assumptions.assumeTrue(url != null && !url.isBlank(),
-                "Set FLYWAY_TEST_URL to run the real MySQL + Redis News Publish gate");
-        ensureInfra();
+        String url = LegacyGateSupport.assumeIsolated(System.getenv("BUSINESS_TEST_URL"), "business_test");
+        ensureInfra(url);
 
         faultRedis.failAllOps.set(false);
         faultRedis.failIncrement.set(false);
@@ -152,7 +149,7 @@ class NewsEditorialPublishMySqlIntegrationTest {
         }
         rawRedis.delete(NewsListCacheService.NEWS_LIST_CACHE_GENERATION);
 
-        jdbc.execute("DROP TRIGGER IF EXISTS trg_fail_news_revision_insert");
+        LegacyGateSupport.dropFailTrigger(jdbc, "trg_fail_news_revision_insert", "t_news_revision");
         jdbc.execute("DELETE FROM t_news_revision");
         jdbc.execute("DELETE FROM t_news_audit");
         jdbc.execute("DELETE FROM t_news");
@@ -170,6 +167,8 @@ class NewsEditorialPublishMySqlIntegrationTest {
         jdbc.execute("DELETE FROM t_news_collection_batch");
         jdbc.execute("DELETE FROM t_news_collection_lease");
         jdbc.execute("DELETE FROM t_news_collection_task");
+        jdbc.execute("DELETE FROM t_news_collection_task_event");
+        jdbc.execute("DELETE FROM t_news_collection_schedule");
         jdbc.execute("DELETE FROM t_news_source_cursor");
         jdbc.execute("DELETE FROM t_news_source");
         jdbc.execute("""
@@ -222,24 +221,15 @@ class NewsEditorialPublishMySqlIntegrationTest {
         ACTIVE_ACTOR.set(adminActor);
     }
 
-    private static synchronized void ensureInfra() {
+    private static synchronized void ensureInfra(String url) {
         if (appContext != null) {
             return;
         }
-        String url = System.getenv("FLYWAY_TEST_URL");
-        String username = System.getenv("FLYWAY_TEST_USERNAME");
-        String password = System.getenv("FLYWAY_TEST_PASSWORD");
-        schema = "diagnosis_ci_publish_" + UUID.randomUUID().toString().replace("-", "");
-
-        admin = new JdbcTemplate(new DriverManagerDataSource(url, username, password));
-        admin.execute("CREATE DATABASE `" + schema + "`");
-
-        dataSource = new DriverManagerDataSource(withSchema(url, schema), username, password);
-        Flyway.configure()
-                .dataSource(dataSource)
-                .locations("classpath:db/migration", "classpath:db/callback")
-                .load()
-                .migrate();
+        var source = LegacyGateSupport.dataSource(url);
+        LegacyGateSupport.ensureSchema(url, source, List.of(), () -> {
+            throw new IllegalStateException("BUSINESS_TEST_URL must point at PostgreSQL");
+        });
+        dataSource = source;
         jdbc = new JdbcTemplate(dataSource);
 
         String redisHost = envOrDefault("SPRING_DATA_REDIS_HOST", "127.0.0.1");
@@ -282,10 +272,7 @@ class NewsEditorialPublishMySqlIntegrationTest {
             redisFactory.destroy();
             redisFactory = null;
         }
-        if (schema != null && admin != null) {
-            admin.execute("DROP DATABASE IF EXISTS `" + schema + "`");
-            schema = null;
-        }
+
     }
 
     // Case 1
@@ -296,15 +283,16 @@ class NewsEditorialPublishMySqlIntegrationTest {
                 "currentRevisionNo", "publishedRevisionNo")) {
             Integer count = jdbc.queryForObject("""
                     SELECT COUNT(*) FROM information_schema.columns
-                    WHERE table_schema = ? AND table_name = 't_news' AND column_name = ?
-                    """, Integer.class, schema, col);
+                    WHERE table_schema = 'diagnosis' AND table_name = 't_news'
+                      AND lower(column_name) = lower(?)
+                    """, Integer.class, col);
             assertEquals(1, count, "Missing V42 column on t_news: " + col);
         }
         for (String table : List.of("t_news_revision", "t_news_cache_epoch")) {
             Integer count = jdbc.queryForObject("""
                     SELECT COUNT(*) FROM information_schema.tables
-                    WHERE table_schema = ? AND table_name = ?
-                    """, Integer.class, schema, table);
+                    WHERE table_schema = 'diagnosis' AND table_name = ?
+                    """, Integer.class, table);
             assertEquals(1, count, "Missing V42 table: " + table);
         }
         assertEquals(0L, cacheService.readAuthoritativeDbEpoch());
@@ -496,12 +484,14 @@ class NewsEditorialPublishMySqlIntegrationTest {
         BusinessException trialRejected = assertThrows(BusinessException.class, () -> controller.updateNews(publishTampered, req));
         assertTrue(trialRejected.getMessage().contains("缺少支持疗效"), trialRejected::getMessage);
 
+        // PostgreSQL 用 UPDATE ... FROM，不支持 MySQL 的多表 UPDATE ... JOIN。
         jdbc.update("""
-                UPDATE t_news_curation_candidate target JOIN t_news_curation_candidate other ON other.id = ?
-                SET target.callId = ?, target.evidenceSnapshotJson = other.evidenceSnapshotJson,
-                    target.evidenceSnapshotSha256 = other.evidenceSnapshotSha256
-                WHERE target.id = ?
-                """, needsReview.candidateId, originalCallId, wrongReceipt.candidateId);
+                UPDATE t_news_curation_candidate AS target
+                SET callId = ?, evidenceSnapshotJson = other.evidenceSnapshotJson,
+                    evidenceSnapshotSha256 = other.evidenceSnapshotSha256
+                FROM t_news_curation_candidate AS other
+                WHERE other.id = ? AND target.id = ?
+                """, originalCallId, needsReview.candidateId, wrongReceipt.candidateId);
         BusinessException wrongSnapshot = assertThrows(BusinessException.class,
                 () -> controller.createFromCandidate(wrongReceipt.candidateId, false, req));
         assertTrue(wrongSnapshot.getMessage().contains("快照与候选身份不一致"));
@@ -600,12 +590,8 @@ class NewsEditorialPublishMySqlIntegrationTest {
         long epochBefore = cacheService.readAuthoritativeDbEpoch();
 
         // Inject DB trigger failure on t_news_revision to force transaction rollback during withdrawal.
-        jdbc.execute("""
-                CREATE TRIGGER trg_fail_news_revision_insert
-                BEFORE INSERT ON t_news_revision
-                FOR EACH ROW
-                SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'injected revision failure'
-                """);
+        LegacyGateSupport.createFailTrigger(jdbc, "trg_fail_news_revision_insert", "INSERT",
+                "t_news_revision", "injected revision failure");
         ACTIVE_ACTOR.set(adminActor);
         NewsBatchStatusDTO withdraw = new NewsBatchStatusDTO();
         withdraw.setIds(List.of(id));
@@ -614,7 +600,7 @@ class NewsEditorialPublishMySqlIntegrationTest {
         try {
             assertThrows(DataAccessException.class, () -> controller.changeNewsStatusBatch(withdraw, req));
         } finally {
-            jdbc.execute("DROP TRIGGER IF EXISTS trg_fail_news_revision_insert");
+            LegacyGateSupport.dropFailTrigger(jdbc, "trg_fail_news_revision_insert", "t_news_revision");
         }
 
         // Verify rollback left t_news, t_news_cache_epoch, and Redis generation completely untouched!
@@ -921,14 +907,6 @@ class NewsEditorialPublishMySqlIntegrationTest {
         return (val == null || val.isBlank()) ? fallback : val;
     }
 
-    private static String withSchema(String url, String targetSchema) {
-        int query = url.indexOf('?');
-        String base = query < 0 ? url : url.substring(0, query);
-        String params = query < 0 ? "" : url.substring(query);
-        int slash = base.lastIndexOf('/');
-        return base.substring(0, slash + 1) + targetSchema + params;
-    }
-
     @Configuration
     @EnableTransactionManagement
     static class PublishTestSpringConfig {
@@ -969,7 +947,7 @@ class NewsEditorialPublishMySqlIntegrationTest {
             globalConfig.setDbConfig(dbConfig);
 
             MybatisPlusInterceptor interceptor = new MybatisPlusInterceptor();
-            interceptor.addInnerInterceptor(new PaginationInnerInterceptor(DbType.MYSQL));
+            interceptor.addInnerInterceptor(new PaginationInnerInterceptor(DbType.POSTGRE_SQL));
 
             MybatisSqlSessionFactoryBean factory = new MybatisSqlSessionFactoryBean();
             factory.setDataSource(dataSource);

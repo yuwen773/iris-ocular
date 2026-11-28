@@ -52,7 +52,7 @@ public class NewsIssueService {
                 LIMIT ?
                 """, (rs, row) -> new Article(
                 rs.getLong("id"), rs.getInt("revisionNo"), rs.getString("title"), rs.getString("summary"),
-                rs.getObject("publishTime", LocalDateTime.class), rs.getLong("materialRevisionId"),
+                com.csust.eyediagnosis.common.UtcTimestamps.read(rs, "publishTime"), rs.getLong("materialRevisionId"),
                 rs.getString("source"), rs.getString("sourceRecordId"),
                 normalizePmid(rs.getString("pmid")), normalizeDoi(rs.getString("doi"))),
                 NewsStatus.PUBLIC_VISIBLE, NewsStatus.PUBLISHED,

@@ -22,7 +22,7 @@ import java.util.function.Supplier;
 @Service
 public class ControlledEvidenceRetriever {
     private static final String ELIGIBLE = "r.isDelete=0 AND r.enabled=1 AND r.isTest=0 AND r.visibility='CURATED_PUBLIC' AND r.reviewStatus='APPROVED'"
-            + " AND JSON_CONTAINS(r.diseaseCodes,JSON_QUOTE(?)) AND JSON_CONTAINS(r.topicCodes,JSON_QUOTE(?))";
+            + " AND r.diseaseCodes::jsonb @> jsonb_build_array(?::text) AND r.topicCodes::jsonb @> jsonb_build_array(?::text)";
     private static final String SELECT_CITATION = "SELECT r.id,r.title,r.source,r.documentVersion,r.governanceVersion,r.reviewStatus,r.reviewedBy,c.chunkIndex,c.excerpt,c.excerptDigest"
             + " FROM t_controlled_reference r JOIN t_controlled_reference_chunk c ON c.documentId=r.id WHERE ";
     private final JdbcTemplate jdbc;

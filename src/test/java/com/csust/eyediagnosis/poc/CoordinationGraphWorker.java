@@ -1,10 +1,8 @@
 package com.csust.eyediagnosis.poc;
 
-import java.sql.DriverManager;
-
 final class CoordinationGraphWorker {
     public static void main(String[] args) throws Exception {
-        try (var connection = DriverManager.getConnection(args[0], "poc", "poc")) {
+        try (var connection = CoordinationDb.connect(args[0])) {
             var store = new CoordinationStore(connection);
             if ("write".equals(args[2])) {
                 store.crashAfterCheckpointCommit(args[1], CoordinationPoc.interruptedCheckpoint());

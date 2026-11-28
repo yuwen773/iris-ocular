@@ -7,6 +7,7 @@ import com.csust.eyediagnosis.service.UserService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Assumptions;
+import com.csust.eyediagnosis.integration.LegacyGateSupport;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -24,16 +25,16 @@ class DiagnosisTaskApiTest {
     void prepareDatabaseWhenConfigured() {
         String url = System.getenv("ISSUE17_TEST_URL");
         if (url == null || url.isBlank()) return;
-        if (!url.matches("jdbc:mysql://127\\.0\\.0\\.1:[0-9]+/issue17_test")) throw new IllegalArgumentException("Expected isolated test database");
-        var dataSource = new DriverManagerDataSource(url, "issue17", "issue17");
+        if (!LegacyGateSupport.isIsolated(url, "issue17_test")) throw new IllegalArgumentException("Expected isolated test database");
+        var dataSource = LegacyGateSupport.dataSource(url);
         var jdbc = new JdbcTemplate(dataSource);
-        com.csust.eyediagnosis.integration.DiagnosisTaskSchemaFixture.apply(dataSource, jdbc);
+        LegacyGateSupport.ensureSchema(url, dataSource, java.util.List.of(), () -> com.csust.eyediagnosis.integration.DiagnosisTaskSchemaFixture.apply(dataSource, jdbc));
     }
     @Test
     void simultaneousIdenticalRequestsReturnOneTask() throws Exception {
         String url = System.getenv("ISSUE17_TEST_URL");
-        Assumptions.assumeTrue(url != null && url.matches("jdbc:mysql://127\\.0\\.0\\.1:[0-9]+/issue17_test"));
-        var jdbc = new JdbcTemplate(new DriverManagerDataSource(url, "issue17", "issue17"));
+        Assumptions.assumeTrue(url != null && LegacyGateSupport.isIsolated(url, "issue17_test"));
+        var jdbc = new JdbcTemplate(LegacyGateSupport.dataSource(url));
         var storage = mock(DiagnosisTaskStorage.class);
         var bothUploaded = new java.util.concurrent.CountDownLatch(2);
         when(storage.upload(any(), any(), any())).thenAnswer(invocation -> {
@@ -105,10 +106,10 @@ class DiagnosisTaskApiTest {
     @Test
     void invalidImageIsRejectedAndMissingVersionCreatesRestrictedTask() throws Exception {
         String url = System.getenv("ISSUE17_TEST_URL");
-        Assumptions.assumeTrue(url != null && url.matches("jdbc:mysql://127\\.0\\.0\\.1:[0-9]+/issue17_test"));
-        var dataSource = new DriverManagerDataSource(url, "issue17", "issue17");
+        Assumptions.assumeTrue(url != null && LegacyGateSupport.isIsolated(url, "issue17_test"));
+        var dataSource = LegacyGateSupport.dataSource(url);
         var jdbc = new JdbcTemplate(dataSource);
-        com.csust.eyediagnosis.integration.DiagnosisTaskSchemaFixture.apply(dataSource, jdbc);
+        LegacyGateSupport.ensureSchema(url, dataSource, java.util.List.of(), () -> com.csust.eyediagnosis.integration.DiagnosisTaskSchemaFixture.apply(dataSource, jdbc));
         var storage = mock(DiagnosisTaskStorage.class);
         when(storage.upload(any(), any(), any())).thenReturn(null);
         var user = new User(); user.setId(95L);
@@ -139,10 +140,10 @@ class DiagnosisTaskApiTest {
     @Test
     void creationReplaysIdenticalRequestAndRejectsChangedImage() throws Exception {
         String url = System.getenv("ISSUE17_TEST_URL");
-        Assumptions.assumeTrue(url != null && url.matches("jdbc:mysql://127\\.0\\.0\\.1:[0-9]+/issue17_test"));
-        var dataSource = new DriverManagerDataSource(url, "issue17", "issue17");
+        Assumptions.assumeTrue(url != null && LegacyGateSupport.isIsolated(url, "issue17_test"));
+        var dataSource = LegacyGateSupport.dataSource(url);
         var jdbc = new JdbcTemplate(dataSource);
-        com.csust.eyediagnosis.integration.DiagnosisTaskSchemaFixture.apply(dataSource, jdbc);
+        LegacyGateSupport.ensureSchema(url, dataSource, java.util.List.of(), () -> com.csust.eyediagnosis.integration.DiagnosisTaskSchemaFixture.apply(dataSource, jdbc));
         var storage = mock(DiagnosisTaskStorage.class);
         when(storage.upload(any(), any(), any())).thenReturn("v1");
         var service = new DiagnosisTaskService(jdbc, storage);
@@ -178,14 +179,14 @@ class DiagnosisTaskApiTest {
     void actualDatabaseQueryRestrictsOwnerAndUnknownState() throws Exception {
         String url = System.getenv("ISSUE17_TEST_URL");
         Assumptions.assumeTrue(url != null && !url.isBlank(), "Requires isolated issue17 database");
-        if (!url.matches("jdbc:mysql://127\\.0\\.0\\.1:[0-9]+/issue17_test")) {
+        if (!LegacyGateSupport.isIsolated(url, "issue17_test")) {
             throw new IllegalArgumentException("Expected the isolated local issue17_test database");
         }
-        var dataSource = new DriverManagerDataSource(url, "issue17", "issue17");
+        var dataSource = LegacyGateSupport.dataSource(url);
         var jdbc = new JdbcTemplate(dataSource);
-        com.csust.eyediagnosis.integration.DiagnosisTaskSchemaFixture.apply(dataSource, jdbc);
+        LegacyGateSupport.ensureSchema(url, dataSource, java.util.List.of(), () -> com.csust.eyediagnosis.integration.DiagnosisTaskSchemaFixture.apply(dataSource, jdbc));
         String taskId = java.util.UUID.randomUUID().toString();
-        jdbc.update("INSERT INTO t_diagnosis_task (taskId,userId,idempotencyKey,requestDigest,imageDigest,objectKey,objectVersion,imageFormat,status,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?,?,?,NOW(6),NOW(6))",
+        jdbc.update("INSERT INTO t_diagnosis_task (taskId,userId,idempotencyKey,requestDigest,imageDigest,objectKey,objectVersion,imageFormat,status,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)",
                 taskId, 2, taskId, "a".repeat(64), "b".repeat(64), "key", "version", "png", "FUTURE_STATE");
         var users = mock(UserService.class);
         var patient = new User();

@@ -93,20 +93,22 @@ jobs:
   backend-unit:
     runs-on: ubuntu-latest
     services:
-      mysql:
-        image: mysql:8.0.36
+      # PostgreSQL 18 + pgvector 是唯一数据服务：业务关系数据在 diagnosis schema，
+      # RAG 向量在 rag schema。MySQL 与 Chroma 不再是运行依赖。
+      postgres:
+        image: pgvector/pgvector:pg18@sha256:38681dc6eaf55308e2a4c6de392d131652dcfac70e1263e35cd9b5ea3fe39782
         env:
-          MYSQL_DATABASE: diagnosis_ci
-          MYSQL_USER: eyeuser
-          MYSQL_PASSWORD: ci-password
-          MYSQL_ROOT_PASSWORD: root-password
+          POSTGRES_DB: iris_ci
+          POSTGRES_PASSWORD: ci-superuser-password
+          IRIS_MIGRATOR_PASSWORD: ci-migrator-password
+          IRIS_APP_PASSWORD: ci-app-password
         ports:
-          - 3306:3306
+          - 5432:5432
         options: >-
-          --health-cmd="mysqladmin ping -h localhost -proot-password"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=10
+          --health-cmd="pg_isready -U postgres -d iris_ci"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=20
       redis:
         image: redis:7.2.4
         ports:
@@ -116,12 +118,18 @@ jobs:
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
-      chroma:
-        image: ghcr.io/chroma-core/chroma:1.0.0
-        ports:
-          - 8000:8000
     env:
       SPRING_PROFILES_ACTIVE: ci
+      SPRING_DATASOURCE_URL: jdbc:postgresql://127.0.0.1:5432/iris_ci?currentSchema=diagnosis,rag,public&stringtype=unspecified
+      SPRING_DATASOURCE_USERNAME: iris_app
+      SPRING_DATASOURCE_PASSWORD: ci-app-password
+      IRIS_FLYWAY_USER: iris_migrator
+      IRIS_FLYWAY_PASSWORD: ci-migrator-password
+      PG_IT_URL: jdbc:postgresql://127.0.0.1:5432/iris_ci?currentSchema=diagnosis,rag,public&stringtype=unspecified
+      PG_IT_APP_USER: iris_app
+      PG_IT_APP_PASSWORD: ci-app-password
+      PG_IT_MIGRATOR_USER: iris_migrator
+      PG_IT_MIGRATOR_PASSWORD: ci-migrator-password
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -129,7 +137,12 @@ jobs:
           distribution: corretto
           java-version: '21'
           cache: maven
-      - run: timeout 60 bash -c 'until curl -fsS http://localhost:8000/api/v2/heartbeat; do sleep 2; done'
+      - name: Bootstrap least-privilege roles and schemas
+        env:
+          PGPASSWORD: ci-superuser-password
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          psql -h 127.0.0.1 -U postgres -d iris_ci -v ON_ERROR_STOP=1             -v migrator_password=ci-migrator-password -v app_password=ci-app-password             -f scripts/postgresql/bootstrap-roles.sql
       # A failing Maven run still has to leave reports for the skip gate, so
       # capture the exit code instead of letting `mvn` short-circuit the step.
       - name: Backend unit tests
@@ -142,26 +155,60 @@ jobs:
       - name: Fail the job if Maven failed
         run: test "$(cat /tmp/mvn-exit-code)" -eq 0
 
-  issue17-mysql:
+  postgres-integration:
+    # Real PostgreSQL gates for the persistence/vector contracts: camelCase mapping,
+    # timestamptz instants, ON UPDATE triggers, constraints, transaction rollback,
+    # least-privilege role boundaries, pgvector retrieval/filters/delete, and the
+    # diagnosis-task idempotency race. Skipping any of them fails the job.
+    #
+    # The business regression suites live in this job too (no extra job): they were
+    # re-baselined from the retired MySQL Flyway history onto the real PostgreSQL
+    # line, and they need a Redis of their own for the news lifecycle cache tests.
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     services:
-      mysql:
-        image: mysql:8.0.36
+      postgres:
+        image: pgvector/pgvector:pg18@sha256:38681dc6eaf55308e2a4c6de392d131652dcfac70e1263e35cd9b5ea3fe39782
         env:
-          MYSQL_DATABASE: issue17_test
-          MYSQL_USER: issue17
-          MYSQL_PASSWORD: issue17
-          MYSQL_ROOT_PASSWORD: root-password
+          POSTGRES_DB: iris_it
+          POSTGRES_PASSWORD: ci-superuser-password
+          IRIS_MIGRATOR_PASSWORD: ci-migrator-password
+          IRIS_APP_PASSWORD: ci-app-password
         ports:
-          - 3306:3306
+          - 5432:5432
         options: >-
-          --health-cmd="mysql -h 127.0.0.1 -uissue17 -pissue17 issue17_test -e 'SELECT 1'"
+          --health-cmd="pg_isready -U postgres -d iris_it"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=20
+      redis:
+        image: redis:7.2.4
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
     env:
-      ISSUE17_TEST_URL: jdbc:mysql://127.0.0.1:3306/issue17_test
+      PGPASSWORD: ci-superuser-password
+      PG_IT_URL: jdbc:postgresql://127.0.0.1:5432/iris_it?currentSchema=diagnosis,rag,public&stringtype=unspecified
+      PG_IT_APP_USER: iris_app
+      PG_IT_APP_PASSWORD: ci-app-password
+      PG_IT_MIGRATOR_USER: iris_migrator
+      PG_IT_MIGRATOR_PASSWORD: ci-migrator-password
+      # Business regression suites (LegacyGateSupport ports). The database names are
+      # asserted by the suites themselves, so the URLs must keep exactly these paths.
+      BUSINESS_TEST_URL: jdbc:postgresql://127.0.0.1:5432/business_test
+      COORDINATION_POC_URL: jdbc:postgresql://127.0.0.1:5432/coordination_poc
+      COORDINATION_POC_USER: poc
+      COORDINATION_POC_PASSWORD: poc
+      # LegacyGateSupport connects as this role to create the vector extension and
+      # run the Flyway line inside business_test; the app role is not used there.
+      PG_TEST_USER: postgres
+      PG_TEST_PASSWORD: ci-superuser-password
+      SPRING_DATA_REDIS_HOST: 127.0.0.1
+      SPRING_DATA_REDIS_PORT: '6379'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -169,37 +216,162 @@ jobs:
           distribution: corretto
           java-version: '21'
           cache: maven
+      - name: Bootstrap roles and schemas
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          psql -h 127.0.0.1 -U postgres -d iris_it -v ON_ERROR_STOP=1             -v migrator_password=ci-migrator-password -v app_password=ci-app-password             -f scripts/postgresql/bootstrap-roles.sql
+          # business_test starts empty: each suite migrates the real PostgreSQL line
+          # into it on first use, which is the point of the re-baseline.
+          psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1             -c "CREATE DATABASE business_test"
+          # coordination_poc is owned by its own least-privilege role: the PoC store
+          # creates its tables at runtime and must not run as a superuser.
+          psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1             -c "CREATE ROLE poc LOGIN PASSWORD 'poc'"
+          psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1             -c "CREATE DATABASE coordination_poc OWNER poc"
+      - name: Run the PostgreSQL integration gates
+        run: mvn -B -Dtest='Pg*IntegrationTest' -Dsurefire.failIfNoSpecifiedTests=false test
+      - name: Require every gate to have actually run
+        run: |
+          python3 - <<'PY'
+          import glob, sys
+          from xml.etree import ElementTree
+          reports = glob.glob("target/surefire-reports/TEST-com.csust.eyediagnosis.postgres.*.xml")
+          if len(reports) < 4:
+              sys.exit(f"expected >=4 postgres suites, found {len(reports)}")
+          for report in reports:
+              root = ElementTree.parse(report).getroot()
+              tests = int(root.get("tests", "0")); skipped = int(root.get("skipped", "0"))
+              failures = int(root.get("failures", "0")); errors = int(root.get("errors", "0"))
+              if tests == 0 or skipped or failures or errors:
+                  sys.exit(f"{report}: tests={tests} skipped={skipped} failures={failures} errors={errors}")
+          print(f"postgres_gates={len(reports)} all ran")
+          PY
+      - name: Run the business regression suites on PostgreSQL
+        run: >-
+          mvn -B
+          -Dtest='UploadTaskMapperPostgresIntegrationTest,ToolAuditPostgresIntegrationTest,ToolTerminalPersistencePostgresIntegrationTest,DiagnosisRunPostgresIntegrationTest,AdminAnalyticsPostgresIntegrationTest,NewsIngestionPostgresTest,NewsCollectionSchedulePostgresTest,NewsCurationPostgresTest,NewsEditorialPublishPostgresTest,NewsWorkbenchPostgresTest,CoordinationPostgresTest'
+          test
+      # Counts, not exit codes: Maven already fails the step on a failed case. This
+      # gate fails a run that went green because a suite was skipped or lost cases.
+      - name: Require every business case to have actually run
+        run: python3 scripts/check_surefire_skips.py target/surefire-reports business
+
+  vector-migration-drill:
+    # Chroma -> pgvector rehearsal: import fidelity, id/metadata/embedding preserve,
+    # exact+HNSW retrieval comparison, owner isolation. Synthetic corpus only.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: pgvector/pgvector:pg18@sha256:38681dc6eaf55308e2a4c6de392d131652dcfac70e1263e35cd9b5ea3fe39782
+        env:
+          POSTGRES_DB: iris_vec_drill
+          POSTGRES_PASSWORD: ci-superuser-password
+          IRIS_MIGRATOR_PASSWORD: ci-migrator-password
+          IRIS_APP_PASSWORD: ci-app-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d iris_vec_drill"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=20
+      chroma:
+        image: ghcr.io/chroma-core/chroma:1.0.0
+        ports:
+          - 8000:8000
+    env:
+      PGPASSWORD: ci-superuser-password
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: corretto
+          java-version: '21'
+          cache: maven
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Bootstrap roles and the vector schema
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          pip install --quiet "psycopg[binary]"
+          psql -h 127.0.0.1 -U postgres -d iris_vec_drill -v ON_ERROR_STOP=1             -v migrator_password=ci-migrator-password -v app_password=ci-app-password             -f scripts/postgresql/bootstrap-roles.sql
+          mvn -B -q compile resources:resources dependency:build-classpath -Dmdep.outputFile=/tmp/cp.txt
+          IRIS_FLYWAY_PASSWORD=ci-migrator-password java -cp "target/classes:$(cat /tmp/cp.txt)"             scripts/postgresql/FlywayMigrate.java             "jdbc:postgresql://127.0.0.1:5432/iris_vec_drill?currentSchema=diagnosis"
+      - name: Wait for Chroma
+        run: timeout 120 bash -c 'until curl -fsS http://localhost:8000/api/v2/heartbeat; do sleep 2; done'
+      - name: Run the vector drill
+        run: |
+          python scripts/migration/chroma_vector_drill.py             --chroma-url http://127.0.0.1:8000             --target-dsn "host=127.0.0.1 port=5432 dbname=iris_vec_drill user=iris_migrator password=ci-migrator-password"             --chunks 120 --queries 20 --state-file /tmp/vector-drill.json
+
+  issue17-mysql:
+    # Gate identity kept for branch protection (the required check name); the suite
+    # now runs on PostgreSQL. The isolated database and its schema are created per
+    # run, and the application code under test is unchanged.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: pgvector/pgvector:pg18@sha256:38681dc6eaf55308e2a4c6de392d131652dcfac70e1263e35cd9b5ea3fe39782
+        env:
+          POSTGRES_DB: iris_gate
+          POSTGRES_PASSWORD: ci-superuser-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="PGPASSWORD=ci-superuser-password psql -h 127.0.0.1 -U postgres -d iris_gate -tAc 'SELECT 1'"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    env:
+      PGPASSWORD: ci-superuser-password
+      PG_TEST_USER: postgres
+      PG_TEST_PASSWORD: ci-superuser-password
+      ISSUE17_TEST_URL: jdbc:postgresql://127.0.0.1:5432/issue17_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: corretto
+          java-version: '21'
+          cache: maven
+      - name: Create the isolated gate database
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          psql -h 127.0.0.1 -U postgres -d iris_gate -v ON_ERROR_STOP=1 -c "CREATE DATABASE issue17_test"
       - name: Verify report gates
         run: python3 -m unittest discover -s scripts/tests -p "test_check_*.py"
-      - name: Verify MySQL health check
+      - name: Verify PostgreSQL health check
         env:
-          ISSUE17_MYSQL_CONTAINER: ${{ job.services.mysql.id }}
-        run: python3 -m unittest discover -s scripts/tests -p test_issue17_mysql_health.py
+          ISSUE17_PG_CONTAINER: ${{ job.services.postgres.id }}
+        run: python3 -m unittest discover -s scripts/tests -p test_issue17_pg_health.py
       - name: Run patient task and recovery tests
         run: mvn -B -Dtest=DiagnosisTaskApiTest,DiagnosisTaskRecoveryTest,CosDiagnosisTaskStorageTest test
       - name: Require all patient task tests to run
         run: python3 scripts/check_issue17_reports.py target/surefire-reports
 
   issue18-mysql:
+    # Gate identity kept for branch protection; the suite runs on PostgreSQL.
     runs-on: ubuntu-latest
     timeout-minutes: 10
     services:
-      mysql:
-        image: mysql:8.0.36
+      postgres:
+        image: pgvector/pgvector:pg18@sha256:38681dc6eaf55308e2a4c6de392d131652dcfac70e1263e35cd9b5ea3fe39782
         env:
-          MYSQL_DATABASE: issue18_test
-          MYSQL_USER: issue18
-          MYSQL_PASSWORD: issue18
-          MYSQL_ROOT_PASSWORD: root-password
+          POSTGRES_DB: iris_gate
+          POSTGRES_PASSWORD: ci-superuser-password
         ports:
-          - 3306:3306
+          - 5432:5432
         options: >-
-          --health-cmd="mysql -h 127.0.0.1 -uissue18 -pissue18 issue18_test -e 'SELECT 1'"
+          --health-cmd="PGPASSWORD=ci-superuser-password psql -h 127.0.0.1 -U postgres -d iris_gate -tAc 'SELECT 1'"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
     env:
-      ISSUE18_TEST_URL: jdbc:mysql://127.0.0.1:3306/issue18_test
+      PGPASSWORD: ci-superuser-password
+      PG_TEST_USER: postgres
+      PG_TEST_PASSWORD: ci-superuser-password
+      ISSUE18_TEST_URL: jdbc:postgresql://127.0.0.1:5432/issue18_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -207,6 +379,10 @@ jobs:
           distribution: corretto
           java-version: '21'
           cache: maven
+      - name: Create the isolated gate database
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          psql -h 127.0.0.1 -U postgres -d iris_gate -v ON_ERROR_STOP=1 -c "CREATE DATABASE issue18_test"
       - name: Verify report gates
         run: python3 -m unittest discover -s scripts/tests -p "test_check_*.py"
       - name: Run controlled reference lifecycle and eligibility tests
@@ -215,25 +391,27 @@ jobs:
         run: python3 scripts/check_surefire_skips.py target/surefire-reports issue18
 
   issue19-mysql:
+    # Gate identity kept for branch protection; the suite runs on PostgreSQL.
     runs-on: ubuntu-latest
     timeout-minutes: 10
     services:
-      mysql:
-        image: mysql:8.0.36
+      postgres:
+        image: pgvector/pgvector:pg18@sha256:38681dc6eaf55308e2a4c6de392d131652dcfac70e1263e35cd9b5ea3fe39782
         env:
-          MYSQL_DATABASE: issue19_test
-          MYSQL_USER: issue19
-          MYSQL_PASSWORD: issue19
-          MYSQL_ROOT_PASSWORD: root-password
+          POSTGRES_DB: iris_gate
+          POSTGRES_PASSWORD: ci-superuser-password
         ports:
-          - 3306:3306
+          - 5432:5432
         options: >-
-          --health-cmd="mysql -h 127.0.0.1 -uissue19 -pissue19 issue19_test -e 'SELECT 1'"
+          --health-cmd="PGPASSWORD=ci-superuser-password psql -h 127.0.0.1 -U postgres -d iris_gate -tAc 'SELECT 1'"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
     env:
-      ISSUE19_TEST_URL: jdbc:mysql://127.0.0.1:3306/issue19_test
+      PGPASSWORD: ci-superuser-password
+      PG_TEST_USER: postgres
+      PG_TEST_PASSWORD: ci-superuser-password
+      ISSUE19_TEST_URL: jdbc:postgresql://127.0.0.1:5432/issue19_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -241,6 +419,10 @@ jobs:
           distribution: corretto
           java-version: '21'
           cache: maven
+      - name: Create the isolated gate database
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          psql -h 127.0.0.1 -U postgres -d iris_gate -v ON_ERROR_STOP=1 -c "CREATE DATABASE issue19_test"
       - name: Verify report gates
         run: python3 -m unittest discover -s scripts/tests -p "test_check_*.py"
       - name: Run four-agent draft, timeout and process recovery tests
@@ -249,25 +431,27 @@ jobs:
         run: python3 scripts/check_surefire_skips.py target/surefire-reports issue19
 
   collaboration-mysql:
+    # Gate identity kept for branch protection; the suite runs on PostgreSQL.
     runs-on: ubuntu-latest
     timeout-minutes: 10
     services:
-      mysql:
-        image: mysql:8.0.36
+      postgres:
+        image: pgvector/pgvector:pg18@sha256:38681dc6eaf55308e2a4c6de392d131652dcfac70e1263e35cd9b5ea3fe39782
         env:
-          MYSQL_DATABASE: collaboration_test
-          MYSQL_USER: collaboration
-          MYSQL_PASSWORD: collaboration
-          MYSQL_ROOT_PASSWORD: root-password
+          POSTGRES_DB: iris_gate
+          POSTGRES_PASSWORD: ci-superuser-password
         ports:
-          - 3306:3306
+          - 5432:5432
         options: >-
-          --health-cmd="mysql -h 127.0.0.1 -ucollaboration -pcollaboration collaboration_test -e 'SELECT 1'"
+          --health-cmd="PGPASSWORD=ci-superuser-password psql -h 127.0.0.1 -U postgres -d iris_gate -tAc 'SELECT 1'"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
     env:
-      COLLABORATION_TEST_URL: jdbc:mysql://127.0.0.1:3306/collaboration_test
+      PGPASSWORD: ci-superuser-password
+      PG_TEST_USER: postgres
+      PG_TEST_PASSWORD: ci-superuser-password
+      COLLABORATION_TEST_URL: jdbc:postgresql://127.0.0.1:5432/collaboration_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -275,6 +459,10 @@ jobs:
           distribution: corretto
           java-version: '21'
           cache: maven
+      - name: Create the isolated gate database
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          psql -h 127.0.0.1 -U postgres -d iris_gate -v ON_ERROR_STOP=1 -c "CREATE DATABASE collaboration_test"
       - name: Run durable events, authorization, cancellation and HTTP SSE tests
         run: mvn -B -Dtest=CollaborationRunTest test
       - name: Require every collaboration case to run
@@ -282,25 +470,29 @@ jobs:
         run: python3 scripts/check_surefire_skips.py target/surefire-reports collaboration
 
   graph-execution-mysql:
+    # Gate identity kept for branch protection; the suite runs on PostgreSQL.
+    # The disposable database is created by this job, so the failure-injection
+    # trigger the suite installs runs under its own superuser, never production.
     runs-on: ubuntu-latest
     timeout-minutes: 10
     services:
-      mysql:
-        image: mysql:8.0.36
+      postgres:
+        image: pgvector/pgvector:pg18@sha256:38681dc6eaf55308e2a4c6de392d131652dcfac70e1263e35cd9b5ea3fe39782
         env:
-          MYSQL_DATABASE: graph_execution_test
-          MYSQL_USER: graph_execution
-          MYSQL_PASSWORD: graph_execution
-          MYSQL_ROOT_PASSWORD: root-password
+          POSTGRES_DB: iris_gate
+          POSTGRES_PASSWORD: ci-superuser-password
         ports:
-          - 3306:3306
+          - 5432:5432
         options: >-
-          --health-cmd="mysql -h 127.0.0.1 -ugraph_execution -pgraph_execution graph_execution_test -e 'SELECT 1'"
+          --health-cmd="PGPASSWORD=ci-superuser-password psql -h 127.0.0.1 -U postgres -d iris_gate -tAc 'SELECT 1'"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
     env:
-      GRAPH_EXECUTION_TEST_URL: jdbc:mysql://127.0.0.1:3306/graph_execution_test
+      PGPASSWORD: ci-superuser-password
+      PG_TEST_USER: postgres
+      PG_TEST_PASSWORD: ci-superuser-password
+      GRAPH_EXECUTION_TEST_URL: jdbc:postgresql://127.0.0.1:5432/graph_execution_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -308,37 +500,40 @@ jobs:
           distribution: corretto
           java-version: '21'
           cache: maven
-      - name: Run Graph equivalence, process-death recovery and fencing
-        # Only this disposable service enables the failure-injection trigger.
-        # The application's database account keeps schema-only privileges.
+      - name: Create the isolated gate database
         run: |
-          docker exec ${{ job.services.mysql.id }} mysql -uroot -proot-password -e 'SET GLOBAL log_bin_trust_function_creators=1'
-          mvn -B -Dtest=GraphExecutionTest,RealtimeGraphSpikeTest,CoordinationPocTest test
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          psql -h 127.0.0.1 -U postgres -d iris_gate -v ON_ERROR_STOP=1 -c "CREATE DATABASE graph_execution_test"
+      - name: Run Graph equivalence, process-death recovery and fencing
+        run: mvn -B -Dtest=GraphExecutionTest,RealtimeGraphSpikeTest,CoordinationPocTest test
       - name: Require every Graph case to run
         if: always()
         run: python3 scripts/check_surefire_skips.py target/surefire-reports graph-execution
 
   issue24-evaluation:
+    # Gate identity kept for branch protection; both reliability suites run on
+    # PostgreSQL and the evaluation CLIs read their Surefire reports unchanged.
     runs-on: ubuntu-latest
     timeout-minutes: 10
     services:
-      mysql:
-        image: mysql:8.0.36
+      postgres:
+        image: pgvector/pgvector:pg18@sha256:38681dc6eaf55308e2a4c6de392d131652dcfac70e1263e35cd9b5ea3fe39782
         env:
-          MYSQL_DATABASE: issue19_test
-          MYSQL_USER: issue19
-          MYSQL_PASSWORD: issue19
-          MYSQL_ROOT_PASSWORD: root-password
+          POSTGRES_DB: iris_gate
+          POSTGRES_PASSWORD: ci-superuser-password
         ports:
-          - 3306:3306
+          - 5432:5432
         options: >-
-          --health-cmd="mysql -h 127.0.0.1 -uissue19 -pissue19 issue19_test -e 'SELECT 1'"
+          --health-cmd="PGPASSWORD=ci-superuser-password psql -h 127.0.0.1 -U postgres -d iris_gate -tAc 'SELECT 1'"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
     env:
-      ISSUE19_TEST_URL: jdbc:mysql://127.0.0.1:3306/issue19_test
-      ISSUE21_TEST_URL: jdbc:mysql://127.0.0.1:3306/issue21_test
+      PGPASSWORD: ci-superuser-password
+      PG_TEST_USER: postgres
+      PG_TEST_PASSWORD: ci-superuser-password
+      ISSUE19_TEST_URL: jdbc:postgresql://127.0.0.1:5432/issue19_test
+      ISSUE21_TEST_URL: jdbc:postgresql://127.0.0.1:5432/issue21_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -350,14 +545,10 @@ jobs:
         with:
           python-version: '3.11'
       - name: Create the isolated patient HTTP database
-        env:
-          MYSQL_PWD: root-password
         run: |
-          mysql -h 127.0.0.1 -uroot <<'SQL'
-          CREATE DATABASE issue21_test;
-          CREATE USER 'issue21'@'%' IDENTIFIED BY 'issue21';
-          GRANT ALL ON issue21_test.* TO 'issue21'@'%';
-          SQL
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          psql -h 127.0.0.1 -U postgres -d iris_gate -v ON_ERROR_STOP=1 \
+            -c "CREATE DATABASE issue19_test" -c "CREATE DATABASE issue21_test"
       - name: Verify the public evaluation CLIs
         run: |
           python3 -m unittest discover -s scripts/tests -p 'test_evaluate_agent_collaboration.py'
@@ -393,24 +584,26 @@ jobs:
           if-no-files-found: error
 
   issue20-mysql:
+    # Gate identity kept for branch protection; the suite runs on PostgreSQL.
     runs-on: ubuntu-latest
     services:
-      mysql:
-        image: mysql:8.0.36
+      postgres:
+        image: pgvector/pgvector:pg18@sha256:38681dc6eaf55308e2a4c6de392d131652dcfac70e1263e35cd9b5ea3fe39782
         env:
-          MYSQL_DATABASE: issue20_test
-          MYSQL_USER: issue20
-          MYSQL_PASSWORD: issue20
-          MYSQL_ROOT_PASSWORD: root-password
+          POSTGRES_DB: iris_gate
+          POSTGRES_PASSWORD: ci-superuser-password
         ports:
-          - 3306:3306
+          - 5432:5432
         options: >-
-          --health-cmd="mysql -h 127.0.0.1 -uissue20 -pissue20 issue20_test -e 'SELECT 1'"
+          --health-cmd="PGPASSWORD=ci-superuser-password psql -h 127.0.0.1 -U postgres -d iris_gate -tAc 'SELECT 1'"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
     env:
-      ISSUE20_TEST_URL: jdbc:mysql://127.0.0.1:3306/issue20_test
+      PGPASSWORD: ci-superuser-password
+      PG_TEST_USER: postgres
+      PG_TEST_PASSWORD: ci-superuser-password
+      ISSUE20_TEST_URL: jdbc:postgresql://127.0.0.1:5432/issue20_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -418,31 +611,37 @@ jobs:
           distribution: corretto
           java-version: '21'
           cache: maven
+      - name: Create the isolated gate database
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          psql -h 127.0.0.1 -U postgres -d iris_gate -v ON_ERROR_STOP=1 -c "CREATE DATABASE issue20_test"
       - name: Run doctor authorization, frozen review and concurrent decision tests
         run: mvn -B -Dtest=DoctorReviewApiTest test
       - name: Require every review case to run
         run: python3 scripts/check_surefire_skips.py target/surefire-reports issue20
 
   issue21-mysql:
+    # Gate identity kept for branch protection; the suite runs on PostgreSQL.
     runs-on: ubuntu-latest
     timeout-minutes: 10
     services:
-      mysql:
-        image: mysql:8.0.36
+      postgres:
+        image: pgvector/pgvector:pg18@sha256:38681dc6eaf55308e2a4c6de392d131652dcfac70e1263e35cd9b5ea3fe39782
         env:
-          MYSQL_DATABASE: issue21_test
-          MYSQL_USER: issue21
-          MYSQL_PASSWORD: issue21
-          MYSQL_ROOT_PASSWORD: root-password
+          POSTGRES_DB: iris_gate
+          POSTGRES_PASSWORD: ci-superuser-password
         ports:
-          - 3306:3306
+          - 5432:5432
         options: >-
-          --health-cmd="mysql -h 127.0.0.1 -uissue21 -pissue21 issue21_test -e 'SELECT 1'"
+          --health-cmd="PGPASSWORD=ci-superuser-password psql -h 127.0.0.1 -U postgres -d iris_gate -tAc 'SELECT 1'"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
     env:
-      ISSUE21_TEST_URL: jdbc:mysql://127.0.0.1:3306/issue21_test
+      PGPASSWORD: ci-superuser-password
+      PG_TEST_USER: postgres
+      PG_TEST_PASSWORD: ci-superuser-password
+      ISSUE21_TEST_URL: jdbc:postgresql://127.0.0.1:5432/issue21_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -450,31 +649,37 @@ jobs:
           distribution: corretto
           java-version: '21'
           cache: maven
+      - name: Create the isolated gate database
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          psql -h 127.0.0.1 -U postgres -d iris_gate -v ON_ERROR_STOP=1 -c "CREATE DATABASE issue21_test"
       - name: Run patient visibility, citation authorization and live release gate tests
         run: mvn -B -Dtest=PatientExplanationApiTest test
       - name: Require every patient explanation case to run
         run: python3 scripts/check_surefire_skips.py target/surefire-reports issue21
 
   issue22-mysql:
+    # Gate identity kept for branch protection; the suite runs on PostgreSQL.
     runs-on: ubuntu-latest
     timeout-minutes: 10
     services:
-      mysql:
-        image: mysql:8.0.36
+      postgres:
+        image: pgvector/pgvector:pg18@sha256:38681dc6eaf55308e2a4c6de392d131652dcfac70e1263e35cd9b5ea3fe39782
         env:
-          MYSQL_DATABASE: issue22_test
-          MYSQL_USER: issue22
-          MYSQL_PASSWORD: issue22
-          MYSQL_ROOT_PASSWORD: root-password
+          POSTGRES_DB: iris_gate
+          POSTGRES_PASSWORD: ci-superuser-password
         ports:
-          - 3306:3306
+          - 5432:5432
         options: >-
-          --health-cmd="mysql -h 127.0.0.1 -uissue22 -pissue22 issue22_test -e 'SELECT 1'"
+          --health-cmd="PGPASSWORD=ci-superuser-password psql -h 127.0.0.1 -U postgres -d iris_gate -tAc 'SELECT 1'"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
     env:
-      ISSUE22_TEST_URL: jdbc:mysql://127.0.0.1:3306/issue22_test
+      PGPASSWORD: ci-superuser-password
+      PG_TEST_USER: postgres
+      PG_TEST_PASSWORD: ci-superuser-password
+      ISSUE22_TEST_URL: jdbc:postgresql://127.0.0.1:5432/issue22_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -482,33 +687,37 @@ jobs:
           distribution: corretto
           java-version: '21'
           cache: maven
-      - name: Enable fault injection on this disposable MySQL service
-        run: docker exec ${{ job.services.mysql.id }} mysql -uroot -proot-password -e 'SET GLOBAL log_bin_trust_function_creators=1'
+      - name: Create the isolated gate database
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          psql -h 127.0.0.1 -U postgres -d iris_gate -v ON_ERROR_STOP=1 -c "CREATE DATABASE issue22_test"
       - name: Run patient consent, rollback, frozen save and concurrent receipt tests
         run: mvn -B -Dtest=PatientAuthorizationApiTest test
       - name: Require every patient authorization case to run
         run: python3 scripts/check_surefire_skips.py target/surefire-reports issue22
 
   issue23-mysql:
+    # Gate identity kept for branch protection; the suite runs on PostgreSQL.
     runs-on: ubuntu-latest
     timeout-minutes: 10
     services:
-      mysql:
-        image: mysql:8.0.36
+      postgres:
+        image: pgvector/pgvector:pg18@sha256:38681dc6eaf55308e2a4c6de392d131652dcfac70e1263e35cd9b5ea3fe39782
         env:
-          MYSQL_DATABASE: issue23_test
-          MYSQL_USER: issue23
-          MYSQL_PASSWORD: issue23
-          MYSQL_ROOT_PASSWORD: root-password
+          POSTGRES_DB: iris_gate
+          POSTGRES_PASSWORD: ci-superuser-password
         ports:
-          - 3306:3306
+          - 5432:5432
         options: >-
-          --health-cmd="mysql -h 127.0.0.1 -uissue23 -pissue23 issue23_test -e 'SELECT 1'"
+          --health-cmd="PGPASSWORD=ci-superuser-password psql -h 127.0.0.1 -U postgres -d iris_gate -tAc 'SELECT 1'"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
     env:
-      ISSUE23_TEST_URL: jdbc:mysql://127.0.0.1:3306/issue23_test
+      PGPASSWORD: ci-superuser-password
+      PG_TEST_USER: postgres
+      PG_TEST_PASSWORD: ci-superuser-password
+      ISSUE23_TEST_URL: jdbc:postgresql://127.0.0.1:5432/issue23_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -516,46 +725,38 @@ jobs:
           distribution: corretto
           java-version: '21'
           cache: maven
+      - name: Create the isolated gate database
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          psql -h 127.0.0.1 -U postgres -d iris_gate -v ON_ERROR_STOP=1 -c "CREATE DATABASE issue23_test"
       - name: Run patient follow-up scope, live evidence and read-only invariant tests
         run: mvn -B -Dtest=PatientFollowUpApiTest test
       - name: Require every patient follow-up case to run
         run: python3 scripts/check_surefire_skips.py target/surefire-reports issue23
 
-  flyway-mysql:
+  flyway-postgres:
+    # The PostgreSQL line is the authoritative migration history now. This job
+    # migrates an EMPTY database from scratch and then asserts the schema the
+    # application depends on, so a broken or missing migration cannot hide behind
+    # a pre-populated CI database.
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        run-order: [alphabetical, reversealphabetical]
     services:
-      mysql:
-        image: mysql:8.0.36
+      postgres:
+        image: pgvector/pgvector:pg18@sha256:38681dc6eaf55308e2a4c6de392d131652dcfac70e1263e35cd9b5ea3fe39782
         env:
-          MYSQL_DATABASE: diagnosis_ci
-          MYSQL_USER: eyeuser
-          MYSQL_PASSWORD: ci-password
-          MYSQL_ROOT_PASSWORD: root-password
+          POSTGRES_DB: iris_flyway
+          POSTGRES_PASSWORD: ci-superuser-password
+          IRIS_MIGRATOR_PASSWORD: ci-migrator-password
+          IRIS_APP_PASSWORD: ci-app-password
         ports:
-          - 3306:3306
+          - 5432:5432
         options: >-
-          --health-cmd="mysqladmin ping -h localhost -proot-password"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=10
-      redis:
-        image: redis:7.2.4
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd="redis-cli ping"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=10
+          --health-cmd="pg_isready -U postgres -d iris_flyway"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=20
     env:
-      FLYWAY_TEST_URL: jdbc:mysql://127.0.0.1:3306/diagnosis_ci?serverTimezone=UTC
-      FLYWAY_TEST_USERNAME: eyeuser
-      FLYWAY_TEST_PASSWORD: ci-password
-      SPRING_DATA_REDIS_HOST: 127.0.0.1
-      SPRING_DATA_REDIS_PORT: 6379
+      PGPASSWORD: ci-superuser-password
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -563,34 +764,99 @@ jobs:
           distribution: corretto
           java-version: '21'
           cache: maven
-      - name: Allow disposable empty-schema migration checks
-        run: >-
-          docker exec ${{ job.services.mysql.id }} mysql -uroot -proot-password
-          -e 'GRANT ALL PRIVILEGES ON `diagnosis_ci_empty_%`.* TO "eyeuser"@"%"; GRANT ALL PRIVILEGES ON `diagnosis_ci_audit_%`.* TO "eyeuser"@"%"; GRANT ALL PRIVILEGES ON `diagnosis_ci_terminal_%`.* TO "eyeuser"@"%"; GRANT ALL PRIVILEGES ON `diagnosis_ci_run_%`.* TO "eyeuser"@"%"; GRANT ALL PRIVILEGES ON `diagnosis_ci_analytics_%`.* TO "eyeuser"@"%"; GRANT ALL PRIVILEGES ON `diagnosis_ci_news_%`.* TO "eyeuser"@"%"; GRANT ALL PRIVILEGES ON `diagnosis_ci_curation_%`.* TO "eyeuser"@"%"; GRANT ALL PRIVILEGES ON `diagnosis_ci_publish_%`.* TO "eyeuser"@"%"; GRANT ALL PRIVILEGES ON `diagnosis_ci_workbench_%`.* TO "eyeuser"@"%"; SET GLOBAL log_bin_trust_function_creators=1;'
-      # Each matrix job runs every Flyway suite together, so order dependence cannot hide.
-      - run: mvn -B -Dtest=FlywayMySqlIntegrationTest,UploadTaskMapperMySqlIntegrationTest,ToolAuditMySqlIntegrationTest,ToolTerminalPersistenceMySqlIntegrationTest,DiagnosisRunMySqlIntegrationTest,AdminAnalyticsMySqlIntegrationTest,NewsIngestionMySqlIntegrationTest,NewsCollectionScheduleMySqlIntegrationTest,NewsCurationMySqlIntegrationTest,NewsEditorialPublishMySqlIntegrationTest,NewsWorkbenchMySqlIntegrationTest -Dsurefire.runOrder=${{ matrix.run-order }} test
-      - name: Require all Flyway suites to run fully
-        run: python3 scripts/check_surefire_skips.py target/surefire-reports flyway
+      - name: Bootstrap roles
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          psql -h 127.0.0.1 -U postgres -d iris_flyway -v ON_ERROR_STOP=1             -v migrator_password=ci-migrator-password -v app_password=ci-app-password             -f scripts/postgresql/bootstrap-roles.sql
+      - name: Migrate and validate an empty database
+        run: |
+          mvn -B -q compile resources:resources dependency:build-classpath -Dmdep.outputFile=/tmp/cp.txt
+          IRIS_FLYWAY_PASSWORD=ci-migrator-password java -cp "target/classes:$(cat /tmp/cp.txt)"             scripts/postgresql/FlywayMigrate.java             "jdbc:postgresql://127.0.0.1:5432/iris_flyway?currentSchema=diagnosis"
+      # Second run must execute nothing and still validate. This replaces the
+      # retired MySQL suite's "migrate twice is idempotent" contract: a migration
+      # that is re-applied on every startup, or a history that fails validation
+      # after a clean run, breaks here.
+      - name: Re-migrating an already migrated database is a no-op
+        run: |
+          IRIS_FLYWAY_PASSWORD=ci-migrator-password java -cp "target/classes:$(cat /tmp/cp.txt)"             scripts/postgresql/FlywayMigrate.java             "jdbc:postgresql://127.0.0.1:5432/iris_flyway?currentSchema=diagnosis" | tee /tmp/remigrate.txt
+          grep -q '^MIGRATED=0 VERSION=' /tmp/remigrate.txt || { cat /tmp/remigrate.txt; echo "second migrate executed migrations"; exit 1; }
+          grep -q '^VALIDATE=OK$' /tmp/remigrate.txt
+      - name: Assert the schema contract
+        run: |
+          tables=$(psql -h 127.0.0.1 -U postgres -d iris_flyway -Atc             "SELECT count(*) FROM information_schema.tables WHERE table_schema='diagnosis'")
+          test "$tables" -ge 60 || { echo "diagnosis tables=$tables"; exit 1; }
+          psql -h 127.0.0.1 -U postgres -d iris_flyway -Atc             "SELECT extversion FROM pg_extension WHERE extname='vector'" | grep -q '^0\.'
+          psql -h 127.0.0.1 -U postgres -d iris_flyway -Atc             "SELECT indexname FROM pg_indexes WHERE schemaname='rag'" | grep -q hnsw
+          psql -h 127.0.0.1 -U postgres -d iris_flyway -Atc             "SELECT success FROM diagnosis.flyway_schema_history" | grep -qv f
+          echo "tables=$tables schema_contract=ok"
+      - name: Application gate keeps refusing non-PostgreSQL targets
+        run: mvn -B -Dtest=PostgreSqlRequirementTest test
+      # A tampered applied migration must be rejected, not silently re-run. This is
+      # the "checksum enforcement" half of the retired MySQL history suite.
+      - name: Drifted migration history is rejected
+        run: |
+          psql -h 127.0.0.1 -U postgres -d iris_flyway -v ON_ERROR_STOP=1             -c "UPDATE diagnosis.flyway_schema_history SET checksum = checksum + 1 WHERE version = '1'"
+          set +e
+          IRIS_FLYWAY_PASSWORD=ci-migrator-password java -cp "target/classes:$(cat /tmp/cp.txt)"             scripts/postgresql/FlywayMigrate.java             "jdbc:postgresql://127.0.0.1:5432/iris_flyway?currentSchema=diagnosis" > /tmp/drift.txt 2>&1
+          status=$?
+          set -e
+          psql -h 127.0.0.1 -U postgres -d iris_flyway -v ON_ERROR_STOP=1             -c "UPDATE diagnosis.flyway_schema_history SET checksum = checksum - 1 WHERE version = '1'"
+          if [ "$status" -eq 0 ]; then cat /tmp/drift.txt; echo "drifted history was accepted"; exit 1; fi
+          grep -qi 'checksum mismatch' /tmp/drift.txt || { cat /tmp/drift.txt; echo "unexpected failure mode"; exit 1; }
+          echo "drift_rejected=ok"
+      # Upstream versions this jar does not ship must never start the application:
+      # Flyway reports "applied migration not resolved locally" and refuses. This is
+      # the fail-closed half of the retired MySQL rollback contract.
+      - name: A history row with no matching migration is rejected
+        run: |
+          psql -h 127.0.0.1 -U postgres -d iris_flyway -v ON_ERROR_STOP=1             -c "INSERT INTO diagnosis.flyway_schema_history (installed_rank, version, description, type, script, checksum, installed_by, installed_on, execution_time, success) VALUES (9999, '0.5', 'removed', 'SQL', 'V0_5__removed.sql', 0, 'postgres', now(), 0, true)"
+          set +e
+          IRIS_FLYWAY_PASSWORD=ci-migrator-password java -cp "target/classes:$(cat /tmp/cp.txt)"             scripts/postgresql/FlywayMigrate.java             "jdbc:postgresql://127.0.0.1:5432/iris_flyway?currentSchema=diagnosis" > /tmp/missing.txt 2>&1
+          status=$?
+          set -e
+          psql -h 127.0.0.1 -U postgres -d iris_flyway -v ON_ERROR_STOP=1             -c "DELETE FROM diagnosis.flyway_schema_history WHERE installed_rank = 9999"
+          if [ "$status" -eq 0 ]; then cat /tmp/missing.txt; echo "unknown history version was accepted"; exit 1; fi
+          grep -qi 'not resolved locally' /tmp/missing.txt || { cat /tmp/missing.txt; echo "unexpected failure mode"; exit 1; }
+          echo "missing_migration_rejected=ok"
+      # Upgrading a database that already holds rows must not rewrite them. Migrate a
+      # fresh database only to V4, write a row, then migrate the rest of the way and
+      # require the row to survive byte-for-byte. This is the data-preservation half
+      # of the retired MySQL upgrade suite.
+      - name: Upgrading a populated database preserves its rows
+        run: |
+          psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1             -c "CREATE DATABASE iris_flyway_upgrade"
+          psql -h 127.0.0.1 -U postgres -d iris_flyway_upgrade -v ON_ERROR_STOP=1             -v migrator_password=ci-migrator-password -v app_password=ci-app-password             -f scripts/postgresql/bootstrap-roles.sql >/dev/null
+          URL="jdbc:postgresql://127.0.0.1:5432/iris_flyway_upgrade?currentSchema=diagnosis"
+          IRIS_FLYWAY_TARGET=4 IRIS_FLYWAY_PASSWORD=ci-migrator-password java -cp "target/classes:$(cat /tmp/cp.txt)"             scripts/postgresql/FlywayMigrate.java "$URL" | tee /tmp/upgrade-to-v4.txt
+          grep -q '^MIGRATED=4 ' /tmp/upgrade-to-v4.txt
+          psql -h 127.0.0.1 -U postgres -d iris_flyway_upgrade -v ON_ERROR_STOP=1             -c "INSERT INTO diagnosis.t_user (useraccount, userpassword) VALUES ('drill-account', 'drill-hash')"
+          IRIS_FLYWAY_PASSWORD=ci-migrator-password java -cp "target/classes:$(cat /tmp/cp.txt)"             scripts/postgresql/FlywayMigrate.java "$URL" | tee /tmp/upgrade-to-head.txt
+          grep -q '^MIGRATED=3 ' /tmp/upgrade-to-head.txt
+          rows=$(psql -h 127.0.0.1 -U postgres -d iris_flyway_upgrade -Atc             "SELECT count(*) FROM diagnosis.t_user WHERE useraccount = 'drill-account' AND userpassword = 'drill-hash'")
+          test "$rows" = "1" || { echo "pre-existing row lost during upgrade (rows=$rows)"; exit 1; }
+          echo "upgrade_preserved_rows=ok"
 
   product-contract:
+    # 产品验收 schema 门禁。迁移后产品库是 PostgreSQL：这里用一次性 pgvector
+    # 容器跑 PG 线的 Flyway 历史，断言登录与空会话依赖的表/列真的存在。
     runs-on: ubuntu-latest
     services:
-      mysql:
-        image: mysql:8.0.36
+      postgres:
+        image: pgvector/pgvector:pg18@sha256:38681dc6eaf55308e2a4c6de392d131652dcfac70e1263e35cd9b5ea3fe39782
         env:
-          MYSQL_DATABASE: product_acceptance_test
-          MYSQL_USER: product_acceptance
-          MYSQL_PASSWORD: product_acceptance
-          MYSQL_ROOT_PASSWORD: root-password
+          POSTGRES_DB: product_acceptance_test
+          POSTGRES_PASSWORD: product-acceptance-password
         ports:
-          - 3306:3306
+          - 5432:5432
         options: >-
-          --health-cmd="mysqladmin ping -h localhost -proot-password"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=10
+          --health-cmd="pg_isready -U postgres -d product_acceptance_test"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=20
     env:
-      PRODUCT_ACCEPTANCE_TEST_URL: jdbc:mysql://127.0.0.1:3306/product_acceptance_test
+      PRODUCT_ACCEPTANCE_TEST_URL: jdbc:postgresql://127.0.0.1:5432/product_acceptance_test
+      PRODUCT_ACCEPTANCE_TEST_USER: postgres
+      PRODUCT_ACCEPTANCE_TEST_PASSWORD: product-acceptance-password
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4

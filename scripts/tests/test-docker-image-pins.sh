@@ -33,7 +33,8 @@ HARNESS="$ROOT/scripts/lib/docker-test-harness.sh"
 
 ci_images() {
   local svc="$1"
-  grep -E "^[[:space:]]+image: ${svc}" "$CI" | sed -E 's/.*image:[[:space:]]*//' | tr -d '\r' | sort -u
+  # `grep || true`: "no such service" is a valid answer (see the MySQL assertion).
+  { grep -E "^[[:space:]]+image: ${svc}" "$CI" || true; } | sed -E 's/.*image:[[:space:]]*//' | tr -d '\r' | sort -u
 }
 
 # ---- image pins -----------------------------------------------------------
@@ -41,12 +42,46 @@ mysql_ci="$(ci_images 'mysql:' | tr '\n' ' ' | sed 's/ $//')"
 redis_ci="$(ci_images 'redis:' | tr '\n' ' ' | sed 's/ $//')"
 chroma_ci="$(ci_images 'ghcr.io/chroma-core/chroma:' | tr '\n' ' ' | sed 's/ $//')"
 
-check_eq "CI mysql image(s)" "$MYSQL_IMAGE" "$mysql_ci"
+# The Java line migrated to PostgreSQL: no CI job may start a MySQL service any
+# more, and every isolated gate runs on the pinned pgvector image.
+if [ -z "$mysql_ci" ]; then
+  pass "CI starts no MySQL service (PostgreSQL line)"
+else
+  fail "CI still starts MySQL: $mysql_ci"
+fi
+pg_ci="$(ci_images 'pgvector/pgvector:' | tr '
+' ' ' | sed 's/ $//')"
+check_eq "CI pgvector image(s)" "$PGVECTOR_IMAGE" "$pg_ci"
 check_eq "CI redis image(s)" "$REDIS_IMAGE" "$redis_ci"
 check_eq "CI chroma image" "$CHROMA_IMAGE" "$chroma_ci"
 
-compose_chroma="$(grep -E '^[[:space:]]+image:' "$COMPOSE" | sed -E 's/.*image:[[:space:]]*//' | tr -d '\r' | sort -u | tr '\n' ' ' | sed 's/ $//')"
-check_eq "compose chroma image" "$CHROMA_IMAGE" "$compose_chroma"
+# Compose now runs two data services (postgres default, chroma behind a profile),
+# so match the image per service instead of assuming a single image line.
+compose_image() {
+  local svc="$1"
+  awk -v svc="$svc" '
+    $0 == "  " svc ":" { inside = 1; next }
+    inside && /^  [^ ]/ { inside = 0 }
+    inside && /^[[:space:]]+image:/ {
+      sub(/.*image:[[:space:]]*/, ""); gsub(/\r/, ""); print; exit
+    }
+  ' "$COMPOSE"
+}
+check_eq "compose chroma image" "$CHROMA_IMAGE" "$(compose_image chroma)"
+check_eq "compose postgres image" "$PGVECTOR_IMAGE" "$(compose_image postgres)"
+
+# verify-pg.sh is shell, so the gate cannot compare a literal tag: instead pin the
+# indirection — it must source docker-images.env and use $PGVECTOR_IMAGE for both
+# the presence check and the `docker run`, never a hardcoded tag.
+VERIFY_PG="$ROOT/scripts/verify-pg.sh"
+check_contains "verify-pg sources the image pins" "scripts/lib/docker-images.env" "$VERIFY_PG"
+check_contains "verify-pg requires the pinned image" 'eye_docker_require_image "$PGVECTOR_IMAGE"' "$VERIFY_PG"
+check_contains "verify-pg runs the pinned image" '-p 0:5432 "$PGVECTOR_IMAGE"' "$VERIFY_PG"
+if grep -qE 'pgvector/pgvector:pg[0-9]+' "$VERIFY_PG"; then
+  fail "verify-pg.sh hardcodes a pgvector tag instead of \$PGVECTOR_IMAGE"
+else
+  pass "verify-pg.sh carries no hardcoded pgvector tag"
+fi
 
 # ---- local entry points use the harness ----------------------------------
 check_contains "verify.sh sources the harness" "scripts/lib/docker-test-harness.sh" "$VERIFY"

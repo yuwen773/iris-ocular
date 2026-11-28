@@ -1,6 +1,7 @@
 package com.csust.eyediagnosis.newsworkbench;
 
 import com.csust.eyediagnosis.exception.BusinessException;
+import com.csust.eyediagnosis.common.InsertRaceGuard;
 import com.csust.eyediagnosis.exception.ErrorCode;
 import com.csust.eyediagnosis.model.entity.User;
 import com.csust.eyediagnosis.newscuration.NewsCurationModels;
@@ -15,7 +16,6 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -79,7 +79,7 @@ public class NewsWorkbenchService {
     private static final String LINKED_NEWS_ID_SQL =
             "(SELECT n.id FROM t_news n WHERE n.curationCandidateId = c.id AND n.isDelete = 0 ORDER BY n.id DESC LIMIT 1)";
     private static final String LINKED_NEWS_STATUS_SQL =
-            "(SELECT CAST(n.status AS SIGNED) FROM t_news n WHERE n.curationCandidateId = c.id AND n.isDelete = 0 ORDER BY n.id DESC LIMIT 1)";
+            "(SELECT n.status FROM t_news n WHERE n.curationCandidateId = c.id AND n.isDelete = 0 ORDER BY n.id DESC LIMIT 1)";
 
     /**
      * 阻塞判定，与 Worker 领取逻辑（{@code NewsIngestionService.claimForSource} 的 NOT EXISTS 子句）
@@ -111,7 +111,7 @@ public class NewsWorkbenchService {
                    DATE_FORMAT(t.windowEndBefore, '%Y-%m-%d') AS windowEndBefore,
                    t.status, t.generation, t.attemptCount, t.maxAttempts, t.leaseWorkerId,
                    DATE_FORMAT(t.leaseExpiresAt, '%Y-%m-%dT%H:%i:%s.%fZ') AS leaseExpiresAtUtc,
-                   CAST(CASE WHEN t.status = 'LEASED' AND t.leaseExpiresAt <= UTC_TIMESTAMP(6) THEN 1 ELSE 0 END AS SIGNED)
+                   CASE WHEN t.status = 'LEASED' AND t.leaseExpiresAt <= UTC_TIMESTAMP(6) THEN 1 ELSE 0 END
                        AS leaseExpired,
                    DATE_FORMAT(t.nextAttemptAt, '%Y-%m-%dT%H:%i:%s.%fZ') AS nextAttemptAtUtc,
                    t.taskType, t.lastFailureCode, t.committedBatchCount, t.committedRecordCount,
@@ -130,6 +130,7 @@ public class NewsWorkbenchService {
 
     private final JdbcTemplate jdbc;
     private final TransactionTemplate taskTransactions;
+    private final InsertRaceGuard insertRaceGuard;
     private final NewsIngestionService ingestionService;
     private final NewsCurationService curationService;
     private final NewsCurationProperties curationProperties;
@@ -144,6 +145,8 @@ public class NewsWorkbenchService {
                                 @Qualifier("newsProtocolObjectMapper") ObjectMapper mapper) {
         this.jdbc = jdbc;
         this.taskTransactions = new TransactionTemplate(transactionManager);
+        // 复用同一个事务管理器：入队撞键后的状态回读必须活下来（PostgreSQL 事务会中止）。
+        this.insertRaceGuard = new InsertRaceGuard(transactionManager);
         this.ingestionService = ingestionService;
         this.curationService = curationService;
         this.curationProperties = curationProperties;
@@ -371,17 +374,19 @@ public class NewsWorkbenchService {
         }
 
         return taskTransactions.execute(transaction -> {
-            try {
-                ingestionService.enqueueWindow(
-                        taskId, normalizedSource, req.sourceConfigVersion(), req.query(), start, end, maxAttempts);
-            } catch (DuplicateKeyException ex) {
+            if (!insertRaceGuard.tryInsert(() -> {
+                try {
+                    ingestionService.enqueueWindow(
+                            taskId, normalizedSource, req.sourceConfigVersion(), req.query(), start, end, maxAttempts);
+                } catch (IllegalArgumentException ex) {
+                    throw new BusinessException(ErrorCode.PARAMS_ERROR, ex.getMessage());
+                }
+            })) {
                 String status = ingestionService.getTask(taskId)
                         .map(NewsIngestionService.TaskSnapshot::status)
                         .orElse("UNKNOWN");
                 throw new BusinessException(ErrorCode.PARAMS_ERROR,
                         "任务 ID " + taskId + " 已存在且当前状态为 " + status + "，本次入队未生效");
-            } catch (IllegalArgumentException ex) {
-                throw new BusinessException(ErrorCode.PARAMS_ERROR, ex.getMessage());
             }
             recordTaskEvent(taskId, TASK_EVENT_ACTION_ENQUEUE, null, "PENDING", operator, null);
             return loadTaskView(taskId);
@@ -580,8 +585,8 @@ public class NewsWorkbenchService {
                        c.contentDigest, c.policyVersion, c.callId, c.status, c.decision,
                        c.evidenceTier, c.relevanceScore, c.suggestedTitle, c.suggestedSummary,
                        c.category, c.contentType,
-                       COALESCE(JSON_LENGTH(c.claimsJson), 0) AS claimsCount,
-                       COALESCE(JSON_LENGTH(c.violationsJson), 0) AS violationsCount,
+                       COALESCE(CASE WHEN jsonb_typeof(c.claimsJson) = 'array' THEN jsonb_array_length(c.claimsJson) ELSE 0 END, 0) AS claimsCount,
+                       COALESCE(CASE WHEN jsonb_typeof(c.violationsJson) = 'array' THEN jsonb_array_length(c.violationsJson) ELSE 0 END, 0) AS violationsCount,
                        c.evidenceSnapshotSha256,
                 """ + LINKED_NEWS_ID_SQL + " AS linkedNewsId, "
                 + LINKED_NEWS_STATUS_SQL + """
@@ -852,7 +857,7 @@ public class NewsWorkbenchService {
                        totalCases, passedCases, precisionBps, recallBps,
                        evidenceCatchBps, licenseComplianceBps, injectionCatchBps,
                        totalCalls, totalTokens, totalCostMicros,
-                       CAST(gatePassed AS SIGNED) AS gatePassed,
+                       gatePassed,
                        DATE_FORMAT(createdAt, '%Y-%m-%dT%H:%i:%s.%fZ') AS createdAtUtc
                 FROM t_news_bench_run
                 ORDER BY createdAt DESC, runId DESC
@@ -880,7 +885,7 @@ public class NewsWorkbenchService {
 
     private List<NewsWorkbenchModels.SourceDetailVO> loadSources(String optionalSource) {
         String sourceSql = """
-                SELECT source, CAST(enabled AS SIGNED) AS enabled,
+                SELECT source, enabled,
                        DATE_FORMAT(updatedAt, '%Y-%m-%dT%H:%i:%s.%fZ') AS updatedAtUtc
                 FROM t_news_source
                 """ + (optionalSource != null ? "WHERE source = ? " : "") + "ORDER BY source ASC";
@@ -1200,7 +1205,7 @@ public class NewsWorkbenchService {
                 rs.getLong("maxCostMicros"),
                 rs.getLong("usedCostMicros"),
                 rs.getLong("reservedCostMicros"),
-                rs.getInt("circuitBroken") == 1,
+                rs.getBoolean("circuitBroken"),
                 rs.getString("circuitReason"),
                 parseUtcInstant(rs.getString("updatedAtUtc"))
         );

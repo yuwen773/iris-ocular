@@ -9,6 +9,9 @@
 
 # 数据库迁移（只增不改：已应用脚本不得修改，只能追加更高版本）
 /src/main/resources/db/migration/ @yuwen773
+/src/main/resources/db/postgresql/ @yuwen773
+/scripts/migration/ @yuwen773
+/scripts/postgresql/ @yuwen773
 /src/main/resources/db/callback/ @yuwen773
 
 # 安全与授权边界

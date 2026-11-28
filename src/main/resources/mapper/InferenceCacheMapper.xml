@@ -62,7 +62,8 @@
              #{qualityReasons}, #{isOod}, #{oodScore}, #{oodStatus}, #{rejected}, #{abstainReason}, #{requiresReview},
              #{classificationProbability}, #{calibrationVersion}, #{imageQualityState}, #{imageQualityVersion},
              #{imageQualityCalibrationState}, #{patientConclusionAllowed}, #{createTime})
-        ON DUPLICATE KEY UPDATE id = id
+        ON CONFLICT (imagehash, modelversion, weightsha256, preprocessversion, inferencepolicyversion)
+        DO NOTHING
     </insert>
 
 </mapper>

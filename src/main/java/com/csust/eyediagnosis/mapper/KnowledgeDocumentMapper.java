@@ -21,7 +21,7 @@ public interface KnowledgeDocumentMapper extends BaseMapper<KnowledgeDocument> {
                     @Param("status") int status, @Param("chunkCount") Integer chunkCount);
 
     /** 登记候选版本；只有当前已 READY 的文档可以更新。 */
-    @Update("UPDATE t_knowledge_document SET pendingIndexVersion=#{version}, pendingUpdatedTime=NOW(6) "
+    @Update("UPDATE t_knowledge_document SET pendingIndexVersion=#{version}, pendingUpdatedTime=NOW() "
             + "WHERE id=#{id} AND isDelete=0 AND status=1")
     int beginCandidate(@Param("id") Long id, @Param("version") String version);
 
@@ -55,7 +55,7 @@ public interface KnowledgeDocumentMapper extends BaseMapper<KnowledgeDocument> {
      * 记录收口成失败，至少让人看得见、能重传。
      */
     @Update("UPDATE t_knowledge_document SET status=2, chunkCount=NULL "
-            + "WHERE isDelete=0 AND status=0 AND updateTime < DATE_SUB(NOW(), INTERVAL #{minutes} MINUTE)")
+            + "WHERE isDelete=0 AND status=0 AND updateTime < now() - (#{minutes} * interval '1 minute')")
     int failStuckIndexing(@Param("minutes") int minutes);
 
     /**
@@ -67,6 +67,6 @@ public interface KnowledgeDocumentMapper extends BaseMapper<KnowledgeDocument> {
      */
     @Select("SELECT id, pendingIndexVersion FROM t_knowledge_document "
             + "WHERE isDelete=0 AND pendingIndexVersion IS NOT NULL "
-            + "AND pendingUpdatedTime < DATE_SUB(NOW(), INTERVAL #{minutes} MINUTE)")
+            + "AND pendingUpdatedTime < now() - (#{minutes} * interval '1 minute')")
     List<KnowledgeDocument> selectStaleCandidates(@Param("minutes") int minutes);
 }

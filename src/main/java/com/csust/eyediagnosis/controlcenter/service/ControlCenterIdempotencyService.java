@@ -1,5 +1,6 @@
 package com.csust.eyediagnosis.controlcenter.service;
 
+import com.csust.eyediagnosis.common.InsertRaceGuard;
 import com.csust.eyediagnosis.controlcenter.model.entity.ConfigRequest;
 import com.csust.eyediagnosis.exception.BusinessException;
 import com.csust.eyediagnosis.exception.ErrorCode;
@@ -7,7 +8,6 @@ import com.csust.eyediagnosis.mapper.ConfigRequestMapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
 import java.util.Optional;
@@ -49,11 +49,14 @@ public class ControlCenterIdempotencyService {
     static final int REQUEST_ID_MAX_LENGTH = 64;
 
     private final ConfigRequestMapper requestMapper;
+    private final InsertRaceGuard insertRaceGuard;
 
     private final ObjectMapper mapper = new ObjectMapper();
 
-    public ControlCenterIdempotencyService(ConfigRequestMapper requestMapper) {
+    public ControlCenterIdempotencyService(ConfigRequestMapper requestMapper,
+                                           InsertRaceGuard insertRaceGuard) {
         this.requestMapper = requestMapper;
+        this.insertRaceGuard = insertRaceGuard;
     }
 
     /**
@@ -75,12 +78,11 @@ public class ControlCenterIdempotencyService {
         reservation.setRequestDigest(digest);
         reservation.setAction(action);
         reservation.setResultCode(PENDING_RESULT_CODE);
-        try {
-            requestMapper.insert(reservation);
+        // savepoint：撞键后本事务在 PostgreSQL 上仍然可用，才能继续回读首次结果。
+        if (insertRaceGuard.tryInsert(() -> requestMapper.insert(reservation))) {
             return Optional.empty();
-        } catch (DuplicateKeyException duplicate) {
-            return replayExisting(actorId, requestId, digest, type);
         }
+        return replayExisting(actorId, requestId, digest, type);
     }
 
     /** 回填首次结果；与业务写同事务，业务回滚时一并消失。 */

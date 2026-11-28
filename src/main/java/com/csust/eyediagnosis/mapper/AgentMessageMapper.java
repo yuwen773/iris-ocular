@@ -64,7 +64,8 @@ public interface AgentMessageMapper extends BaseMapper<AgentMessage> {
      * <p>只查这一页里出现的轮次：整会话聚合会在每次翻页时重扫全部行，
      * 翻完一个大会话是 O(n²/limit) 次 GROUP BY。调用方保证传入的集合非空。
      */
-    @Select("<script>SELECT replyToId, variantId, MIN(id) AS firstId FROM t_agent_message " +
+    @Select("<script>SELECT replyToId AS \"replyToId\", variantId AS \"variantId\", MIN(id) AS \"firstId\" "
+            + "FROM t_agent_message " +
             "WHERE sessionId = #{sessionId} AND replyToId IN " +
             "<foreach collection='replyToIds' item='id' open='(' separator=',' close=')'>#{id}</foreach> " +
             "AND variantId IS NOT NULL " +

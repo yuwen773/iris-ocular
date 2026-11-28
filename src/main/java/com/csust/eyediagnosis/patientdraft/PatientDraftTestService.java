@@ -146,11 +146,12 @@ public class PatientDraftTestService implements AutoCloseable {
         String source = "synthetic.invalid";
         jdbc.update("INSERT INTO t_controlled_reference (id,title,source,fileName,documentVersion,fileContent,isTest,visibility,"
                         + "reviewStatus,diseaseCodes,topicCodes,governanceVersion,uploadedBy,reviewedBy,reviewedAt) "
-                        + "VALUES (?,?,?,'synthetic.txt',?,?,0,'CURATED_PUBLIC','APPROVED',JSON_ARRAY(?),JSON_ARRAY('PATIENT_EXPLANATION'),1,?,?,CURRENT_TIMESTAMP(6))",
+                        + "VALUES (?,?,?,'synthetic.txt',?,?,0,'CURATED_PUBLIC','APPROVED',?,'[\"PATIENT_EXPLANATION\"]',1,?,?,CURRENT_TIMESTAMP(6))",
                 // Title and source stay short and label-like. Long prose here is quoted by the explanation model
                 // as if it were an excerpt, which the citation contract then (correctly) rejects.
                 documentId, "SYNTHETIC-" + label, source, digest(source), new byte[]{1},
-                label.toUpperCase(Locale.ROOT), userId, userId);
+                // 疾病代码是内部常量（SEED_EXCERPTS 的键，只有大写字母与下划线），直接拼 JSON 数组字面量。
+                "[\"" + label.toUpperCase(Locale.ROOT) + "\"]", userId, userId);
         for (int index = 0; index < SEED_EXCERPTS.get(label).size(); index++) {
             String excerpt = SEED_EXCERPTS.get(label).get(index);
             jdbc.update("INSERT INTO t_controlled_reference_chunk VALUES (?,?,?,?)", documentId, index, excerpt, digest(excerpt));

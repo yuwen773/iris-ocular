@@ -27,13 +27,34 @@ spring:
     active: local,dev
   application:
     name: eye-diagnosis
+  # ── PostgreSQL 18 + pgvector ───────────────────────────────────────────────
+  # 业务关系数据在 diagnosis schema，RAG 向量在 rag schema，同一实例、独立 schema
+  # 逻辑隔离。currentSchema 同时决定 MyBatis 生成 SQL 的解析路径与 date_format()
+  # 等兼容函数的可见性。
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://127.0.0.1:5432/iris?currentSchema=diagnosis,rag,public&stringtype=unspecified}
+    driver-class-name: org.postgresql.Driver
+    username: ${SPRING_DATASOURCE_USERNAME:iris_app}
+    password: ${SPRING_DATASOURCE_PASSWORD:}
+    hikari:
+      # MySQL 的 innodb_lock_wait_timeout 默认 50s；PostgreSQL 默认无限等待。
+      # 配置中心的发布/回滚靠 SELECT … FOR UPDATE 串行化，没有这个上限时争用会
+      # 永久挂起，而不是像 MySQL 那样超时并映射成可重试的 CONFIG_CONCURRENT_CONFLICT。
+      connection-init-sql: SET lock_timeout = '50s'
   flyway:
     enabled: true
-    baseline-on-migrate: true
-    baseline-version: 0
-    locations: classpath:db/migration,classpath:db/callback
+    # 历史 MySQL 迁移链（db/migration）保持原样、不再改写；PostgreSQL 线是独立
+    # 的历史。默认只跑 PostgreSQL 线；要跑旧 MySQL 线必须显式覆盖 locations。
+    locations: ${SPRING_FLYWAY_LOCATIONS:classpath:db/postgresql}
     schemas: diagnosis
+    default-schema: diagnosis
+    create-schemas: true
+    baseline-on-migrate: false
     validate-on-migrate: true
+    # 迁移账号与应用账号分离：应用账号没有 DDL 权限，不能兼任迁移。
+    # 本地也要先跑 scripts/postgresql/bootstrap-roles.sql 建两个角色。
+    user: ${IRIS_FLYWAY_USER:iris_migrator}
+    password: ${IRIS_FLYWAY_PASSWORD:}
 mybatis-plus:
   configuration:
     map-underscore-to-camel-case: false
@@ -111,11 +132,12 @@ agent:
     enabled: false
     digest-key: ${AGENT_TOOL_AUDIT_DIGEST_KEY:iris-tool-audit-dev-only-key}
 eye-diagnosis:
-  # 数据分析（/api/stats/admin/analytics）使用 CTE + 窗口函数，最低 MySQL 8.0。
-  # 低于 8.0 时启动即失败，避免接口到运行时才返回 50000。
-  # 本机 3306 通常是 5.7、3307 是 8.0：dev 数据源必须指向 8.0 实例。
+  # 数据分析（/api/stats/admin/analytics）使用 CTE + 窗口函数；RAG 使用 pgvector，
+  # 历史 MySQL 线已退役。启动基线要求连接的是 PostgreSQL 18+ 且 vector 扩展已安装，
+  # 不满足时启动即失败，避免接口到运行时才返回 50000。
   database:
-    require-mysql8: true
+    require-postgresql: true
+    min-major-version: 18
   # 配置中心（Iris Control Center 1.0，WP-01 起逐步实现）。
   # 默认关闭：关闭时不注册 CSRF 端点、不做严格 Origin 与 CSRF 校验，
   # 全站行为与引入配置中心之前一致。开启前请先读
@@ -192,7 +214,13 @@ eye-diagnosis:
   rag:
     chunk-size: 800
     chunk-overlap: 100
-    # 内置眼科知识语料（classpath:rag/*.md）播种：开启后启动时切分并写入 ChromaDB。
+    # pgvector 存储位置。表与 HNSW 索引由 Flyway（db/postgresql）建立，
+    # 应用启动不建表、不删表。维度与 DashScope text-embedding-v3 默认输出一致。
+    vector-store:
+      schema: rag
+      table: iris_knowledge_vectors
+      dimensions: 1024
+    # 内置眼科知识语料（classpath:rag/*.md）播种：开启后启动时切分并写入 pgvector。
     # 播种需要调用嵌入模型（产生费用），默认关闭。
     corpus:
       seed-enabled: false

@@ -30,14 +30,19 @@ Base package: `com.csust.eyediagnosis`
 后端构建脚本看 `pom.xml`，产品前端脚本看 `web/package.json`（`typecheck` / `test` / `build` / `lint`，
 CI 里是根 `verify.yml` 的 `web` job），小程序看 `miniapp/package.json`（`typecheck` / `test` / `build:weapp` /
 `gen:tokens`，CI 里是 `miniapp` job），Vue 已弃用线看 `frontend/package.json`，算法服务看
-`algorithm/requirements.txt` 与 `run_mcp_server.py` / `grpc_server.py`；`docker-compose.yml` 起 ChromaDB :8000。
+`algorithm/requirements.txt` 与 `run_mcp_server.py` / `grpc_server.py`；`docker-compose.yml` 默认起
+PostgreSQL 18 + pgvector（:5432），Chroma 只在 `--profile legacy-chroma` 下作迁移对照工具。
 
-**日常改动走分级验证 `scripts/verify-fast.sh`**（L0 / L1 / L2 / L3，**默认 L1**）：
-按改动范围点名要跑的用例，改一两个文件不必启动全量。涉及数据库状态、迁移、权限、
-RAG 证据、Spring 装配时升到 L2（`--db`）；准备合并时才用 L3。规则与逐模块影响映射见
-`docs/testing/verification-levels.md`。
+**本分支（PG 线）的后端验证一律走 `scripts/verify-pg.sh`**：`verify-fast.sh` 的 `--db`
+（MySQL 8）与 `scripts/verify.sh` 属于迁移前的旧线，在本分支不能作为通过证据。
+L0 的静态检查仍可用 `scripts/verify-fast.sh` 的非 `--db` 档；涉及数据库、迁移、权限、
+RAG 证据、Spring 装配时用 `scripts/verify-pg.sh`（L1 门禁）或 `--full`（全量）。
 
-**后端全量验证走 `scripts/verify.sh`**：它自带一次性 MySQL 8 + Redis、注入 `SPRING_PROFILES_ACTIVE=ci`、跑完整 `mvn test`（含 `contextLoads` 与两个 MySQL 集成门禁），结束自动清理容器。JDK 21 由脚本设为 `C:\Users\yuwen\.jdks\corretto-21.0.7`；手工跑 Maven 时用 `JAVA_HOME=<该路径> mvn ...`。
+**后端全量验证走 `scripts/verify-pg.sh`**（`--full` 跑完整 `mvn test`）：它通过 docker-test-harness 起一次性
+`pgvector/pgvector:pg18`、bootstrap 最小权限角色、跑真正的 PG Flyway 线，注入 `SPRING_PROFILES_ACTIVE=ci`，
+结束自动清理容器。旧的 MySQL 版 `scripts/verify.sh` 只作为历史线保留。JDK 21 由脚本设为
+`C:\Users\yuwen\.jdks\corretto-21.0.7`；手工跑 Maven 时用 `JAVA_HOME=<该路径> mvn ...`。
+本机没有常驻 Redis 时，验收套件需要 `SPRING_DATA_REDIS_PORT` 指向一个可用实例（登录/会话会用到）。
 
 **Docker 测试资源统一走 `scripts/lib/docker-test-harness.sh`**（Run ID + `eye.owner` 标签 + 命名卷 + 统一 teardown）；遗留资源只读盘点与安全回收用 `scripts/docker-test-resources.sh`（默认 dry-run，**禁止全局 prune**）。根因、入口清单与历史资源清理方案见 `docs/docker-test-resources.md`。
 
@@ -96,15 +101,31 @@ Java 21 与本机 MySQL 实例的环境事实见主检出目录的 `CLAUDE.local
 | NotificationController | `/api/notifications/*` | 站内通知：我的通知分页 / 未读数 / 标记已读 / 全部已读（接收人恒为会话用户；通知是旁路，写失败不阻断业务） |
 | ControlCenterController / ControlCenterCsrfController | `/api/admin/control-center/*` | 配置中心草稿/发布/审批/回滚 + CSRF 令牌；默认关闭（`eye-diagnosis.control-center.enabled=false`） |
 
-## Database (MySQL `diagnosis`)
+## Database (PostgreSQL 18 + pgvector)
 
-Schema: `src/main/resources/db/migration/V*.sql` (Flyway migrations — authoritative; `db/callback/` bootstraps fresh installs). Never edit an applied migration; add a new one. Current head is V47 with staged model call identities, a global daily budget guard, the human evidence verification ledger, candidate replacement events, and a whole-experiment budget ceiling; upgrade paths per target database are in `docs/architecture/migration-matrix.md`. Key tables: `t_user`, `t_user_wechat`, `t_config_draft`, `t_config_release`, `t_config_active_pointer`, `t_config_request`, `t_config_audit_event`, `t_config_publish_request`, `t_user_feedback`, `t_user_notification`, `t_diagnosis`, `t_diagnosis_task`, `t_agent_session`, `t_agent_message`, `t_agent_tool_audit`, `t_mcp_server`, `t_knowledge_document`, `t_news`, `t_news_audit`, `t_news_revision`, `t_news_cache_epoch`, `t_news_source`, `t_news_source_cursor`, `t_news_collection_task`, `t_news_collection_task_event`, `t_news_collection_schedule`, `t_news_worker_poll`, `t_news_material`, `t_news_material_revision`, `t_news_curation_budget`, `t_news_curation_budget_guard`, `t_news_curation_lifetime_budget`, `t_news_curation_candidate_event`, `t_news_model_call_receipt`, `t_news_evidence_verification`, `t_news_curation_candidate`, `t_news_bench_run`, `t_controlled_reference`, `t_patient_draft_run`, `t_doctor_review`, `t_patient_authorization`, `t_diagnosis_run`.
+> **本分支（`feat/postgresql-pgvector-migration`）已迁到 PostgreSQL**：不再是 MySQL + ChromaDB。
+> MySQL 的 `db/migration/V*.sql` 保留为历史记录（Current head is V47），**不要**再往上加迁移；
+> PostgreSQL 线是 `db/postgresql/V*.sql`，当前到 V7。
+> 迁移决策、验收证据、本轮修复的移植缺陷与生产切换授权清单见
+> `docs/architecture/postgresql-pgvector-migration-report-2026-11-28.md`。
 
-**命名规范**: 数据库列名统一使用**小驼峰**命名（如 `userId`, `fileName`, `isDelete`），与 Java 实体类字段保持一致。MyBatis Plus 配置 `map-underscore-to-camel-case: false`，不会自动转换下划线。
+Schema: `src/main/resources/db/postgresql/V*.sql`（独立 PG Flyway 历史，authoritative）。业务关系数据在
+`diagnosis` schema；RAG 向量在 `rag.iris_knowledge_vectors`；同一库、按 schema 与角色逻辑隔离。
+连接串必须带 `stringtype=unspecified`（`jsonb` 参数依赖它，缺失时启动闸门 `PostgreSqlRequirement` 直接拒绝启动）。
+Least-privilege 角色 `iris_migrator`（DDL）/ `iris_app`（DML）由 `scripts/postgresql/bootstrap-roles.sql`
+建立——**Flyway 之前必须跑一次**（schema、授权与 MySQL 兼容 cast 都在里面）。Never edit an applied migration; add a new one.
+Key tables: `t_user`, `t_user_wechat`, `t_config_draft`, `t_config_release`, `t_config_active_pointer`, `t_config_request`, `t_config_audit_event`, `t_config_publish_request`, `t_user_feedback`, `t_user_notification`, `t_diagnosis`, `t_diagnosis_task`, `t_agent_session`, `t_agent_message`, `t_agent_tool_audit`, `t_mcp_server`, `t_knowledge_document`, `t_news`, `t_news_audit`, `t_news_revision`, `t_news_cache_epoch`, `t_news_source`, `t_news_source_cursor`, `t_news_collection_task`, `t_news_collection_task_event`, `t_news_collection_schedule`, `t_news_worker_poll`, `t_news_material`, `t_news_material_revision`, `t_news_curation_budget`, `t_news_curation_budget_guard`, `t_news_curation_lifetime_budget`, `t_news_curation_candidate_event`, `t_news_model_call_receipt`, `t_news_evidence_verification`, `t_news_curation_candidate`, `t_news_bench_run`, `t_controlled_reference`, `t_patient_draft_run`, `t_doctor_review`, `t_patient_authorization`, `t_diagnosis_run`.
+
+**移植注意**（都是 MySQL 语义假设，PG 上会炸）：「插入 → 撞唯一键 → 同事务回读」必须走
+`common/InsertRaceGuard`（savepoint），直接 catch 后事务已是 `25P02`；`jsonb` 列的 `queryForMap`
+返回 `PGobject`，不能强转 `String`；`<=>`、`date_format`、`utc_timestamp` 等由 `db/postgresql` 补丁提供；
+本分支 SQL 不再使用 `JSON_OBJECT()` / `JSON_ARRAY()` / `LAST_INSERT_ID()`。
+
+**命名规范**: 数据库列名统一使用**小驼峰**命名（如 `userId`, `fileName`, `isDelete`），与 Java 实体类字段保持一致。列名在 SQL 里不加引号（PG 折叠为小写）；MyBatis Plus 配置 `map-underscore-to-camel-case: false`，不会自动转换下划线。
 
 ## External Services
 
-MySQL | Redis (session + cache) | ChromaDB (vector RAG) | DashScope (LLM + embeddings + vision) | Tencent COS (file storage) | Python gRPC (image classification)
+PostgreSQL 18 (+pgvector) | Redis (session + cache) | DashScope (LLM + embeddings + vision) | Tencent COS (file storage) | Python gRPC (image classification)
 
 ## Key Patterns
 

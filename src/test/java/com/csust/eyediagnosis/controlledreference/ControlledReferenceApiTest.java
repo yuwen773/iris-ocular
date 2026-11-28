@@ -4,6 +4,7 @@ import com.csust.eyediagnosis.agent.rag.DocumentParser;
 import com.csust.eyediagnosis.agent.rag.TextChunkerService;
 import com.csust.eyediagnosis.controller.ControlledReferenceController;
 import com.csust.eyediagnosis.exception.GlobalExceptionHandler;
+import com.csust.eyediagnosis.integration.LegacyGateSupport;
 import com.csust.eyediagnosis.model.entity.User;
 import com.csust.eyediagnosis.service.UserService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -39,16 +40,14 @@ class ControlledReferenceApiTest {
 
     @BeforeEach
     void setUp() {
-        String url = System.getenv("ISSUE18_TEST_URL");
-        org.junit.jupiter.api.Assumptions.assumeTrue(url != null && !url.isBlank(), "Set ISSUE18_TEST_URL for the isolated MySQL gate");
-        if (!url.matches("jdbc:mysql://127\\.0\\.0\\.1:[0-9]+/issue18_test")) {
-            throw new IllegalArgumentException("Use the isolated issue18_test database");
-        }
-        var ds = new DriverManagerDataSource(url, "issue18", "issue18");
+        String url = LegacyGateSupport.assumeIsolated(System.getenv("ISSUE18_TEST_URL"), "ISSUE18_TEST_URL", "issue18_test");
+        var ds = LegacyGateSupport.dataSource(url);
         jdbc = new JdbcTemplate(ds);
-        if (jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='t_controlled_reference'", Integer.class) == 0) {
-            new ResourceDatabasePopulator(new ClassPathResource("db/migration/V19__controlled_reference.sql")).execute(ds);
-        }
+        LegacyGateSupport.ensureSchema(url, ds, java.util.List.of(), () -> {
+            if (jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='t_controlled_reference'", Integer.class) == 0) {
+                new ResourceDatabasePopulator(new ClassPathResource("db/migration/V19__controlled_reference.sql")).execute(ds);
+            }
+        });
         jdbc.update("DELETE FROM t_controlled_reference_chunk");
         jdbc.update("DELETE FROM t_controlled_reference");
         var chunker = new TextChunkerService();

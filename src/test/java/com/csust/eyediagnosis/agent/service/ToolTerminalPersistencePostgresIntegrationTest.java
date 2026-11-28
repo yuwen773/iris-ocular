@@ -3,6 +3,7 @@ package com.csust.eyediagnosis.agent.service;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean;
 import com.csust.eyediagnosis.agent.ToolStepContract;
+import com.csust.eyediagnosis.integration.LegacyGateSupport;
 import com.csust.eyediagnosis.agent.ToolStepSink;
 import com.csust.eyediagnosis.agent.config.AgentConstants;
 import com.csust.eyediagnosis.agent.queue.SessionMessageQueue;
@@ -15,8 +16,6 @@ import com.csust.eyediagnosis.model.dto.agent.ChatHistoryVO;
 import com.csust.eyediagnosis.model.dto.agent.MessageDTO;
 import com.csust.eyediagnosis.model.dto.agent.MessageVO;
 import com.csust.eyediagnosis.utils.JsonUtils;
-import org.flywaydb.core.Flyway;
-import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.mybatis.spring.SqlSessionTemplate;
 import org.springframework.aop.framework.ProxyFactory;
@@ -30,31 +29,35 @@ import org.springframework.transaction.interceptor.TransactionInterceptor;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.LongStream;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/** Real MySQL, real mappers, Spring transaction proxy, queue, sink and history. Synthetic data only. */
-class ToolTerminalPersistenceMySqlIntegrationTest {
+/**
+ * 真实 PostgreSQL、真实 mapper、Spring 事务代理、队列、sink 与历史。只用合成数据。
+ *
+ * <p>故障注入原先用 MySQL 的 {@code SIGNAL SQLSTATE} 触发器；迁移后改用
+ * {@link LegacyGateSupport#createFailTriggerWhen} 生成 plpgsql 版本，条件仍是
+ * 「只让 {@code subType = 'tool-result'} 的插入失败」——断言一字未改。
+ *
+ * <p>库由 {@code BUSINESS_TEST_URL} 指定（库名必须叫 {@code business_test}）。
+ */
+class ToolTerminalPersistencePostgresIntegrationTest {
     @Test
     void failedCommitIsVisibleAndHistoryRecoversTheOriginalTerminalAfterDisconnect() throws Exception {
-        String url = System.getenv("FLYWAY_TEST_URL");
-        Assumptions.assumeTrue(url != null && !url.isBlank(), "Set FLYWAY_TEST_URL for real terminal persistence gate");
-        String username = System.getenv("FLYWAY_TEST_USERNAME");
-        String password = System.getenv("FLYWAY_TEST_PASSWORD");
-        String schema = "diagnosis_ci_terminal_" + UUID.randomUUID().toString().replace("-", "");
-        JdbcTemplate admin = new JdbcTemplate(new DriverManagerDataSource(url, username, password));
-        admin.execute("CREATE DATABASE `" + schema + "`");
+        String url = LegacyGateSupport.assumeIsolated(System.getenv("BUSINESS_TEST_URL"), "business_test");
+        javax.sql.DataSource dataSource = LegacyGateSupport.dataSource(url);
+        LegacyGateSupport.ensureSchema(url, dataSource, List.of(), () -> {
+            throw new IllegalStateException("BUSINESS_TEST_URL must point at PostgreSQL");
+        });
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        jdbc.update("DELETE FROM t_agent_message");
+        jdbc.update("DELETE FROM t_agent_tool_audit");
+        jdbc.update("DELETE FROM t_agent_session");
         SessionMessageQueue queue = new SessionMessageQueue(2);
         try {
-            String databaseUrl = url.replaceFirst("(?<=/)[^/?]+(?=\\?|$)", schema);
-            DriverManagerDataSource dataSource = new DriverManagerDataSource(databaseUrl, username, password);
-            Flyway.configure().dataSource(dataSource).locations("classpath:db/migration", "classpath:db/callback")
-                    .load().migrate();
-            JdbcTemplate jdbc = new JdbcTemplate(dataSource);
             MybatisConfiguration config = new MybatisConfiguration();
             config.setMapUnderscoreToCamelCase(false);
             config.addMapper(AgentSessionMapper.class);
@@ -66,7 +69,7 @@ class ToolTerminalPersistenceMySqlIntegrationTest {
             SqlSessionTemplate mappers = new SqlSessionTemplate(factory.getObject());
             var sessions = mappers.getMapper(AgentSessionMapper.class);
             var messages = mappers.getMapper(AgentMessageMapper.class);
-            ChatMessageWriter target = new ChatMessageWriter(sessions, messages, new AgentConstants());
+            ChatMessageWriter target = new ChatMessageWriter(sessions, messages, new AgentConstants(), new com.csust.eyediagnosis.common.InsertRaceGuard(null));
             ProxyFactory proxy = new ProxyFactory(target);
             proxy.setProxyTargetClass(true);
             proxy.addAdvice(new TransactionInterceptor(new DataSourceTransactionManager(dataSource),
@@ -83,9 +86,8 @@ class ToolTerminalPersistenceMySqlIntegrationTest {
             ToolStepSink sink = sink("failure", history, audit);
             sink.events().asFlux().subscribe(frames::add, streamError::set);
             sink.started("call-failed", "searchDocuments", "digest", "query");
-            jdbc.execute("CREATE TRIGGER fail_terminal BEFORE INSERT ON t_agent_message FOR EACH ROW "
-                    + "BEGIN IF NEW.subType='tool-result' THEN SIGNAL SQLSTATE '45000' "
-                    + "SET MESSAGE_TEXT='synthetic terminal write failure'; END IF; END");
+            LegacyGateSupport.createFailTriggerWhen(jdbc, "fail_terminal", "INSERT", "t_agent_message",
+                    "subType", "tool-result", "synthetic terminal write failure");
             sink.finished("call-failed", "searchDocuments", false, ToolStepContract.ErrorCategory.TIMEOUT);
             assertNotNull(streamError.get(), "failed commit must reach SSE as an error");
             assertEquals(1, frames.size(), "only RUNNING, no uncommitted terminal frame");
@@ -97,7 +99,7 @@ class ToolTerminalPersistenceMySqlIntegrationTest {
             assertEquals(0, incomplete.getMessages().size());
             assertEquals("TIMEOUT", jdbc.queryForObject("SELECT errorCategory FROM t_agent_tool_audit "
                     + "WHERE sessionId='failure' AND toolStatus='failed'", String.class));
-            jdbc.execute("DROP TRIGGER fail_terminal");
+            LegacyGateSupport.dropFailTrigger(jdbc, "fail_terminal", "t_agent_message");
             var recovered = history.loadHistory("failure", null, null, 100);
             assertEquals(1, recovered.getMessages().size());
             assertTrue(recovered.getMessages().getFirst().getContent().contains("TIMEOUT"));
@@ -157,7 +159,9 @@ class ToolTerminalPersistenceMySqlIntegrationTest {
             verifyLegacyTurnAdoption(history, writer);
         } finally {
             queue.shutdown();
-            admin.execute("DROP DATABASE `" + schema + "`");
+            jdbc.update("DELETE FROM t_agent_message");
+            jdbc.update("DELETE FROM t_agent_tool_audit");
+            jdbc.update("DELETE FROM t_agent_session");
         }
     }
 
@@ -172,9 +176,8 @@ class ToolTerminalPersistenceMySqlIntegrationTest {
     private static void verifyPoisonedSessionSurvives(ChatHistoryService history, ChatMessageWriter writer,
                                                        JdbcTemplate jdbc) {
         writer.claimOrValidateSession("poisoned", 42L, "synthetic");
-        jdbc.execute("CREATE TRIGGER fail_poison BEFORE INSERT ON t_agent_message FOR EACH ROW "
-                + "BEGIN IF NEW.subType='tool-result' THEN SIGNAL SQLSTATE '45000' "
-                + "SET MESSAGE_TEXT='synthetic permanent failure'; END IF; END");
+        LegacyGateSupport.createFailTriggerWhen(jdbc, "fail_poison", "INSERT", "t_agent_message",
+                "subType", "tool-result", "synthetic permanent failure");
         try {
             assertThrows(RuntimeException.class,
                     () -> history.saveAssistantMessage("poisoned", "{\"output\":\"poison\"}", MessagePart.TOOL_RESULT),
@@ -189,7 +192,7 @@ class ToolTerminalPersistenceMySqlIntegrationTest {
                     "a permanently failing write must not block later messages");
             assertTrue(after.isUncommittedTerminal(), "the dropped write must be reported as uncommitted");
         } finally {
-            jdbc.execute("DROP TRIGGER fail_poison");
+            LegacyGateSupport.dropFailTrigger(jdbc, "fail_poison", "t_agent_message");
         }
     }
 

@@ -47,7 +47,7 @@ import static org.mockito.Mockito.when;
  * </ol>
  *
  * <p>全部依赖为 Mock，不访问真实 COS / gRPC / 数据库。条件更新的真实并发语义由
- * {@code DiagnosisRunMySqlIntegrationTest} 在真 MySQL 上验证。
+ * {@code DiagnosisRunPostgresIntegrationTest} 在真 PostgreSQL 上验证。
  */
 class DiagnosisCancellationTest {
 
