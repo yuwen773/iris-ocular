@@ -9,6 +9,7 @@ import com.csust.eyediagnosis.diagnosistask.DiagnosisTaskStorage;
 import com.csust.eyediagnosis.doctorreview.DoctorReviewService;
 import com.csust.eyediagnosis.exception.GlobalExceptionHandler;
 import com.csust.eyediagnosis.grpc.DiagnosisProto;
+import com.csust.eyediagnosis.integration.LegacyGateSupport;
 import com.csust.eyediagnosis.model.entity.User;
 import com.csust.eyediagnosis.service.UserService;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -45,17 +46,16 @@ class PatientFollowUpApiTest {
 
     @BeforeEach
     void setup() throws Exception {
-        String url = System.getenv("ISSUE23_TEST_URL");
-        org.junit.jupiter.api.Assumptions.assumeTrue(url != null, "Requires isolated ISSUE23_TEST_URL");
-        if (!url.matches("jdbc:mysql://127\\.0\\.0\\.1:[0-9]+/issue23_test")) throw new IllegalArgumentException("Isolated database required");
-        var ds = new DriverManagerDataSource(url, "issue23", "issue23");
+        String url = LegacyGateSupport.assumeIsolated(System.getenv("ISSUE23_TEST_URL"), "ISSUE23_TEST_URL", "issue23_test");
+        var ds = LegacyGateSupport.dataSource(url);
         jdbc = new JdbcTemplate(ds);
-        org.flywaydb.core.Flyway.configure().dataSource(ds).locations("classpath:db/migration", "classpath:db/callback").load().migrate();
+        LegacyGateSupport.ensureSchema(url, ds, List.of("t_user"),
+                () -> org.flywaydb.core.Flyway.configure().dataSource(ds).locations("classpath:db/migration", "classpath:db/callback").load().migrate());
         jdbc.update("DELETE FROM t_patient_authorization");
         jdbc.update("DELETE FROM t_diagnosis");
         jdbc.execute("CREATE TABLE IF NOT EXISTS t_user (id BIGINT PRIMARY KEY,userRole VARCHAR(32),isDelete INT DEFAULT 0)");
         for (String table : List.of("t_doctor_review", "t_patient_draft_message", "t_patient_draft_version", "t_patient_evidence_version", "t_patient_draft_run", "t_diagnosis_task", "t_controlled_reference_chunk", "t_controlled_reference", "t_user")) jdbc.update("DELETE FROM " + table);
-        if (jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='t_user' AND column_name='userAccount'", Integer.class) > 0) {
+        if (jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=? AND table_name='t_user' AND column_name='userAccount'", Integer.class, LegacyGateSupport.schema(jdbc)) > 0) {
             jdbc.update("INSERT INTO t_user (id,userAccount,userPassword,userRole) VALUES (1,'synthetic-admin','unused','admin'),(2,'synthetic-doctor','unused','doctor'),(3,'synthetic-reviewer','unused','evidence_reviewer'),(42,'synthetic-patient','unused','user'),(99,'synthetic-other','unused','user')");
         } else {
             jdbc.update("INSERT INTO t_user (id,userRole) VALUES (1,'admin'),(2,'doctor'),(3,'evidence_reviewer'),(42,'user'),(99,'user')");
@@ -64,10 +64,11 @@ class PatientFollowUpApiTest {
         inference = DiagnosisProto.DiagnosisResponse.newBuilder().setPredictedLabel("glaucoma").setProbability(70)
                 .setOodStatus(DiagnosisProto.OodStatus.IN_DISTRIBUTION).setQualityScore(80)
                 .setModelVersion("synthetic-model").setPreprocessVersion("synthetic-preprocess").setCalibrationStatus("NOT_CALIBRATED");
-        jdbc.update("INSERT INTO t_diagnosis_task (taskId,userId,idempotencyKey,requestDigest,imageDigest,objectKey,objectVersion,imageFormat,status,version,createdAt,updatedAt) VALUES (?,42,?,?,?,'private-object','v1','png','WAITING_REVIEW',7,NOW(6),NOW(6))", taskId, taskId, "a".repeat(64), "b".repeat(64));
+        jdbc.update("INSERT INTO t_diagnosis_task (taskId,userId,idempotencyKey,requestDigest,imageDigest,objectKey,objectVersion,imageFormat,status,version,createdAt,updatedAt) VALUES (?,42,?,?,?,'private-object','v1','png','WAITING_REVIEW',7," + LegacyGateSupport.now() + "," + LegacyGateSupport.now() + ")", taskId, taskId, "a".repeat(64), "b".repeat(64));
         setSnapshot();
-        jdbc.update("INSERT INTO t_patient_draft_run (taskId,inferenceDigest,status,startedAt,deadlineAt) VALUES (?,?,'REVIEW_READY',NOW(6),NOW(6))", taskId, digest(jdbc.queryForObject("SELECT inferenceSnapshot FROM t_diagnosis_task WHERE taskId=?", String.class, taskId)));
-        jdbc.update("INSERT INTO t_controlled_reference (id,title,source,fileName,documentVersion,fileContent,isTest,visibility,reviewStatus,diseaseCodes,topicCodes,reviewedBy,uploadedBy) VALUES (?,'Synthetic reference','synthetic.invalid','secret.txt',?,?,0,'CURATED_PUBLIC','APPROVED',JSON_ARRAY('GLAUCOMA'),JSON_ARRAY('PATIENT_EXPLANATION'),3,1)", documentId, "c".repeat(64), new byte[]{1});
+        jdbc.update("INSERT INTO t_patient_draft_run (taskId,inferenceDigest,status,startedAt,deadlineAt) VALUES (?,?,'REVIEW_READY'," + LegacyGateSupport.now() + "," + LegacyGateSupport.now() + ")", taskId, digest(jdbc.queryForObject("SELECT inferenceSnapshot FROM t_diagnosis_task WHERE taskId=?", String.class, taskId)));
+        jdbc.update("INSERT INTO t_controlled_reference (id,title,source,fileName,documentVersion,fileContent,isTest,visibility,reviewStatus,diseaseCodes,topicCodes,reviewedBy,uploadedBy) VALUES (?,'Synthetic reference','synthetic.invalid','secret.txt',?,?,0,'CURATED_PUBLIC','APPROVED',"
+                + LegacyGateSupport.jsonArray(ds, "GLAUCOMA") + "," + LegacyGateSupport.jsonArray(ds, "PATIENT_EXPLANATION") + ",3,1)", documentId, "c".repeat(64), new byte[]{1});
         jdbc.update("INSERT INTO t_controlled_reference_chunk VALUES (?,0,?,?)", documentId, EXCERPT, digest(EXCERPT));
         var evidence = new ControlledEvidenceRetriever(jdbc);
         jdbc.update("INSERT INTO t_patient_evidence_version VALUES (?,1,?)", taskId, json.writeValueAsString(evidence.retrieve("GLAUCOMA", "PATIENT_EXPLANATION", "reference")));
@@ -147,7 +148,9 @@ class PatientFollowUpApiTest {
 
     @Test
     void chineseQuestionsFindOnlyMatchingPublishedClaims() throws Exception {
-        jdbc.update("UPDATE t_patient_draft_version SET draft=JSON_SET(draft,'$.claims[2].text','建议预约眼科检查') WHERE taskId=?", taskId);
+        jdbc.update("UPDATE t_patient_draft_version SET draft="
+                + LegacyGateSupport.jsonSet(jdbc.getDataSource(), "draft", LegacyGateSupport.text("$.claims[2].text", "建议预约眼科检查"))
+                + " WHERE taskId=?", taskId);
         decide("APPROVED");
         JsonNode answer = ask("我应该预约眼科检查吗？");
         assertEquals("RELATED_INFORMATION", answer.path("status").asText());
@@ -165,7 +168,11 @@ class PatientFollowUpApiTest {
         var citations = new ArrayList<>(new ControlledEvidenceRetriever(jdbc).retrieve("GLAUCOMA", "PATIENT_EXPLANATION", "reference"));
         citations.addAll(new ControlledEvidenceRetriever(jdbc).retrieve("GLAUCOMA", "PATIENT_EXPLANATION", "Distinct"));
         jdbc.update("UPDATE t_patient_evidence_version SET citations=? WHERE taskId=?", json.writeValueAsString(citations), taskId);
-        jdbc.update("UPDATE t_patient_draft_version SET draft=JSON_SET(draft,'$.claims[4].references[0].citationIndex',1,'$.claims[4].references[0].quote','unrelated passage') WHERE taskId=?", taskId);
+        jdbc.update("UPDATE t_patient_draft_version SET draft="
+                + LegacyGateSupport.jsonSet(jdbc.getDataSource(), "draft",
+                        LegacyGateSupport.number("$.claims[4].references[0].citationIndex", 1),
+                        LegacyGateSupport.text("$.claims[4].references[0].quote", "unrelated passage"))
+                + " WHERE taskId=?", taskId);
         decide("APPROVED");
         JsonNode answer = ask("RISK");
         assertEquals("RELATED_INFORMATION", answer.path("status").asText());
@@ -226,7 +233,8 @@ class PatientFollowUpApiTest {
             case "document" -> jdbc.update("UPDATE t_controlled_reference SET documentVersion=? WHERE id=?", "d".repeat(64), documentId);
             case "disabled" -> jdbc.update("UPDATE t_controlled_reference SET enabled=0 WHERE id=?", documentId);
             case "test" -> jdbc.update("UPDATE t_controlled_reference SET isTest=1 WHERE id=?", documentId);
-            case "scope" -> jdbc.update("UPDATE t_controlled_reference SET diseaseCodes=JSON_ARRAY('NORMAL') WHERE id=?", documentId);
+            case "scope" -> jdbc.update("UPDATE t_controlled_reference SET diseaseCodes="
+                    + LegacyGateSupport.jsonArray(jdbc.getDataSource(), "NORMAL") + " WHERE id=?", documentId);
             case "private" -> jdbc.update("UPDATE t_controlled_reference SET visibility='PRIVATE' WHERE id=?", documentId);
             case "deleted" -> jdbc.update("UPDATE t_controlled_reference SET isDelete=1 WHERE id=?", documentId);
             case "excerpt" -> jdbc.update("UPDATE t_controlled_reference_chunk SET excerpt='Changed excerpt' WHERE documentId=?", documentId);
@@ -246,9 +254,12 @@ class PatientFollowUpApiTest {
         switch (change) {
             case "version" -> jdbc.update("UPDATE t_diagnosis_task SET version=version+1 WHERE taskId=?", taskId);
             case "input" -> jdbc.update("UPDATE t_diagnosis_task SET objectVersion='v2' WHERE taskId=?", taskId);
-            case "snapshot" -> jdbc.update("UPDATE t_diagnosis_task SET inferenceSnapshot=JSON_OBJECT('changed',true) WHERE taskId=?", taskId);
-            case "draft" -> jdbc.update("UPDATE t_patient_draft_version SET draft=JSON_OBJECT('claims',JSON_ARRAY()) WHERE taskId=?", taskId);
-            case "evidence" -> jdbc.update("UPDATE t_patient_evidence_version SET citations=JSON_ARRAY() WHERE taskId=?", taskId);
+            case "snapshot" -> jdbc.update("UPDATE t_diagnosis_task SET inferenceSnapshot="
+                    + LegacyGateSupport.jsonChangedFlag(jdbc.getDataSource()) + " WHERE taskId=?", taskId);
+            case "draft" -> jdbc.update("UPDATE t_patient_draft_version SET draft="
+                    + LegacyGateSupport.jsonClaimsEmpty(jdbc.getDataSource()) + " WHERE taskId=?", taskId);
+            case "evidence" -> jdbc.update("UPDATE t_patient_evidence_version SET citations="
+                    + LegacyGateSupport.jsonEmptyArray(jdbc.getDataSource()) + " WHERE taskId=?", taskId);
             case "messages" -> jdbc.update("UPDATE t_patient_draft_message SET state='STOPPED' WHERE taskId=?", taskId);
             case "run" -> jdbc.update("UPDATE t_patient_draft_run SET status='RESTRICTED' WHERE taskId=?", taskId);
         }

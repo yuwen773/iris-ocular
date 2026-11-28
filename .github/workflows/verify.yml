@@ -264,29 +264,29 @@ jobs:
           python scripts/migration/chroma_vector_drill.py             --chroma-url http://127.0.0.1:8000             --target-dsn "host=127.0.0.1 port=5432 dbname=iris_vec_drill user=iris_migrator password=ci-migrator-password"             --chunks 120 --queries 20 --state-file /tmp/vector-drill.json
 
   issue17-mysql:
-    # NOT_RUN during the PostgreSQL migration: this suite asserts a MySQL URL and
-    # replays MySQL-only SQL (DATABASE(), DATE_SUB, ON DUPLICATE KEY). Porting is tracked
-    # in the migration report; the PostgreSQL equivalents live in the postgres-* jobs.
-    if: ${{ false }}
+    # Gate identity kept for branch protection (the required check name); the suite
+    # now runs on PostgreSQL. The isolated database and its schema are created per
+    # run, and the application code under test is unchanged.
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
-      mysql:
-        image: mysql:8.0.36
+      postgres:
+        image: pgvector/pgvector:pg18
         env:
-          MYSQL_DATABASE: issue17_test
-          MYSQL_USER: issue17
-          MYSQL_PASSWORD: issue17
-          MYSQL_ROOT_PASSWORD: root-password
+          POSTGRES_DB: iris_gate
+          POSTGRES_PASSWORD: ci-superuser-password
         ports:
-          - 3306:3306
+          - 5432:5432
         options: >-
-          --health-cmd="mysql -h 127.0.0.1 -uissue17 -pissue17 issue17_test -e 'SELECT 1'"
+          --health-cmd="PGPASSWORD=ci-superuser-password psql -h 127.0.0.1 -U postgres -d iris_gate -tAc 'SELECT 1'"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
     env:
-      ISSUE17_TEST_URL: jdbc:mysql://127.0.0.1:3306/issue17_test
+      PGPASSWORD: ci-superuser-password
+      PG_TEST_USER: postgres
+      PG_TEST_PASSWORD: ci-superuser-password
+      ISSUE17_TEST_URL: jdbc:postgresql://127.0.0.1:5432/issue17_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -294,41 +294,43 @@ jobs:
           distribution: corretto
           java-version: '21'
           cache: maven
+      - name: Create the isolated gate database
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          psql -h 127.0.0.1 -U postgres -d iris_gate -v ON_ERROR_STOP=1 -c "CREATE DATABASE issue17_test"
       - name: Verify report gates
         run: python3 -m unittest discover -s scripts/tests -p "test_check_*.py"
-      - name: Verify MySQL health check
+      - name: Verify PostgreSQL health check
         env:
-          ISSUE17_MYSQL_CONTAINER: ${{ job.services.mysql.id }}
-        run: python3 -m unittest discover -s scripts/tests -p test_issue17_mysql_health.py
+          ISSUE17_PG_CONTAINER: ${{ job.services.postgres.id }}
+        run: python3 -m unittest discover -s scripts/tests -p test_issue17_pg_health.py
       - name: Run patient task and recovery tests
         run: mvn -B -Dtest=DiagnosisTaskApiTest,DiagnosisTaskRecoveryTest,CosDiagnosisTaskStorageTest test
       - name: Require all patient task tests to run
         run: python3 scripts/check_issue17_reports.py target/surefire-reports
 
   issue18-mysql:
-    # NOT_RUN during the PostgreSQL migration: this suite asserts a MySQL URL and
-    # replays MySQL-only SQL (DATABASE(), DATE_SUB, ON DUPLICATE KEY). Porting is tracked
-    # in the migration report; the PostgreSQL equivalents live in the postgres-* jobs.
-    if: ${{ false }}
+    # Gate identity kept for branch protection; the suite runs on PostgreSQL.
     runs-on: ubuntu-latest
     timeout-minutes: 10
     services:
-      mysql:
-        image: mysql:8.0.36
+      postgres:
+        image: pgvector/pgvector:pg18
         env:
-          MYSQL_DATABASE: issue18_test
-          MYSQL_USER: issue18
-          MYSQL_PASSWORD: issue18
-          MYSQL_ROOT_PASSWORD: root-password
+          POSTGRES_DB: iris_gate
+          POSTGRES_PASSWORD: ci-superuser-password
         ports:
-          - 3306:3306
+          - 5432:5432
         options: >-
-          --health-cmd="mysql -h 127.0.0.1 -uissue18 -pissue18 issue18_test -e 'SELECT 1'"
+          --health-cmd="PGPASSWORD=ci-superuser-password psql -h 127.0.0.1 -U postgres -d iris_gate -tAc 'SELECT 1'"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
     env:
-      ISSUE18_TEST_URL: jdbc:mysql://127.0.0.1:3306/issue18_test
+      PGPASSWORD: ci-superuser-password
+      PG_TEST_USER: postgres
+      PG_TEST_PASSWORD: ci-superuser-password
+      ISSUE18_TEST_URL: jdbc:postgresql://127.0.0.1:5432/issue18_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -336,6 +338,10 @@ jobs:
           distribution: corretto
           java-version: '21'
           cache: maven
+      - name: Create the isolated gate database
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          psql -h 127.0.0.1 -U postgres -d iris_gate -v ON_ERROR_STOP=1 -c "CREATE DATABASE issue18_test"
       - name: Verify report gates
         run: python3 -m unittest discover -s scripts/tests -p "test_check_*.py"
       - name: Run controlled reference lifecycle and eligibility tests
@@ -344,29 +350,27 @@ jobs:
         run: python3 scripts/check_surefire_skips.py target/surefire-reports issue18
 
   issue19-mysql:
-    # NOT_RUN during the PostgreSQL migration: this suite asserts a MySQL URL and
-    # replays MySQL-only SQL (DATABASE(), DATE_SUB, ON DUPLICATE KEY). Porting is tracked
-    # in the migration report; the PostgreSQL equivalents live in the postgres-* jobs.
-    if: ${{ false }}
+    # Gate identity kept for branch protection; the suite runs on PostgreSQL.
     runs-on: ubuntu-latest
     timeout-minutes: 10
     services:
-      mysql:
-        image: mysql:8.0.36
+      postgres:
+        image: pgvector/pgvector:pg18
         env:
-          MYSQL_DATABASE: issue19_test
-          MYSQL_USER: issue19
-          MYSQL_PASSWORD: issue19
-          MYSQL_ROOT_PASSWORD: root-password
+          POSTGRES_DB: iris_gate
+          POSTGRES_PASSWORD: ci-superuser-password
         ports:
-          - 3306:3306
+          - 5432:5432
         options: >-
-          --health-cmd="mysql -h 127.0.0.1 -uissue19 -pissue19 issue19_test -e 'SELECT 1'"
+          --health-cmd="PGPASSWORD=ci-superuser-password psql -h 127.0.0.1 -U postgres -d iris_gate -tAc 'SELECT 1'"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
     env:
-      ISSUE19_TEST_URL: jdbc:mysql://127.0.0.1:3306/issue19_test
+      PGPASSWORD: ci-superuser-password
+      PG_TEST_USER: postgres
+      PG_TEST_PASSWORD: ci-superuser-password
+      ISSUE19_TEST_URL: jdbc:postgresql://127.0.0.1:5432/issue19_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -374,6 +378,10 @@ jobs:
           distribution: corretto
           java-version: '21'
           cache: maven
+      - name: Create the isolated gate database
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          psql -h 127.0.0.1 -U postgres -d iris_gate -v ON_ERROR_STOP=1 -c "CREATE DATABASE issue19_test"
       - name: Verify report gates
         run: python3 -m unittest discover -s scripts/tests -p "test_check_*.py"
       - name: Run four-agent draft, timeout and process recovery tests
@@ -382,29 +390,27 @@ jobs:
         run: python3 scripts/check_surefire_skips.py target/surefire-reports issue19
 
   collaboration-mysql:
-    # NOT_RUN during the PostgreSQL migration: this suite asserts a MySQL URL and
-    # replays MySQL-only SQL (DATABASE(), DATE_SUB, ON DUPLICATE KEY). Porting is tracked
-    # in the migration report; the PostgreSQL equivalents live in the postgres-* jobs.
-    if: ${{ false }}
+    # Gate identity kept for branch protection; the suite runs on PostgreSQL.
     runs-on: ubuntu-latest
     timeout-minutes: 10
     services:
-      mysql:
-        image: mysql:8.0.36
+      postgres:
+        image: pgvector/pgvector:pg18
         env:
-          MYSQL_DATABASE: collaboration_test
-          MYSQL_USER: collaboration
-          MYSQL_PASSWORD: collaboration
-          MYSQL_ROOT_PASSWORD: root-password
+          POSTGRES_DB: iris_gate
+          POSTGRES_PASSWORD: ci-superuser-password
         ports:
-          - 3306:3306
+          - 5432:5432
         options: >-
-          --health-cmd="mysql -h 127.0.0.1 -ucollaboration -pcollaboration collaboration_test -e 'SELECT 1'"
+          --health-cmd="PGPASSWORD=ci-superuser-password psql -h 127.0.0.1 -U postgres -d iris_gate -tAc 'SELECT 1'"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
     env:
-      COLLABORATION_TEST_URL: jdbc:mysql://127.0.0.1:3306/collaboration_test
+      PGPASSWORD: ci-superuser-password
+      PG_TEST_USER: postgres
+      PG_TEST_PASSWORD: ci-superuser-password
+      COLLABORATION_TEST_URL: jdbc:postgresql://127.0.0.1:5432/collaboration_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -412,6 +418,10 @@ jobs:
           distribution: corretto
           java-version: '21'
           cache: maven
+      - name: Create the isolated gate database
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          psql -h 127.0.0.1 -U postgres -d iris_gate -v ON_ERROR_STOP=1 -c "CREATE DATABASE collaboration_test"
       - name: Run durable events, authorization, cancellation and HTTP SSE tests
         run: mvn -B -Dtest=CollaborationRunTest test
       - name: Require every collaboration case to run
@@ -419,29 +429,29 @@ jobs:
         run: python3 scripts/check_surefire_skips.py target/surefire-reports collaboration
 
   graph-execution-mysql:
-    # NOT_RUN during the PostgreSQL migration: this suite asserts a MySQL URL and
-    # replays MySQL-only SQL (DATABASE(), DATE_SUB, ON DUPLICATE KEY). Porting is tracked
-    # in the migration report; the PostgreSQL equivalents live in the postgres-* jobs.
-    if: ${{ false }}
+    # Gate identity kept for branch protection; the suite runs on PostgreSQL.
+    # The disposable database is created by this job, so the failure-injection
+    # trigger the suite installs runs under its own superuser, never production.
     runs-on: ubuntu-latest
     timeout-minutes: 10
     services:
-      mysql:
-        image: mysql:8.0.36
+      postgres:
+        image: pgvector/pgvector:pg18
         env:
-          MYSQL_DATABASE: graph_execution_test
-          MYSQL_USER: graph_execution
-          MYSQL_PASSWORD: graph_execution
-          MYSQL_ROOT_PASSWORD: root-password
+          POSTGRES_DB: iris_gate
+          POSTGRES_PASSWORD: ci-superuser-password
         ports:
-          - 3306:3306
+          - 5432:5432
         options: >-
-          --health-cmd="mysql -h 127.0.0.1 -ugraph_execution -pgraph_execution graph_execution_test -e 'SELECT 1'"
+          --health-cmd="PGPASSWORD=ci-superuser-password psql -h 127.0.0.1 -U postgres -d iris_gate -tAc 'SELECT 1'"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
     env:
-      GRAPH_EXECUTION_TEST_URL: jdbc:mysql://127.0.0.1:3306/graph_execution_test
+      PGPASSWORD: ci-superuser-password
+      PG_TEST_USER: postgres
+      PG_TEST_PASSWORD: ci-superuser-password
+      GRAPH_EXECUTION_TEST_URL: jdbc:postgresql://127.0.0.1:5432/graph_execution_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -449,41 +459,40 @@ jobs:
           distribution: corretto
           java-version: '21'
           cache: maven
-      - name: Run Graph equivalence, process-death recovery and fencing
-        # Only this disposable service enables the failure-injection trigger.
-        # The application's database account keeps schema-only privileges.
+      - name: Create the isolated gate database
         run: |
-          docker exec ${{ job.services.mysql.id }} mysql -uroot -proot-password -e 'SET GLOBAL log_bin_trust_function_creators=1'
-          mvn -B -Dtest=GraphExecutionTest,RealtimeGraphSpikeTest,CoordinationPocTest test
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          psql -h 127.0.0.1 -U postgres -d iris_gate -v ON_ERROR_STOP=1 -c "CREATE DATABASE graph_execution_test"
+      - name: Run Graph equivalence, process-death recovery and fencing
+        run: mvn -B -Dtest=GraphExecutionTest,RealtimeGraphSpikeTest,CoordinationPocTest test
       - name: Require every Graph case to run
         if: always()
         run: python3 scripts/check_surefire_skips.py target/surefire-reports graph-execution
 
   issue24-evaluation:
-    # NOT_RUN during the PostgreSQL migration: this suite asserts a MySQL URL and
-    # replays MySQL-only SQL (DATABASE(), DATE_SUB, ON DUPLICATE KEY). Porting is tracked
-    # in the migration report; the PostgreSQL equivalents live in the postgres-* jobs.
-    if: ${{ false }}
+    # Gate identity kept for branch protection; both reliability suites run on
+    # PostgreSQL and the evaluation CLIs read their Surefire reports unchanged.
     runs-on: ubuntu-latest
     timeout-minutes: 10
     services:
-      mysql:
-        image: mysql:8.0.36
+      postgres:
+        image: pgvector/pgvector:pg18
         env:
-          MYSQL_DATABASE: issue19_test
-          MYSQL_USER: issue19
-          MYSQL_PASSWORD: issue19
-          MYSQL_ROOT_PASSWORD: root-password
+          POSTGRES_DB: iris_gate
+          POSTGRES_PASSWORD: ci-superuser-password
         ports:
-          - 3306:3306
+          - 5432:5432
         options: >-
-          --health-cmd="mysql -h 127.0.0.1 -uissue19 -pissue19 issue19_test -e 'SELECT 1'"
+          --health-cmd="PGPASSWORD=ci-superuser-password psql -h 127.0.0.1 -U postgres -d iris_gate -tAc 'SELECT 1'"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
     env:
-      ISSUE19_TEST_URL: jdbc:mysql://127.0.0.1:3306/issue19_test
-      ISSUE21_TEST_URL: jdbc:mysql://127.0.0.1:3306/issue21_test
+      PGPASSWORD: ci-superuser-password
+      PG_TEST_USER: postgres
+      PG_TEST_PASSWORD: ci-superuser-password
+      ISSUE19_TEST_URL: jdbc:postgresql://127.0.0.1:5432/issue19_test
+      ISSUE21_TEST_URL: jdbc:postgresql://127.0.0.1:5432/issue21_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -495,14 +504,10 @@ jobs:
         with:
           python-version: '3.11'
       - name: Create the isolated patient HTTP database
-        env:
-          MYSQL_PWD: root-password
         run: |
-          mysql -h 127.0.0.1 -uroot <<'SQL'
-          CREATE DATABASE issue21_test;
-          CREATE USER 'issue21'@'%' IDENTIFIED BY 'issue21';
-          GRANT ALL ON issue21_test.* TO 'issue21'@'%';
-          SQL
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          psql -h 127.0.0.1 -U postgres -d iris_gate -v ON_ERROR_STOP=1 \
+            -c "CREATE DATABASE issue19_test" -c "CREATE DATABASE issue21_test"
       - name: Verify the public evaluation CLIs
         run: |
           python3 -m unittest discover -s scripts/tests -p 'test_evaluate_agent_collaboration.py'
@@ -538,28 +543,26 @@ jobs:
           if-no-files-found: error
 
   issue20-mysql:
-    # NOT_RUN during the PostgreSQL migration: this suite asserts a MySQL URL and
-    # replays MySQL-only SQL (DATABASE(), DATE_SUB, ON DUPLICATE KEY). Porting is tracked
-    # in the migration report; the PostgreSQL equivalents live in the postgres-* jobs.
-    if: ${{ false }}
+    # Gate identity kept for branch protection; the suite runs on PostgreSQL.
     runs-on: ubuntu-latest
     services:
-      mysql:
-        image: mysql:8.0.36
+      postgres:
+        image: pgvector/pgvector:pg18
         env:
-          MYSQL_DATABASE: issue20_test
-          MYSQL_USER: issue20
-          MYSQL_PASSWORD: issue20
-          MYSQL_ROOT_PASSWORD: root-password
+          POSTGRES_DB: iris_gate
+          POSTGRES_PASSWORD: ci-superuser-password
         ports:
-          - 3306:3306
+          - 5432:5432
         options: >-
-          --health-cmd="mysql -h 127.0.0.1 -uissue20 -pissue20 issue20_test -e 'SELECT 1'"
+          --health-cmd="PGPASSWORD=ci-superuser-password psql -h 127.0.0.1 -U postgres -d iris_gate -tAc 'SELECT 1'"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
     env:
-      ISSUE20_TEST_URL: jdbc:mysql://127.0.0.1:3306/issue20_test
+      PGPASSWORD: ci-superuser-password
+      PG_TEST_USER: postgres
+      PG_TEST_PASSWORD: ci-superuser-password
+      ISSUE20_TEST_URL: jdbc:postgresql://127.0.0.1:5432/issue20_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -567,35 +570,37 @@ jobs:
           distribution: corretto
           java-version: '21'
           cache: maven
+      - name: Create the isolated gate database
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          psql -h 127.0.0.1 -U postgres -d iris_gate -v ON_ERROR_STOP=1 -c "CREATE DATABASE issue20_test"
       - name: Run doctor authorization, frozen review and concurrent decision tests
         run: mvn -B -Dtest=DoctorReviewApiTest test
       - name: Require every review case to run
         run: python3 scripts/check_surefire_skips.py target/surefire-reports issue20
 
   issue21-mysql:
-    # NOT_RUN during the PostgreSQL migration: this suite asserts a MySQL URL and
-    # replays MySQL-only SQL (DATABASE(), DATE_SUB, ON DUPLICATE KEY). Porting is tracked
-    # in the migration report; the PostgreSQL equivalents live in the postgres-* jobs.
-    if: ${{ false }}
+    # Gate identity kept for branch protection; the suite runs on PostgreSQL.
     runs-on: ubuntu-latest
     timeout-minutes: 10
     services:
-      mysql:
-        image: mysql:8.0.36
+      postgres:
+        image: pgvector/pgvector:pg18
         env:
-          MYSQL_DATABASE: issue21_test
-          MYSQL_USER: issue21
-          MYSQL_PASSWORD: issue21
-          MYSQL_ROOT_PASSWORD: root-password
+          POSTGRES_DB: iris_gate
+          POSTGRES_PASSWORD: ci-superuser-password
         ports:
-          - 3306:3306
+          - 5432:5432
         options: >-
-          --health-cmd="mysql -h 127.0.0.1 -uissue21 -pissue21 issue21_test -e 'SELECT 1'"
+          --health-cmd="PGPASSWORD=ci-superuser-password psql -h 127.0.0.1 -U postgres -d iris_gate -tAc 'SELECT 1'"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
     env:
-      ISSUE21_TEST_URL: jdbc:mysql://127.0.0.1:3306/issue21_test
+      PGPASSWORD: ci-superuser-password
+      PG_TEST_USER: postgres
+      PG_TEST_PASSWORD: ci-superuser-password
+      ISSUE21_TEST_URL: jdbc:postgresql://127.0.0.1:5432/issue21_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -603,35 +608,37 @@ jobs:
           distribution: corretto
           java-version: '21'
           cache: maven
+      - name: Create the isolated gate database
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          psql -h 127.0.0.1 -U postgres -d iris_gate -v ON_ERROR_STOP=1 -c "CREATE DATABASE issue21_test"
       - name: Run patient visibility, citation authorization and live release gate tests
         run: mvn -B -Dtest=PatientExplanationApiTest test
       - name: Require every patient explanation case to run
         run: python3 scripts/check_surefire_skips.py target/surefire-reports issue21
 
   issue22-mysql:
-    # NOT_RUN during the PostgreSQL migration: this suite asserts a MySQL URL and
-    # replays MySQL-only SQL (DATABASE(), DATE_SUB, ON DUPLICATE KEY). Porting is tracked
-    # in the migration report; the PostgreSQL equivalents live in the postgres-* jobs.
-    if: ${{ false }}
+    # Gate identity kept for branch protection; the suite runs on PostgreSQL.
     runs-on: ubuntu-latest
     timeout-minutes: 10
     services:
-      mysql:
-        image: mysql:8.0.36
+      postgres:
+        image: pgvector/pgvector:pg18
         env:
-          MYSQL_DATABASE: issue22_test
-          MYSQL_USER: issue22
-          MYSQL_PASSWORD: issue22
-          MYSQL_ROOT_PASSWORD: root-password
+          POSTGRES_DB: iris_gate
+          POSTGRES_PASSWORD: ci-superuser-password
         ports:
-          - 3306:3306
+          - 5432:5432
         options: >-
-          --health-cmd="mysql -h 127.0.0.1 -uissue22 -pissue22 issue22_test -e 'SELECT 1'"
+          --health-cmd="PGPASSWORD=ci-superuser-password psql -h 127.0.0.1 -U postgres -d iris_gate -tAc 'SELECT 1'"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
     env:
-      ISSUE22_TEST_URL: jdbc:mysql://127.0.0.1:3306/issue22_test
+      PGPASSWORD: ci-superuser-password
+      PG_TEST_USER: postgres
+      PG_TEST_PASSWORD: ci-superuser-password
+      ISSUE22_TEST_URL: jdbc:postgresql://127.0.0.1:5432/issue22_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -639,37 +646,37 @@ jobs:
           distribution: corretto
           java-version: '21'
           cache: maven
-      - name: Enable fault injection on this disposable MySQL service
-        run: docker exec ${{ job.services.mysql.id }} mysql -uroot -proot-password -e 'SET GLOBAL log_bin_trust_function_creators=1'
+      - name: Create the isolated gate database
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          psql -h 127.0.0.1 -U postgres -d iris_gate -v ON_ERROR_STOP=1 -c "CREATE DATABASE issue22_test"
       - name: Run patient consent, rollback, frozen save and concurrent receipt tests
         run: mvn -B -Dtest=PatientAuthorizationApiTest test
       - name: Require every patient authorization case to run
         run: python3 scripts/check_surefire_skips.py target/surefire-reports issue22
 
   issue23-mysql:
-    # NOT_RUN during the PostgreSQL migration: this suite asserts a MySQL URL and
-    # replays MySQL-only SQL (DATABASE(), DATE_SUB, ON DUPLICATE KEY). Porting is tracked
-    # in the migration report; the PostgreSQL equivalents live in the postgres-* jobs.
-    if: ${{ false }}
+    # Gate identity kept for branch protection; the suite runs on PostgreSQL.
     runs-on: ubuntu-latest
     timeout-minutes: 10
     services:
-      mysql:
-        image: mysql:8.0.36
+      postgres:
+        image: pgvector/pgvector:pg18
         env:
-          MYSQL_DATABASE: issue23_test
-          MYSQL_USER: issue23
-          MYSQL_PASSWORD: issue23
-          MYSQL_ROOT_PASSWORD: root-password
+          POSTGRES_DB: iris_gate
+          POSTGRES_PASSWORD: ci-superuser-password
         ports:
-          - 3306:3306
+          - 5432:5432
         options: >-
-          --health-cmd="mysql -h 127.0.0.1 -uissue23 -pissue23 issue23_test -e 'SELECT 1'"
+          --health-cmd="PGPASSWORD=ci-superuser-password psql -h 127.0.0.1 -U postgres -d iris_gate -tAc 'SELECT 1'"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
     env:
-      ISSUE23_TEST_URL: jdbc:mysql://127.0.0.1:3306/issue23_test
+      PGPASSWORD: ci-superuser-password
+      PG_TEST_USER: postgres
+      PG_TEST_PASSWORD: ci-superuser-password
+      ISSUE23_TEST_URL: jdbc:postgresql://127.0.0.1:5432/issue23_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -677,6 +684,10 @@ jobs:
           distribution: corretto
           java-version: '21'
           cache: maven
+      - name: Create the isolated gate database
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          psql -h 127.0.0.1 -U postgres -d iris_gate -v ON_ERROR_STOP=1 -c "CREATE DATABASE issue23_test"
       - name: Run patient follow-up scope, live evidence and read-only invariant tests
         run: mvn -B -Dtest=PatientFollowUpApiTest test
       - name: Require every patient follow-up case to run

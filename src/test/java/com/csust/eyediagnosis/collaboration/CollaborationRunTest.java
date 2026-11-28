@@ -3,6 +3,7 @@ package com.csust.eyediagnosis.collaboration;
 import com.csust.eyediagnosis.diagnosistask.InferenceSnapshot;
 import com.csust.eyediagnosis.controlledreference.ControlledEvidenceRetriever;
 import com.csust.eyediagnosis.grpc.DiagnosisProto;
+import com.csust.eyediagnosis.integration.LegacyGateSupport;
 import com.csust.eyediagnosis.patientdraft.PatientDraftCoordinator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zaxxer.hikari.HikariDataSource;
@@ -60,20 +61,29 @@ class CollaborationRunTest {
      */
     private static HikariDataSource pool;
 
-    @BeforeAll static void isolatedDatabase() {
+    @BeforeAll static void isolatedDatabase() { isolatedDatabase(true); }
+
+    /**
+     * @param initialize 是否重建 schema。父 JVM 首次连接时为 true；子 JVM（重放/浏览器
+     *                   夹具）必须为 false —— PostgreSQL 路径重建夹具表会 DROP 掉父进程
+     *                   刚写入的行，而 MySQL 路径的'表已存在就跳过'没有这个副作用。
+     */
+    static void isolatedDatabase(boolean initialize) {
         String url = System.getenv("COLLABORATION_TEST_URL");
+        if (url != null && !LegacyGateSupport.isIsolated(url, "collaboration_test")) throw new IllegalArgumentException("Isolated schema required");
         if (url == null) return;
-        if (!url.matches("jdbc:mysql://127\\.0\\.0\\.1:[0-9]+/collaboration_test")) throw new IllegalArgumentException("Isolated schema required");
         pool = new HikariDataSource();
-        pool.setJdbcUrl(url);
-        pool.setUsername("collaboration");
-        pool.setPassword("collaboration");
+        pool.setJdbcUrl(LegacyGateSupport.jdbcUrl(url));
+        String[] credentials = LegacyGateSupport.credentials(url);
+        pool.setUsername(credentials[0]);
+        pool.setPassword(credentials[1]);
         pool.setMaximumPoolSize(16);
         pool.setMinimumIdle(1);
         pool.setConnectionTimeout(20_000);
         pool.setPoolName("collaboration-run-test");
         DataSource source = pool;
         jdbc = new JdbcTemplate(source);
+        if (initialize) LegacyGateSupport.ensureSchema(url, source, List.of("t_user", "t_agent_session"), () -> {
         for (String[] entry : List.of(
                 new String[]{"t_diagnosis_task", "V18__diagnosis_task.sql"},
                 new String[]{"t_controlled_reference", "V19__controlled_reference.sql"},
@@ -90,9 +100,10 @@ class CollaborationRunTest {
             new ResourceDatabasePopulator(new ClassPathResource("db/migration/V25__collaboration_events.sql")).execute(source);
         if (jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='t_patient_graph_execution'", Integer.class) == 0)
             new ResourceDatabasePopulator(new ClassPathResource("db/migration/V26__graph_execution.sql")).execute(source);
+        });
         // Existing pre-Flyway tables: minimal fixture columns, not a replacement production migration.
-        jdbc.execute("CREATE TABLE IF NOT EXISTS t_user (id BIGINT PRIMARY KEY,userRole VARCHAR(32),isDelete INT DEFAULT 0) ENGINE=InnoDB");
-        jdbc.execute("CREATE TABLE IF NOT EXISTS t_agent_session (sessionId VARCHAR(64) PRIMARY KEY,userId BIGINT,isDelete INT DEFAULT 0,status INT DEFAULT 1,expiredTime DATETIME NULL) ENGINE=InnoDB");
+        jdbc.execute("CREATE TABLE IF NOT EXISTS t_user (id BIGINT PRIMARY KEY,userRole VARCHAR(32),isDelete INT DEFAULT 0)" + LegacyGateSupport.engine(source));
+        jdbc.execute("CREATE TABLE IF NOT EXISTS t_agent_session (sessionId VARCHAR(64) PRIMARY KEY,userId BIGINT,isDelete INT DEFAULT 0,status INT DEFAULT 1,expiredTime " + LegacyGateSupport.timestampType(source) + " NULL)" + LegacyGateSupport.engine(source));
     }
 
     @AfterAll static void closePool() {
@@ -109,7 +120,7 @@ class CollaborationRunTest {
         jdbc.update("INSERT INTO t_agent_session (sessionId,userId) VALUES ('thread-42',42),('thread-43',43)");
         taskId = seed("WAITING_REVIEW", false);
         String doc = UUID.randomUUID().toString();
-        jdbc.update("INSERT INTO t_controlled_reference (id,title,source,fileName,documentVersion,fileContent,isTest,visibility,reviewStatus,diseaseCodes,topicCodes,reviewedBy,uploadedBy) VALUES (?,'Synthetic reference','synthetic.invalid','test.txt',?,?,0,'CURATED_PUBLIC','APPROVED',JSON_ARRAY('GLAUCOMA'),JSON_ARRAY('PATIENT_EXPLANATION'),2,1)", doc, "c".repeat(64), new byte[]{1});
+        jdbc.update("INSERT INTO t_controlled_reference (id,title,source,fileName,documentVersion,fileContent,isTest,visibility,reviewStatus,diseaseCodes,topicCodes,reviewedBy,uploadedBy) VALUES (?,'Synthetic reference','synthetic.invalid','test.txt',?,?,0,'CURATED_PUBLIC','APPROVED'," + LegacyGateSupport.jsonArray(jdbc.getDataSource(), "GLAUCOMA") + "," + LegacyGateSupport.jsonArray(jdbc.getDataSource(), "PATIENT_EXPLANATION") + ",2,1)", doc, "c".repeat(64), new byte[]{1});
         jdbc.update("INSERT INTO t_controlled_reference_chunk VALUES (?,0,?,?)", doc, EXCERPT, CollaborationRunService.digest(EXCERPT));
         jdbc.update("INSERT INTO t_controlled_reference_chunk VALUES (?,1,?,?)", doc, EXTRA, CollaborationRunService.digest(EXTRA));
         ChatModel model = prompt -> { calls.incrementAndGet(); return new ChatResponse(List.of(new Generation(new AssistantMessage(answer.apply(prompt))))); };
@@ -139,7 +150,7 @@ class CollaborationRunTest {
                 .setRejected(rejected).setOodStatus(DiagnosisProto.OodStatus.IN_DISTRIBUTION).setModelVersion("synthetic").build();
         String snapshot = InferenceSnapshot.write(
                 new InferenceSnapshot.Identity(id, 42, "private-image", "v1", "b".repeat(64), "png"), response);
-        jdbc.update("INSERT INTO t_diagnosis_task (taskId,userId,idempotencyKey,requestDigest,imageDigest,objectKey,objectVersion,imageFormat,status,inferenceSnapshot,createdAt,updatedAt) VALUES (?,42,?,?,?,'private-image','v1','png',?,?,NOW(6),NOW(6))", id, id, "a".repeat(64), "b".repeat(64), state, snapshot);
+        jdbc.update("INSERT INTO t_diagnosis_task (taskId,userId,idempotencyKey,requestDigest,imageDigest,objectKey,objectVersion,imageFormat,status,inferenceSnapshot,createdAt,updatedAt) VALUES (?,42,?,?,?,'private-image','v1','png',?,?," + LegacyGateSupport.now() + "," + LegacyGateSupport.now() + ")", id, id, "a".repeat(64), "b".repeat(64), state, snapshot);
         return id;
     }
     private String valid(Prompt prompt) {
@@ -595,7 +606,7 @@ class CollaborationRunTest {
     @Test void assignedDoctorLosesExistingSubscriptionWhenGrantIsWithdrawn() throws Exception {
         var run = create(); done(run.runId());
         String grant = UUID.randomUUID().toString();
-        jdbc.update("INSERT INTO t_doctor_review (reviewId,taskId,doctorId,assignedBy,taskVersion,draftVersion,evidenceVersion,materialDigest,materials) VALUES (?,?,44,45,0,1,1,?,JSON_OBJECT())", grant, taskId, "a".repeat(64));
+        jdbc.update("INSERT INTO t_doctor_review (reviewId,taskId,doctorId,assignedBy,taskVersion,draftVersion,evidenceVersion,materialDigest,materials) VALUES (?,?,44,45,0,1,1,?," + LegacyGateSupport.jsonEmptyObject(jdbc.getDataSource()) + ")", grant, taskId, "a".repeat(64));
         assertTrue(history(run.runId(), 44).stream().anyMatch(e -> e.type().equals("agent.handoff")));
         // Keep a legitimate running stream open while changing just its grant.
         var provider = new CountDownLatch(1); var started = new CountDownLatch(1);
@@ -603,7 +614,7 @@ class CollaborationRunTest {
         answer = prompt -> { started.countDown(); try { provider.await(8, TimeUnit.SECONDS); } catch (InterruptedException e) { throw new AssertionError(e); } return valid(prompt); };
         var second = create(); assertTrue(started.await(5, TimeUnit.SECONDS));
         String liveGrant = UUID.randomUUID().toString();
-        jdbc.update("INSERT INTO t_doctor_review (reviewId,taskId,doctorId,assignedBy,taskVersion,draftVersion,evidenceVersion,materialDigest,materials) VALUES (?,?,44,45,0,1,1,?,JSON_OBJECT())", liveGrant, taskId, "a".repeat(64));
+        jdbc.update("INSERT INTO t_doctor_review (reviewId,taskId,doctorId,assignedBy,taskVersion,draftVersion,evidenceVersion,materialDigest,materials) VALUES (?,?,44,45,0,1,1,?," + LegacyGateSupport.jsonEmptyObject(jdbc.getDataSource()) + ")", liveGrant, taskId, "a".repeat(64));
         var closed = new CountDownLatch(1); var seen = new CopyOnWriteArrayList<CollaborationStreams.Delivery>();
         var conn = streams.connect(beginning(second.runId(), 44), () -> 44, new CollaborationStreams.Sink() {
             public void send(CollaborationStreams.Delivery delivery) { seen.add(delivery); }
@@ -623,7 +634,7 @@ class CollaborationRunTest {
         String next = seed("WAITING_REVIEW", false);
         fault(409, "IDEMPOTENCY_CONFLICT", () -> runs.create(42, new CollaborationRunService.Create(next, "thread-42", taskId)));
         fault(409, "TASK_ALREADY_BOUND", () -> runs.create(42, new CollaborationRunService.Create(taskId, "thread-42", "different-key")));
-        jdbc.update("UPDATE t_diagnosis_task SET inferenceSnapshot=JSON_SET(inferenceSnapshot,'$.objectVersion','changed') WHERE taskId=?", taskId);
+        jdbc.update("UPDATE t_diagnosis_task SET inferenceSnapshot=" + LegacyGateSupport.jsonSet(jdbc.getDataSource(), "inferenceSnapshot", LegacyGateSupport.text("$.objectVersion", "changed")) + " WHERE taskId=?", taskId);
         fault(409, "IDEMPOTENCY_CONFLICT", this::create);
         taskId = next;
         try (var pool = Executors.newFixedThreadPool(2)) {
@@ -662,7 +673,7 @@ class CollaborationRunTest {
         var first = create(); assertTrue(entered.await(5, TimeUnit.SECONDS));
         try {
             taskId = seed("WAITING_REVIEW", false); var queued = create();
-            jdbc.update("UPDATE t_diagnosis_task SET inferenceSnapshot=JSON_SET(inferenceSnapshot,'$.extra','changed') WHERE taskId=?", taskId);
+            jdbc.update("UPDATE t_diagnosis_task SET inferenceSnapshot=" + LegacyGateSupport.jsonSet(jdbc.getDataSource(), "inferenceSnapshot", LegacyGateSupport.text("$.extra", "changed")) + " WHERE taskId=?", taskId);
             provider.countDown(); done(first.runId()); var end = done(queued.runId());
             assertEquals("RESTRICTED", end.executionStatus()); assertEquals("INVALID_INFERENCE", end.reason()); assertEquals(4, calls.get());
         } finally { provider.countDown(); }

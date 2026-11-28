@@ -3,6 +3,7 @@ package com.csust.eyediagnosis.collaboration;
 import com.csust.eyediagnosis.diagnosistask.InferenceSnapshot;
 import com.csust.eyediagnosis.controlledreference.ControlledEvidenceRetriever;
 import com.csust.eyediagnosis.grpc.DiagnosisProto;
+import com.csust.eyediagnosis.integration.LegacyGateSupport;
 import com.csust.eyediagnosis.patientdraft.PatientDraftCoordinator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zaxxer.hikari.HikariDataSource;
@@ -53,20 +54,25 @@ class GraphExecutionTest {
      */
     private static HikariDataSource pool;
 
-    @BeforeAll static void isolatedDatabase() {
+    @BeforeAll static void isolatedDatabase() { isolatedDatabase(true); }
+
+    /** 子 JVM 只连接、不重建 schema：PostgreSQL 路径重建夹具表会删掉父进程的行。 */
+    static void isolatedDatabase(boolean initialize) {
         String url = System.getenv("GRAPH_EXECUTION_TEST_URL");
+        if (url != null && !LegacyGateSupport.isIsolated(url, "graph_execution_test")) throw new IllegalArgumentException("Isolated schema required");
         if (url == null) return;
-        if (!url.matches("jdbc:mysql://127\\.0\\.0\\.1:[0-9]+/graph_execution_test")) throw new IllegalArgumentException("Isolated schema required");
         pool = new HikariDataSource();
-        pool.setJdbcUrl(url);
-        pool.setUsername("graph_execution");
-        pool.setPassword("graph_execution");
+        pool.setJdbcUrl(LegacyGateSupport.jdbcUrl(url));
+        String[] credentials = LegacyGateSupport.credentials(url);
+        pool.setUsername(credentials[0]);
+        pool.setPassword(credentials[1]);
         pool.setMaximumPoolSize(16);
         pool.setMinimumIdle(1);
         pool.setConnectionTimeout(20_000);
         pool.setPoolName("graph-execution-test");
         DataSource source = pool;
         jdbc = new JdbcTemplate(source);
+        if (initialize) LegacyGateSupport.ensureSchema(url, source, List.of("t_user", "t_agent_session"), () -> {
         for (String[] entry : List.of(
                 new String[]{"t_diagnosis_task", "V18__diagnosis_task.sql"},
                 new String[]{"t_controlled_reference", "V19__controlled_reference.sql"},
@@ -83,9 +89,10 @@ class GraphExecutionTest {
             new ResourceDatabasePopulator(new ClassPathResource("db/migration/V25__collaboration_events.sql")).execute(source);
         if (jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='t_patient_graph_execution'", Integer.class) == 0)
             new ResourceDatabasePopulator(new ClassPathResource("db/migration/V26__graph_execution.sql")).execute(source);
+        });
         // Existing pre-Flyway tables: minimal fixture columns, not a replacement production migration.
-        jdbc.execute("CREATE TABLE IF NOT EXISTS t_user (id BIGINT PRIMARY KEY,userRole VARCHAR(32),isDelete INT DEFAULT 0) ENGINE=InnoDB");
-        jdbc.execute("CREATE TABLE IF NOT EXISTS t_agent_session (sessionId VARCHAR(64) PRIMARY KEY,userId BIGINT,isDelete INT DEFAULT 0,status INT DEFAULT 1,expiredTime DATETIME NULL) ENGINE=InnoDB");
+        jdbc.execute("CREATE TABLE IF NOT EXISTS t_user (id BIGINT PRIMARY KEY,userRole VARCHAR(32),isDelete INT DEFAULT 0)" + LegacyGateSupport.engine(source));
+        jdbc.execute("CREATE TABLE IF NOT EXISTS t_agent_session (sessionId VARCHAR(64) PRIMARY KEY,userId BIGINT,isDelete INT DEFAULT 0,status INT DEFAULT 1,expiredTime " + LegacyGateSupport.timestampType(source) + " NULL)" + LegacyGateSupport.engine(source));
     }
 
     @AfterAll static void closePool() {
@@ -102,7 +109,7 @@ class GraphExecutionTest {
         jdbc.update("INSERT INTO t_agent_session (sessionId,userId) VALUES ('thread-42',42),('thread-43',43)");
         taskId = seed("WAITING_REVIEW", false);
         String doc = UUID.randomUUID().toString();
-        jdbc.update("INSERT INTO t_controlled_reference (id,title,source,fileName,documentVersion,fileContent,isTest,visibility,reviewStatus,diseaseCodes,topicCodes,reviewedBy,uploadedBy) VALUES (?,'Synthetic reference','synthetic.invalid','test.txt',?,?,0,'CURATED_PUBLIC','APPROVED',JSON_ARRAY('GLAUCOMA'),JSON_ARRAY('PATIENT_EXPLANATION'),2,1)", doc, "c".repeat(64), new byte[]{1});
+        jdbc.update("INSERT INTO t_controlled_reference (id,title,source,fileName,documentVersion,fileContent,isTest,visibility,reviewStatus,diseaseCodes,topicCodes,reviewedBy,uploadedBy) VALUES (?,'Synthetic reference','synthetic.invalid','test.txt',?,?,0,'CURATED_PUBLIC','APPROVED'," + LegacyGateSupport.jsonArray(jdbc.getDataSource(), "GLAUCOMA") + "," + LegacyGateSupport.jsonArray(jdbc.getDataSource(), "PATIENT_EXPLANATION") + ",2,1)", doc, "c".repeat(64), new byte[]{1});
         jdbc.update("INSERT INTO t_controlled_reference_chunk VALUES (?,0,?,?)", doc, EXCERPT, CollaborationRunService.digest(EXCERPT));
         jdbc.update("INSERT INTO t_controlled_reference_chunk VALUES (?,1,?,?)", doc, EXTRA, CollaborationRunService.digest(EXTRA));
         ChatModel model = prompt -> { calls.incrementAndGet(); return new ChatResponse(List.of(new Generation(new AssistantMessage(answer.apply(prompt))))); };
@@ -127,7 +134,7 @@ class GraphExecutionTest {
                 .setRejected(rejected).setOodStatus(DiagnosisProto.OodStatus.IN_DISTRIBUTION).setModelVersion("synthetic").build();
         String snapshot = InferenceSnapshot.write(
                 new InferenceSnapshot.Identity(id, 42, "private-image", "v1", "b".repeat(64), "png"), response);
-        jdbc.update("INSERT INTO t_diagnosis_task (taskId,userId,idempotencyKey,requestDigest,imageDigest,objectKey,objectVersion,imageFormat,status,inferenceSnapshot,createdAt,updatedAt) VALUES (?,42,?,?,?,'private-image','v1','png',?,?,NOW(6),NOW(6))", id, id, "a".repeat(64), "b".repeat(64), state, snapshot);
+        jdbc.update("INSERT INTO t_diagnosis_task (taskId,userId,idempotencyKey,requestDigest,imageDigest,objectKey,objectVersion,imageFormat,status,inferenceSnapshot,createdAt,updatedAt) VALUES (?,42,?,?,?,'private-image','v1','png',?,?," + LegacyGateSupport.now() + "," + LegacyGateSupport.now() + ")", id, id, "a".repeat(64), "b".repeat(64), state, snapshot);
         return id;
     }
     private String valid(Prompt prompt) {
@@ -288,7 +295,7 @@ class GraphExecutionTest {
         jdbc.update("DELETE FROM t_diagnosis_task"); taskId = seed("WAITING_REVIEW", true);
         var run = create(); assertEquals("RESTRICTED", done(run.runId()).executionStatus()); assertEquals(0, calls.get());
         taskId = seed("WAITING_REVIEW", false); runs.close(); var queued = create();
-        jdbc.update("UPDATE t_diagnosis_task SET inferenceSnapshot=JSON_SET(inferenceSnapshot,'$.imageDigest','changed') WHERE taskId=?", taskId);
+        jdbc.update("UPDATE t_diagnosis_task SET inferenceSnapshot=" + LegacyGateSupport.jsonSet(jdbc.getDataSource(), "inferenceSnapshot", LegacyGateSupport.text("$.imageDigest", "changed")) + " WHERE taskId=?", taskId);
         coordinator.run(taskId);
         assertEquals("INVALID_INFERENCE", runs.snapshot(queued.runId(), 42).reason()); assertEquals(0, calls.get());
     }
@@ -314,7 +321,7 @@ class GraphExecutionTest {
         try {
             var run = create(); assertTrue(entered.await(5, TimeUnit.SECONDS));
             await(() -> "COMPLETED".equals(runs.snapshot(run.runId(), 42).roles().get("EVIDENCE")));
-            jdbc.update("UPDATE t_patient_graph_execution SET leaseUntil=TIMESTAMPADD(SECOND,-1,NOW(6)) WHERE taskId=?", taskId);
+            jdbc.update("UPDATE t_patient_graph_execution SET leaseUntil=" + LegacyGateSupport.timestampPlusSeconds(jdbc.getDataSource(), -1) + " WHERE taskId=?", taskId);
             try (var replacement = new PatientDraftCoordinator(jdbc, new ControlledEvidenceRetriever(jdbc), p -> new ChatResponse(List.of(new Generation(new AssistantMessage(answer.apply(p))))))) {
                 replacement.setCollaborationEvents(events);
                 replacement.run(taskId);
@@ -384,13 +391,13 @@ class GraphExecutionTest {
     }
 
     @Test void checkpointCommitFailureRollsBackEvidenceAndItsPublicFactsTogether() throws Exception {
-        jdbc.execute("CREATE TRIGGER fail_graph_checkpoint BEFORE INSERT ON t_patient_graph_node FOR EACH ROW BEGIN IF NEW.nodeKey='EVIDENCE:1' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='synthetic checkpoint fault'; END IF; END");
+        LegacyGateSupport.createFailTriggerWhen(jdbc, "fail_graph_checkpoint", "INSERT", "t_patient_graph_node", "nodeKey", "EVIDENCE:1", "synthetic checkpoint fault");
         try {
             var run = create(); assertEquals("RESTRICTED", done(run.runId()).executionStatus());
             assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM t_patient_evidence_version WHERE taskId=?", Integer.class, taskId));
             assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM t_patient_graph_node WHERE taskId=? AND nodeKey='EVIDENCE:1'", Integer.class, taskId));
             assertFalse(history(run.runId(), 45).stream().anyMatch(e -> e.type().equals("evidence.verified") || e.type().equals("agent.completed") && e.actor().equals("EVIDENCE")));
-        } finally { jdbc.execute("DROP TRIGGER fail_graph_checkpoint"); }
+        } finally { LegacyGateSupport.dropFailTrigger(jdbc, "fail_graph_checkpoint", "t_patient_graph_node"); }
     }
 
     private static void uninterruptible(CountDownLatch latch) {
@@ -415,7 +422,7 @@ class GraphExecutionTest {
             int before = jdbc.queryForObject("SELECT checkpointVersion FROM t_patient_graph_execution WHERE taskId=?", Integer.class, taskId);
             assertEquals(parts[0].equals("JOIN") ? 2 : parts[0].equals("DRAFT") ? 3 : parts[1].equals("SUPPLEMENT") ? 5 : 4, before);
             first.destroyForcibly(); assertTrue(first.waitFor(5, TimeUnit.SECONDS));
-            jdbc.update("UPDATE t_patient_graph_execution SET leaseUntil=TIMESTAMPADD(SECOND,-1,NOW(6)) WHERE taskId=?", taskId);
+            jdbc.update("UPDATE t_patient_graph_execution SET leaseUntil=" + LegacyGateSupport.timestampPlusSeconds(jdbc.getDataSource(), -1) + " WHERE taskId=?", taskId);
             if (parts[1].equals("WITHDRAWN")) jdbc.update("UPDATE t_controlled_reference SET reviewStatus='WITHDRAWN'");
             if (parts[1].equals("EXHAUSTED_BUDGET")) jdbc.update("UPDATE t_patient_draft_run SET callCount=8 WHERE taskId=?", taskId);
             if (parts[1].equals("DEADLINE")) {
@@ -423,7 +430,7 @@ class GraphExecutionTest {
                 // time can be ahead of the JVM's even when both use UTC.
                 jdbc.update("UPDATE t_patient_draft_run SET deadlineAt=TIMESTAMP '2000-01-01 00:00:00' WHERE taskId=?", taskId);
             }
-            if (parts[1].equals("INFERENCE_CHANGED")) jdbc.update("UPDATE t_diagnosis_task SET inferenceSnapshot=JSON_SET(inferenceSnapshot,'$.objectVersion','changed') WHERE taskId=?", taskId);
+            if (parts[1].equals("INFERENCE_CHANGED")) jdbc.update("UPDATE t_diagnosis_task SET inferenceSnapshot=" + LegacyGateSupport.jsonSet(jdbc.getDataSource(), "inferenceSnapshot", LegacyGateSupport.text("$.objectVersion", "changed")) + " WHERE taskId=?", taskId);
             Process second = child(taskId, "RESUME", feedback, marker, log, directory.resolve("second.log"));
             try { assertTrue(second.waitFor(10, TimeUnit.SECONDS), "Recovery child must finish"); assertEquals(0, second.exitValue(), () -> read(directory.resolve("second.log"))); }
             finally { if (second.isAlive()) { second.destroyForcibly(); second.waitFor(5, TimeUnit.SECONDS); } }
@@ -592,12 +599,12 @@ class GraphExecutionTest {
 
             var run = create();
             assertTrue(entered.await(5, TimeUnit.SECONDS));
-            await(() -> jdbc.queryForObject("SELECT leaseUntil>TIMESTAMPADD(SECOND,5,NOW(6)) FROM t_patient_graph_execution WHERE taskId=?", Boolean.class, taskId));
+            await(() -> jdbc.queryForObject("SELECT leaseUntil>" + LegacyGateSupport.timestampPlusSeconds(jdbc.getDataSource(), 5) + " FROM t_patient_graph_execution WHERE taskId=?", Boolean.class, taskId));
             // Arm the stall and wait until the coordinator is actually blocked inside connection
             // acquisition. Only then is the renewal guaranteed to be impossible.
             stalled.arm("collaboration-coordinator");
             assertTrue(stalled.awaitStalled(5), "The coordinator thread must block on connection acquisition");
-            jdbc.update("UPDATE t_patient_graph_execution SET leaseUntil=TIMESTAMPADD(SECOND,3,NOW(6)) WHERE taskId=?", taskId);
+            jdbc.update("UPDATE t_patient_graph_execution SET leaseUntil=" + LegacyGateSupport.timestampPlusSeconds(jdbc.getDataSource(), 3) + " WHERE taskId=?", taskId);
             long before = stalled.statementsBy("collaboration-coordinator");
             // The counter has to have seen this thread's SQL before the stall, otherwise the
             // assertion below would hold for the wrong reason (an observer that never counts).
@@ -605,7 +612,7 @@ class GraphExecutionTest {
             Thread.sleep(1500);
             assertEquals(before, stalled.statementsBy("collaboration-coordinator"),
                     "A coordinator blocked on connection acquisition must not issue any SQL");
-            assertFalse(jdbc.queryForObject("SELECT leaseUntil>TIMESTAMPADD(SECOND,5,NOW(6)) FROM t_patient_graph_execution WHERE taskId=?", Boolean.class, taskId),
+            assertFalse(jdbc.queryForObject("SELECT leaseUntil>" + LegacyGateSupport.timestampPlusSeconds(jdbc.getDataSource(), 5) + " FROM t_patient_graph_execution WHERE taskId=?", Boolean.class, taskId),
                     "The lease must not be renewed while the coordinator cannot issue any SQL");
             await(() -> !jdbc.queryForObject("SELECT leaseUntil>CURRENT_TIMESTAMP(6) FROM t_patient_graph_execution WHERE taskId=?", Boolean.class, taskId));
             stalled.release();
@@ -723,7 +730,7 @@ class GraphExecutionTest {
     /** Another JVM connects only to the opt-in disposable schema; it cannot reset the fixture. */
     public static class RecoveryWorker {
         public static void main(String[] args) throws Exception {
-            isolatedDatabase();
+            isolatedDatabase(false);
             var fixture = new GraphExecutionTest();
             ChatModel model = prompt -> {
                 String role = fixture.role(prompt);

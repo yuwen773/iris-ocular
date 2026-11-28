@@ -2,6 +2,7 @@ package com.csust.eyediagnosis.diagnosistask;
 
 import com.csust.eyediagnosis.grpc.DiagnosisGrpcClient;
 import com.csust.eyediagnosis.grpc.DiagnosisProto;
+import com.csust.eyediagnosis.integration.LegacyGateSupport;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DelegatingDataSource;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
@@ -19,9 +20,10 @@ import java.util.Base64;
 public class DiagnosisTaskCrashWorker {
     public static void main(String[] args) throws Exception {
         String url = args[0], phase = args[1];
-        if (!url.matches("jdbc:mysql://127\\.0\\.0\\.1:[0-9]+/issue17_test")) throw new IllegalArgumentException();
+        LegacyGateSupport.requireIsolated(url, "ISSUE17_TEST_URL", "issue17_test");
         byte[] image = Base64.getDecoder().decode(args[2]);
-        var base = new DriverManagerDataSource(url, "issue17", "issue17");
+        String[] credentials = LegacyGateSupport.credentials(url);
+        var base = new DriverManagerDataSource(LegacyGateSupport.jdbcUrl(url), credentials[0], credentials[1]);
         var targetExecuted = new java.util.concurrent.atomic.AtomicBoolean();
         var intercepted = new DelegatingDataSource(base) {
             @Override public Connection getConnection() throws java.sql.SQLException {

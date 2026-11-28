@@ -33,7 +33,8 @@ HARNESS="$ROOT/scripts/lib/docker-test-harness.sh"
 
 ci_images() {
   local svc="$1"
-  grep -E "^[[:space:]]+image: ${svc}" "$CI" | sed -E 's/.*image:[[:space:]]*//' | tr -d '\r' | sort -u
+  # `grep || true`: "no such service" is a valid answer (see the MySQL assertion).
+  { grep -E "^[[:space:]]+image: ${svc}" "$CI" || true; } | sed -E 's/.*image:[[:space:]]*//' | tr -d '\r' | sort -u
 }
 
 # ---- image pins -----------------------------------------------------------
@@ -41,7 +42,16 @@ mysql_ci="$(ci_images 'mysql:' | tr '\n' ' ' | sed 's/ $//')"
 redis_ci="$(ci_images 'redis:' | tr '\n' ' ' | sed 's/ $//')"
 chroma_ci="$(ci_images 'ghcr.io/chroma-core/chroma:' | tr '\n' ' ' | sed 's/ $//')"
 
-check_eq "CI mysql image(s)" "$MYSQL_IMAGE" "$mysql_ci"
+# The Java line migrated to PostgreSQL: no CI job may start a MySQL service any
+# more, and every isolated gate runs on the pinned pgvector image.
+if [ -z "$mysql_ci" ]; then
+  pass "CI starts no MySQL service (PostgreSQL line)"
+else
+  fail "CI still starts MySQL: $mysql_ci"
+fi
+pg_ci="$(ci_images 'pgvector/pgvector:' | tr '
+' ' ' | sed 's/ $//')"
+check_eq "CI pgvector image(s)" "$PGVECTOR_IMAGE" "$pg_ci"
 check_eq "CI redis image(s)" "$REDIS_IMAGE" "$redis_ci"
 check_eq "CI chroma image" "$CHROMA_IMAGE" "$chroma_ci"
 
