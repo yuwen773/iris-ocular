@@ -21,6 +21,7 @@
 | Flyway / 镜像可复现性 | PASS | Flyway 11.14.1 在 PG 18.7 迁移零警告；pgvector 镜像按 digest 钉死，静态门禁 23/23 |
 | 旧 MySQL 门禁（M6） | PASS | 10 个 `if: ${{ false }}` 检查全部改在 PG 上执行；11 套件本机真实 PG **291/291，0 skipped**（§5.8） |
 | CI（远端 HEAD） | PASS | run `46047803428`（HEAD `c403adcb`）：20/20 必需检查 success；`postgres-integration` / `vector-migration-drill` / `flyway-postgres` / `miniapp` 均 success；10 个 MySQL-only job 按设计 `skipped`（§5.7） |
+| CI（M7 HEAD `f553e95b`，run `46113997948`） | PASS | 24/24 success。`postgres-integration` 两段都实测：`postgres_gates=4 all ran`（27 用例）+ 11 个 business 套件逐一 `ok: … (N cases, 0 skipped)`、`skip gate passed`；`flyway-postgres` 新增两条门禁实测 `MIGRATED=0 VERSION=7` / `drift_rejected=ok`（§5.10） |
 | 独立评审 A/B | PASS（已整改） | A：BLOCK → 1 P0 + 3 P1 已修；B：FIX_P0_P1 → 无 P0，2 P1 已修（见 §9） |
 | 生产切换 | BLOCKED | 需真实数据导出、分支保护变更、部署授权 |
 
@@ -304,6 +305,19 @@ M6 遗留的 93 条跳过（79 条 `FLYWAY_TEST_URL` + 14 条 `CoordinationMySql
 CI 侧不新增 job、不改检查名，全部折叠进既有 `postgres-integration`：bootstrap 建 `business_test`、
 `coordination_poc`（`poc` 角色）并起 Redis 服务；第一段仍是 `Pg*IntegrationTest` 及其门禁，第二段跑上面
 11 个套件，收尾用 `check_surefire_skips.py … business`（契约：11 套件 86 用例，零跳过；单元测试 21/21）。
+
+CI 实测（HEAD `f553e95b`，run `46113997948`，`postgres-integration` 与 `flyway-postgres` 均为 success）：
+
+```
+postgres_gates=4 all ran
+ok: …UploadTaskMapperPostgresIntegrationTest (3 cases, 0 skipped)
+…（其余 10 个套件同样 0 skipped，合计 86 用例）
+skip gate passed: no unexpected skipped or dropped tests
+MIGRATED=0 VERSION=7
+VALIDATE=OK
+tables=60 schema_contract=ok
+drift_rejected=ok
+```
 
 同时固定了两项可复现性前提：
 
