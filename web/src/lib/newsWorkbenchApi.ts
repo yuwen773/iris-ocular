@@ -1083,6 +1083,8 @@ export function curationGateReasonLabel(reason?: string | null): string {
       return "服务端未配置精选模型 profile"
     case "TERMINAL_FAILURE_REPLAY_ONLY":
       return "上次为确定性失败；本入口只重放既有回执，不会再次调用模型"
+    case "AWAITING_RECONCILIATION":
+      return "存在待对账的模型调用；请先在回执台账完成对账"
     default:
       return reason || "—"
   }

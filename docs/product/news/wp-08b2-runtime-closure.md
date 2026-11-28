@@ -50,11 +50,13 @@ POST /materials/{id}/curate
   否则 `MODEL_PROFILE_NOT_CONFIGURED`。请求体里没有任何模型字段。
 - **证据门禁前置**：`INTEGRITY_RETRACTED` / `INTEGRITY_CONCERN` / `TRIAL_NO_CHANGE` / `EVIDENCE_SKIP`
   在 `reserveAttempt` 之前拒绝，不产生回执、不占用预算、不发请求。
-- **只列当前版本**：列表只取 `t_news_material.latestRevisionId` 指向的修订，避免对已过期版本花钱。
+- **只跑当前修订**：列表只取 `t_news_material.latestRevisionId` 指向的修订；写路径同样校验
+  （`MATERIAL_REVISION_SUPERSEDED`），旧修订的回执也不能再转候选，避免对过期版本花钱或建稿。
 - **人工审核不可绕过**：模型输出只能落为 `CURATED_NEEDS_REVIEW`（或证据违规的
   `REJECTED_EVIDENCE_VIOLATION`），发布仍走 WP-04 服务层门禁。
-- **并发重复触发**：预算守卫行 + 回执唯一键 + `reserveAttempt` 重放，第二次触发返回同一 `callId`
-  （`replayed = true`），不产生第二次供应商请求。
+- **重复触发**：顺序重复触发同一 logical 调用时，`reserveAttempt` 返回同一 `callId`
+  （`replayed = true`），不产生第二次供应商请求；**并发**的第二次在第一条仍为 RESERVED/DISPATCHED 时
+  被拒绝为 `CURATION_AWAITING_RECONCILIATION`，拿不到同一 `callId`（重放只发生在已结算的回执上）。
 
 ## 4. 错误语义与回执状态
 
@@ -71,8 +73,14 @@ POST /materials/{id}/curate
 | 存在待对账/在途回执 | 异常 `CURATION_AWAITING_RECONCILIATION` | 「请先在回执台账完成对账」 |
 | 熔断中 | 异常 `CURATION_CIRCUIT_BROKEN:<reason>` | 「请先在预算页重置」 |
 | 该修订已有确定性失败回执 | 列表标 `curatable=false`，按钮禁用 | 「上次为确定性失败；本入口只重放既有回执」 |
+| 该修订存在在途/未知回执 | 列表标 `curatable=false`（`AWAITING_RECONCILIATION`） | 「请先在回执台账完成对账」 |
+| 该修订已被同资料的更新版本取代 | 异常 `MATERIAL_REVISION_SUPERSEDED`，不发请求 | 「该修订已被更新版本取代，请刷新后对当前修订运行」 |
+| 旧修订的成功回执 | 转候选被拒（`MATERIAL_REVISION_SUPERSEDED`） | 「该修订已被更新版本取代，不能再生成候选」 |
 
 确定失败（额度/欠费/鉴权/格式）都已落回执；同一修订再次触发只会重放既有回执，不会再次计费。
+「确定性失败」与「可运行」都按**当前 logical 调用**判定：identity 由服务端 profile、prompt 版本与证据
+overlay 组成，换了其中任何一项就是一个新的 logical 调用——旧回执只是历史，按钮随之恢复可用，
+服务端也确实会发起新调用（唯一的确定性失败恢复路径，见 §9）。
 
 ## 5. 工作台变化（`web/`）
 
@@ -90,7 +98,7 @@ POST /materials/{id}/curate
 
 ### 6.1 后端（真实 PostgreSQL 18 + pgvector）
 
-`NewsCurationRuntimePostgresTest`（`BUSINESS_TEST_URL`，`scripts/verify-pg.sh --full`）11 例：
+`NewsCurationRuntimePostgresTest`（`BUSINESS_TEST_URL`，`scripts/verify-pg.sh --full`）13 例：
 
 1. profile 只由服务端配置裁决（缺省/歧义/不存在都拒绝）；
 2. 已撤稿资料在预扣与模型调用之前被拒绝；
@@ -103,7 +111,9 @@ POST /materials/{id}/curate
 8. 429 → `OUTCOME_UNKNOWN`，再次触发要求先对账；
 9. 日预算耗尽 → 第二次在校验阶段拒绝，不发请求；
 10. 结构化输出非法 → `FAILED_CHARGED`，不产生候选；
-11. 运行后撤回证据 → 转候选被拒（`EVIDENCE_VERIFICATION_STALE`）。
+11. 运行后撤回证据 → 转候选被拒（`EVIDENCE_VERIFICATION_STALE`）；
+12. 同资料重新采集出新修订后：旧修订触发精选被拒（不发请求、不加回执）、旧回执转候选被拒、列表只列新修订；
+13. 确定性失败后切换到另一个已配置 profile：新的 logical 调用成功，列表恢复「可运行」，旧失败回执保留为历史。
 
 「用户端展示」这一步在本套件里验到公开列表口径的数据行与发布修订；HTTP 层页面渲染由
 `web/` 全量用例与既有资讯接口的 Postgres 套件覆盖，未在真实浏览器里重放本文这一次精选。
@@ -111,9 +121,9 @@ POST /materials/{id}/curate
 另有 `NewsOpenAiCompatibleModelClientTest` 8 例（免费额度/欠费/鉴权分类）与
 `NewsWorkbenchControllerSecurityTest` 8 例（新端点仅管理员、读取 `no-store`、错误文案）。
 
-`scripts/verify-pg.sh --full` 实测（2026-11-28）：`Tests run: 1431, Failures: 0, Errors: 0, Skipped: 290`
+`scripts/verify-pg.sh --full` 实测（2026-11-28）：`Tests run: 1433, Failures: 0, Errors: 0, Skipped: 290`
 （290 条均为未注入对应环境的其它 opt-in 套件），`check_surefire_skips.py ... business` 通过——
-12 个 business/coordination 套件全部 0 skipped，其中本套件 11/11。
+12 个 business/coordination 套件全部 0 skipped，其中本套件 13/13。
 
 ### 6.2 前端
 
@@ -152,6 +162,9 @@ G-1…G-5 未确认前，真实首跑保持阻塞；G-7 解除不等于授权。
 
 ## 9. 未验证 / 未覆盖
 
+- **确定性失败没有专用的「重试同一条回执」按钮**：`retryDefinitiveModel` 服务方法存在但没有 HTTP 入口。
+  本轮不新增（不扩大架构）。恢复路径是让 logical 身份变化——换服务端 profile（`run-profile-key`）、
+  换 prompt 版本或重新核验证据——此时会产生新的 logical 调用；同一 logical 仍然只重放、不重试。
 - 任何真实供应商返回形态（鉴权成功后的 200、429 的实际报文、免费额度耗尽的实际 403 body）；
 - 供应商账单与回执 token/费用的对账（未发生真实计费）；
 - 多实例并发下的工作台行为（本期只依赖数据库层幂等，未做分布式调度）；

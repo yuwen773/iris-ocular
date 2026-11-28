@@ -1434,6 +1434,8 @@ public class NewsWorkbenchService {
             case "MODEL_CALL_NOT_PRODUCTION_JOINT" -> "只有生产命名空间的联合精选结果可以转为候选";
             case "MODEL_CALL_IDENTITY_INVALID" -> "模型调用身份无法解析";
             case "EVIDENCE_VERIFICATION_STALE" -> "证据核验已撤回或变更，请重新核验后再转换";
+            case "MATERIAL_REVISION_SUPERSEDED" -> "该修订已被同一资料的更新版本取代，不能再生成候选";
+            case "MATERIAL_NOT_FOUND" -> "资料不存在";
             case "FROZEN_OUTPUT_INVALID" -> "冻结响应未通过当前契约校验";
             case "CANDIDATE_ALREADY_MATERIALIZED" -> "该资料修订与策略版本已有候选，禁止覆盖；确需替代请点名旧候选并写明理由";
             case "CANDIDATE_POLICY_CONFLICT" -> "同一资料修订已存在其他策略版本的候选，禁止通过改策略版本绕开冲突";
@@ -1527,6 +1529,8 @@ public class NewsWorkbenchService {
             case "MODEL_PROFILE_NOT_CONFIGURED" -> "服务端未配置精选模型 profile（run-profile-key / model-profiles）";
             case "MODEL_CLIENT_UNCONFIGURED" -> "服务端未配置精选模型客户端";
             case "REVISION_NOT_VISIBLE" -> "资料修订不存在或尚未准入";
+            case "MATERIAL_NOT_FOUND" -> "资料不存在";
+            case "MATERIAL_REVISION_SUPERSEDED" -> "该修订已被同一资料的更新版本取代，请刷新列表后对当前修订运行";
             case "EVIDENCE_GATE_SKIP" -> "证据准入未通过，不发起付费调用：" + (detail == null ? "路由判定为 SKIP" : detail);
             case "EDITORIAL_EVIDENCE_INSUFFICIENT" -> "证据准入不足，不能按该体裁精选";
             case "BUDGET_EXHAUSTED" -> "今日精选预算已耗尽，未发出请求";

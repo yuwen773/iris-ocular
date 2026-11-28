@@ -394,6 +394,12 @@ class NewsCurationRuntimePostgresTest {
                 () -> workbenchService.runCuration(revision, admin));
         assertTrue(blocked.getMessage().contains("待对账"));
         assertEquals(1, modelClient.invocations.get());
+
+        // 列表不得宣称「可运行」：同一个 logical 调用在 reserveAttempt 里必然被待对账拒绝。
+        NewsCurationService.RevisionCuration after = curationService.describeRevision(revision);
+        assertFalse(after.curatable());
+        assertEquals("AWAITING_RECONCILIATION", after.gateReason());
+        assertEquals("OUTCOME_UNKNOWN", after.latestReceiptState());
     }
 
     @Test
@@ -450,6 +456,75 @@ class NewsCurationRuntimePostgresTest {
                 Integer.class, revision));
     }
 
+    @Test
+    void supersededRevisionIsRefusedByCurateAndMaterializeAfterANewerIngest() throws Exception {
+        long oldRevision = ingest("pubmed", "PMID-STALE-1", "First version of the screening study");
+        fullyVerify(oldRevision);
+        modelClient.enqueue(req -> success(JOINT_INSIGHT_JSON, 420, 180, 960L, "req-stale-1"));
+        NewsWorkbenchModels.CurationRunVO run = workbenchService.runCuration(oldRevision, admin);
+        assertEquals("SUCCEEDED", run.state());
+
+        // 同一资料被重新采集为新修订：旧修订仍然可见，但已不是 t_news_material.latestRevisionId。
+        long latest = ingest("pubmed", "PMID-STALE-1", "Second version of the screening study", "PMID-STALE-1-v2");
+        assertTrue(latest != oldRevision);
+        assertEquals(2, jdbc.queryForObject("""
+                SELECT COUNT(*) FROM t_news_material_revision WHERE source = 'pubmed' AND sourceRecordId = 'PMID-STALE-1'
+                """, Integer.class));
+
+        BusinessException staleMaterialize = assertThrows(BusinessException.class,
+                () -> workbenchService.materializeCandidate(run.callId(), admin));
+        assertTrue(staleMaterialize.getMessage().contains("更新版本"));
+        assertEquals(0, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM t_news_curation_candidate WHERE materialRevisionId = ?",
+                Integer.class, oldRevision));
+
+        int callsBefore = modelClient.invocations.get();
+        int receiptsBefore = jdbc.queryForObject("SELECT COUNT(*) FROM t_news_model_call_receipt", Integer.class);
+        BusinessException staleRun = assertThrows(BusinessException.class,
+                () -> workbenchService.runCuration(oldRevision, admin));
+        assertTrue(staleRun.getMessage().contains("更新版本"));
+        assertEquals(callsBefore, modelClient.invocations.get(), "过期修订不得再发起付费调用");
+        assertEquals(receiptsBefore,
+                jdbc.queryForObject("SELECT COUNT(*) FROM t_news_model_call_receipt", Integer.class));
+
+        // 列表只列当前修订：过期的那一条不会从工作台再被点开。
+        NewsWorkbenchModels.PageVO<NewsWorkbenchModels.MaterialCurationVO> page =
+                workbenchService.listCurationMaterials("pubmed", 1, 10);
+        assertEquals(1, page.total());
+        assertEquals(latest, page.records().getFirst().materialRevisionId());
+    }
+
+    @Test
+    void aNewProfileAfterADefinitiveFailureIsACuratableNewCall() throws Exception {
+        long revision = ingest("pubmed", "PMID-RECOVER-1", "Quota recovery study");
+        fullyVerify(revision);
+        modelClient.enqueue(req -> new NewsCurationModels.DefinitiveFailure(
+                "MODEL_FREE_QUOTA_EXHAUSTED", 403, null, false, 210));
+        assertEquals("FAILED_DEFINITIVE", workbenchService.runCuration(revision, admin).state());
+        assertFalse(curationService.describeRevision(revision).curatable());
+
+        // 运维换到另一个已配置的 profile（新的 modelId ⇒ 新的 logical 调用），这是确定失败后的恢复路径：
+        // 服务端会真正发起一次新的调用，列表必须随之恢复「可运行」，而不是继续显示只重放。
+        curationProperties.setModelProfiles(Map.of(
+                "prod", stagedProfile("qwen3.8-max-0902"),
+                "prod2", stagedProfile("qwen3.8-max-1001")));
+        curationProperties.setRunProfileKey("prod2");
+        assertTrue(curationService.describeRevision(revision).curatable());
+        modelClient.enqueue(req -> success(JOINT_INSIGHT_JSON, 420, 180, 960L, "req-recover-1"));
+
+        NewsWorkbenchModels.CurationRunVO second = workbenchService.runCuration(revision, admin);
+        assertEquals("SUCCEEDED", second.state());
+        assertFalse(second.replayed());
+        assertTrue(second.materializable());
+        assertEquals(2, modelClient.invocations.get());
+        assertEquals(2, jdbc.queryForObject("SELECT COUNT(*) FROM t_news_model_call_receipt", Integer.class));
+
+        NewsCurationService.RevisionCuration after = curationService.describeRevision(revision);
+        assertEquals("SUCCEEDED", after.latestReceiptState());
+        assertTrue(after.curatable());
+        assertNull(after.gateReason());
+    }
+
     // ---- helpers ----
 
     private void fullyVerify(long revision) {
@@ -478,9 +553,13 @@ class NewsCurationRuntimePostgresTest {
     }
 
     private long ingest(String source, String recordId, String title) throws Exception {
+        return ingest(source, recordId, title, recordId);
+    }
+
+    private long ingest(String source, String recordId, String title, String taskKey) throws Exception {
         LocalDate start = LocalDate.of(2026, 10, 1);
         LocalDate end = LocalDate.of(2026, 10, 2);
-        String taskId = "task-" + recordId;
+        String taskId = "task-" + taskKey;
         ingestionService.enqueueWindow(taskId, source, 1L, "ophthalmology", start, end, 3);
         NewsWireModels.Lease lease = ingestionService.claim(WORKER).orElseThrow();
         ingestionService.submitBatch(WORKER, lease.taskId(), lease.generation() + ":1",

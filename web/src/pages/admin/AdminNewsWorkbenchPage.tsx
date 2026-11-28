@@ -340,7 +340,13 @@ export function AdminNewsWorkbenchPage(): ReactElement {
       setActionNote(
         run.replayed
           ? `精选运行复用既有回执（${run.state}），未发起新的模型调用。`
-          : `精选运行完成：${run.state}。`,
+          : run.state === "SUCCEEDED"
+            ? "精选运行完成：SUCCEEDED。"
+            : run.state === "OUTCOME_UNKNOWN"
+              ? "精选运行结束：结果未知（OUTCOME_UNKNOWN），系统不会自动重发，请先人工对账。"
+              : run.state === "FAILED_CHARGED"
+                ? "精选运行结束：已扣费但输出未通过契约（FAILED_CHARGED），未生成候选。"
+                : `精选运行结束：确定性失败（${run.state}），未生成候选。`,
       )
       await queryClient.invalidateQueries({ queryKey: queryKeys.admin.newsWorkbench.all })
     } catch (err) {
