@@ -82,6 +82,19 @@ docker exec -i -e PGPASSWORD=verify-superuser-password "$NAME" \
   -f - < scripts/postgresql/bootstrap-roles.sql >/dev/null
 echo "roles: iris_migrator / iris_app bootstrapped"
 
+# 业务回归套件（M7 从 MySQL 重新基线的那 11 个）要两个独立库：business_test 由套件
+# 自己按 db/postgresql 迁移；coordination_poc 归最低权限角色 poc 所有，套件运行时建表。
+# 只在 --full 下创建，L1 门禁不需要它们。
+if [ "$MODE" = "full" ]; then
+  docker exec -i -e PGPASSWORD=verify-superuser-password "$NAME" \
+    psql -U postgres -d postgres -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
+CREATE DATABASE business_test;
+CREATE ROLE poc LOGIN PASSWORD 'poc';
+CREATE DATABASE coordination_poc OWNER poc;
+SQL
+  echo "business databases: business_test / coordination_poc"
+fi
+
 mvn -o -q resources:resources
 mvn -o -q dependency:build-classpath -Dmdep.outputFile=target/verify-pg-classpath.txt
 
@@ -113,6 +126,15 @@ export IRIS_FLYWAY_USER=iris_migrator IRIS_FLYWAY_PASSWORD="$MIGRATOR_PASSWORD"
 export PG_IT_URL="$URL" PG_IT_APP_USER=iris_app PG_IT_APP_PASSWORD="$APP_PASSWORD"
 export PG_IT_MIGRATOR_USER=iris_migrator PG_IT_MIGRATOR_PASSWORD="$MIGRATOR_PASSWORD"
 
+# --full 还要跑 11 个 business 套件（CI 里是 postgres-integration 的第二段）。
+# 它们用超级用户按 db/postgresql 自建 schema，所以给 PG_TEST_* 而不是 iris_app。
+if [ "$MODE" = "full" ]; then
+  export BUSINESS_TEST_URL="jdbc:postgresql://127.0.0.1:$PG_PORT/business_test"
+  export COORDINATION_POC_URL="jdbc:postgresql://127.0.0.1:$PG_PORT/coordination_poc"
+  export COORDINATION_POC_USER=poc COORDINATION_POC_PASSWORD=poc
+  export PG_TEST_USER=postgres PG_TEST_PASSWORD=verify-superuser-password
+fi
+
 # Stale XMLs from an earlier run would otherwise be counted again (and can make a
 # separately-run skip gate read a suite that no longer exists). Always start clean.
 rm -rf target/surefire-reports
@@ -141,6 +163,11 @@ print(f"postgres suites={len(reports)} tests={tests} skipped={skipped} failures=
 if skipped or failures or errors:
     sys.exit("postgres gates did not all pass")
 PY
+
+if [ "$MODE" = "full" ]; then
+  # 业务套件的计数/零跳过契约：跳过一条 business 用例就不再算「全量绿」。
+  "$PY" scripts/check_surefire_skips.py target/surefire-reports business
+fi
 
 if [ "$MAVEN_EXIT" -ne 0 ]; then
   echo "FAIL: maven exited $MAVEN_EXIT" >&2

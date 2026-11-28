@@ -5,6 +5,11 @@
 
 入口只有一个：`scripts/verify-fast.sh`。`scripts/verify.sh` 不被它取代，仍是 L3，自己负责一次性服务栈的编排与资源回收。
 
+> **本分支（PostgreSQL 线）的现状**：数据库服务是 `pgvector/pgvector:pg18`，入口是
+> `scripts/verify-pg.sh`（L1 = 4 个 `Pg*` 套件；`--full` = 全量后端套件 + 11 个 business 套件 + business 跳测契约）。
+> `scripts/verify.sh` 与下文的 MySQL/Chroma 编排属于**退役 MySQL 线**，它现在一启动就 fail-fast
+> 指向 `verify-pg.sh`；`verify-fast.sh --level L3` 在 PG 线下自动路由到 `verify-pg.sh --full`。
+
 ---
 
 ## 1. 四个级别
@@ -14,7 +19,7 @@
 | **L0** | git 差异摘要 + 受影响语言的编译/类型检查（`mvn test-compile`、`tsc -b`），**不执行任何用例** | 十几秒到 1 分钟（增量） | 只改了注释、文档、重命名；想先确认「它能不能编译」 |
 | **L1**（默认） | 你显式点名的 Java 用例与/或 Vitest 文件 | 单个类 20–60s；web 单文件 5–15s | 绝大多数改动：改了一个类 / 一个组件，语义边界没跨出去 |
 | **L2** | L1 + 一次性 MySQL 8 + Redis + Chroma（隔离端口） | 集成套件 1–5 分钟 | 改动涉及**数据库状态、schema/迁移、权限与角色、RAG 证据、Spring 上下文装配** |
-| **L3** | `scripts/verify.sh`：全量 `mvn test` 三遍（单测 / MySQL 集成门禁 / 隔离库协作套件，集成套件清单以脚本里的两遍 `-Dtest` 列表为准）；一次性 MySQL + Redis 走 `scripts/lib/docker-test-harness.sh`（随机端口、命名卷、退出断言无残留） | 10 分钟以上 | 准备合并、准备交付、或 L1/L2 结果无法解释时 |
+| **L3** | 本分支 = `scripts/verify-pg.sh --full`：全量 `mvn test`（一次性 pgvector/pg18 + Redis，随机端口、命名卷、退出断言无残留）+ 4 个 `Pg*` 套件门禁 + `check_surefire_skips.py … business`。（退役 MySQL 线的 `scripts/verify.sh` 三遍编排已 fail-fast。） | 10 分钟以上 | 准备合并、准备交付、或 L1/L2 结果无法解释时 |
 
 `--level` 不变时也可以叠加：`--static` 在任何级别前加一段 L0，`--db` 把 L1 升成 L2。
 

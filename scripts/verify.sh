@@ -42,6 +42,15 @@ MVN_TEST_ARGS=("-DargLine=-Dfile.encoding=UTF-8 -Xmx${VERIFY_TEST_XMX}")
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
+# 2026-11-28 起 Java 线是 PostgreSQL（db/postgresql 是权威迁移历史）。本脚本编排的是
+# 退役 MySQL 线，两个 pass 的 -Dtest 列表指向已删除的 MySQL 套件——继续跑只会在第三遍
+# 报「No tests matching pattern」。fail-fast，把调用方指到等价的全量入口。
+if [ -d "$ROOT/src/main/resources/db/postgresql" ]; then
+  echo "本分支已迁移到 PostgreSQL：scripts/verify.sh 是退役 MySQL 线的脚本。" >&2
+  echo "全量验证请用：scripts/verify-pg.sh --full（L1 门禁用 scripts/verify-pg.sh）" >&2
+  exit 3
+fi
+
 # shellcheck source=scripts/lib/docker-images.env
 . "$ROOT/scripts/lib/docker-images.env"
 # shellcheck source=scripts/lib/docker-test-harness.sh

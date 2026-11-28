@@ -317,9 +317,17 @@ case "$LEVEL" in
     run_static; record_stage "static" $?
     ;;
   L3)
-    echo "==> L3：交给 scripts/verify.sh（发布级全量，不在本脚本里重写）"
-    bash scripts/verify.sh "${EXTRA_MVN_ARGS[@]}"
-    record_stage "verify.sh" $?
+    # 2026-11-28 起 Java 线是 PostgreSQL 线：L3 全量交给 verify-pg.sh --full。
+    # verify.sh 仍保留在仓库里作退役 MySQL 线的历史，但它会在启动时就 fail-fast。
+    if [ -d src/main/resources/db/postgresql ]; then
+      echo "==> L3：PostgreSQL 线，交给 scripts/verify-pg.sh --full（发布级全量）"
+      bash scripts/verify-pg.sh --full
+      record_stage "verify-pg.sh" $?
+    else
+      echo "==> L3：交给 scripts/verify.sh（发布级全量，不在本脚本里重写）"
+      bash scripts/verify.sh "${EXTRA_MVN_ARGS[@]}"
+      record_stage "verify.sh" $?
+    fi
     ;;
   L1|L2)
     if [[ ${#JAVA_PATTERNS[@]} -eq 0 && ${#WEB_PATTERNS[@]} -eq 0 ]]; then

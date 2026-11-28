@@ -72,7 +72,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * L2 real-MySQL integration suite for WP-05 News Engine Workbench backend services.
  *
  * <p>Keeps {@code Assumptions.assumeTrue} in {@code @BeforeEach} so Surefire records exact
- * case/skip counts matching {@code scripts/check_surefire_skips.py} (11 cases).
+ * case/skip counts matching {@code scripts/check_surefire_skips.py} (13 cases).
  */
 /**
  * 管理员资讯引擎工作台的 PostgreSQL 回归：任务追踪、信源与预算管理、候选证据审查、

@@ -15,8 +15,13 @@
  * Credentials come from IRIS_FLYWAY_USER / IRIS_FLYWAY_PASSWORD (default
  * iris_migrator / empty). Locations default to classpath:db/postgresql; pass a
  * third argument to override (e.g. a filesystem path during review).
+ *
+ * IRIS_FLYWAY_TARGET stops at a given version (e.g. 4), so a drill can migrate a
+ * database to an intermediate schema, write data, and then migrate it the rest of
+ * the way to prove the upgrade preserves that data.
  */
 import org.flywaydb.core.Flyway;
+import org.flywaydb.core.api.MigrationVersion;
 
 public class FlywayMigrate {
     public static void main(String[] args) {
@@ -28,15 +33,19 @@ public class FlywayMigrate {
         String locations = args.length > 1 ? args[1] : "classpath:db/postgresql";
         String user = System.getenv().getOrDefault("IRIS_FLYWAY_USER", "iris_migrator");
         String password = System.getenv().getOrDefault("IRIS_FLYWAY_PASSWORD", "");
+        String target = System.getenv("IRIS_FLYWAY_TARGET");
 
-        Flyway flyway = Flyway.configure()
+        var configuration = Flyway.configure()
                 .dataSource(url, user, password)
                 .schemas("diagnosis")
                 .defaultSchema("diagnosis")
                 .createSchemas(true)
                 .locations(locations)
-                .validateOnMigrate(true)
-                .load();
+                .validateOnMigrate(true);
+        if (target != null && !target.isBlank()) {
+            configuration = configuration.target(MigrationVersion.fromVersion(target));
+        }
+        Flyway flyway = configuration.load();
 
         var result = flyway.migrate();
         System.out.println("MIGRATED=" + result.migrationsExecuted

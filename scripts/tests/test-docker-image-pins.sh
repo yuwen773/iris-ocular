@@ -70,6 +70,19 @@ compose_image() {
 check_eq "compose chroma image" "$CHROMA_IMAGE" "$(compose_image chroma)"
 check_eq "compose postgres image" "$PGVECTOR_IMAGE" "$(compose_image postgres)"
 
+# verify-pg.sh is shell, so the gate cannot compare a literal tag: instead pin the
+# indirection — it must source docker-images.env and use $PGVECTOR_IMAGE for both
+# the presence check and the `docker run`, never a hardcoded tag.
+VERIFY_PG="$ROOT/scripts/verify-pg.sh"
+check_contains "verify-pg sources the image pins" "scripts/lib/docker-images.env" "$VERIFY_PG"
+check_contains "verify-pg requires the pinned image" 'eye_docker_require_image "$PGVECTOR_IMAGE"' "$VERIFY_PG"
+check_contains "verify-pg runs the pinned image" '-p 0:5432 "$PGVECTOR_IMAGE"' "$VERIFY_PG"
+if grep -qE 'pgvector/pgvector:pg[0-9]+' "$VERIFY_PG"; then
+  fail "verify-pg.sh hardcodes a pgvector tag instead of \$PGVECTOR_IMAGE"
+else
+  pass "verify-pg.sh carries no hardcoded pgvector tag"
+fi
+
 # ---- local entry points use the harness ----------------------------------
 check_contains "verify.sh sources the harness" "scripts/lib/docker-test-harness.sh" "$VERIFY"
 check_contains "verify.sh initializes a run id" "eye_docker_init" "$VERIFY"

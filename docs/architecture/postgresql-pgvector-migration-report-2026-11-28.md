@@ -319,13 +319,23 @@ tables=60 schema_contract=ok
 drift_rejected=ok
 ```
 
+本地入口也补齐了：`scripts/verify-pg.sh --full` 现在会建 `business_test` / `coordination_poc`（`poc` 角色）、
+设 `BUSINESS_TEST_URL` / `COORDINATION_POC_URL` / `PG_TEST_*`，跑完再执行 business 跳测契约——
+也就是说「本地全量绿」不再等于「business 套件全跳过」。本机实测 `verify-pg.sh --full`：exit 0、
+**1418 tests / 0 fail / 290 skipped**（= 287 + 1 + 2，business 的 86 条这次真的跑了）、
+`postgres suites=4 tests=27 skipped=0`、`skip gate passed`。`verify-fast.sh --level L3` 在 PG 线上路由到它；
+`scripts/verify.sh`（退役 MySQL 线的三遍编排）改为启动时 fail-fast 指向 `verify-pg.sh`，
+不再在被删套件上报 `No tests matching pattern`。
+
 同时固定了两项可复现性前提：
 
 - **Flyway 11.14.1**：11.7.2 在 PG 18.7 上每次都打「latest supported version of PostgreSQL is 17」。
   逐版本 `javap` 核对 `PostgreSQLDatabase` 的支持上限常量后（11.13.0 = 17，11.14.0 = 18），只抬
   `flyway.version` 到 11.14.1（该线最后的补丁版）。真实 PG 18.7 空库实测：`MIGRATED=7 VERSION=7` /
-  `VALIDATE=OK` / **0 条警告**；二次 migrate `MIGRATED=0`；篡改 `flyway_schema_history` 的 checksum 后
-  `exit=1` 且报 `Migration checksum mismatch`。
+  `VALIDATE=OK` / **0 条警告**；`flyway-postgres` 现在有四条负向/升级门禁：二次 migrate `MIGRATED=0`、
+  篡改 checksum 必须 `exit=1` 且报 `Migration checksum mismatch`、history 里存在 jar 未提供的版本
+  必须报 `not resolved locally` 并拒绝启动、以及「迁到 V4 → 写一行 → 迁到 head」后该行逐字存活
+  （`IRIS_FLYWAY_TARGET` 支持中间版本）。四条都在本机真实 PG 18.7 上先跑通再进 CI。
 - **镜像 digest**：`pgvector/pgvector:pg18@sha256:38681dc6…`（linux/amd64，CI 与本机 Docker 同架构），
   `verify.yml` 15 处、`docker-compose.yml`、`docker-images.env`、`verify-pg.sh` 一处不漏；
   `scripts/tests/test-docker-image-pins.sh` 23/23 PASS。
@@ -363,7 +373,7 @@ drift_rejected=ok
 | R7 | `boolean` 表达式列按 int 读（M7） | 资讯采集租约 `leaseActive`、精选熔断 `circuitBroken`、工作台预算在 PG 是 `boolean`，`rs.getInt(...) == 1` 抛 `Bad value for type int : t`：采集租约续租、精选预约与工作台预算读取全挂 | 改 `rs.getBoolean(...)`；pgjdbc 对 int2/int4 仍按 `!= 0` 返回，MySQL 时代语义不变 |
 | R8 | `CAST(x AS SIGNED)`（M7） | PG 无 `signed` 类型，报 `type "signed" does not exist`：工作台 5 处、`NewsLifecycleService` 2 处的 status/featured 读数 | 去掉 CAST（列本身是 smallint）；需要整型的表达式用 `CASE WHEN … THEN 1 ELSE 0 END`——MySQL 不接受 `CAST(x AS INTEGER)`，所以这不是「换成另一种 CAST」能解决的 |
 | R9 | `SUM(status = 'FAILED')`（M7） | PG 没有 `sum(boolean)`，调度状态接口整条查询失败 | `SUM(CASE WHEN … THEN 1 ELSE 0 END)`，计数语义逐字一致 |
-| R10 | 未定型参数 `? IS NULL`（M7） | `could not determine data type of parameter $3`：精选按 `logicalCallSha256` 的幂等查询在 PG 上直接失败 | `?::text IS NULL`；MySQL 侧同一表达式照常成立 |
+| R10 | 未定型参数 `? IS NULL`（M7） | `could not determine data type of parameter $3`：精选按 `logicalCallSha256` 的幂等查询在 PG 上直接失败 | 第一版写成 `?::text IS NULL`——PG 上正确，但 **MySQL 不认 `::` 强转**，这是独立评审抓到的第二条缺陷（注释里「MySQL 照常成立」是错的）。最终改成不依赖任何方言：空/非空两个谓词在 Java 侧选，参数随之少一个；两种数据库都只看到普通 `IS NULL` / `= ?`。18/18 真实 PG 复跑 |
 | R11 | MyBatis `Map` 返回的别名大小写（M7） | `selectVariants` 的 `replyToId/variantId/firstId` 与 `summarizeOwned` 的 `toolName/toolStatus/cnt` 在 PG 折叠成小写；MyBatis 给的是普通 `HashMap`（不像 Spring `ColumnMapRowMapper` 的 `LinkedCaseInsensitiveMap`），消息变体重放读到空、管理端工具审计 JSON 键名改名 | 别名加引号 `AS "toolName"`，两种数据库同义——与 R2 同一条策略。**推论有限度**：`JdbcTemplate.queryForList/queryForMap` 的读点不必改（Spring 的 `LinkedCaseInsensitiveMap` 兜住），`CollaborationRunTest` 33/33 在 PG 上复核过 |
 | R12 | MyBatis-Plus `IdType.AUTO` 的 `keyColumn`（M7） | `AgentToolAudit` 的字段名是 `auditId`，MP 把它当 `keyColumn` 交给 pgjdbc，拼成 `RETURNING "auditId"`（带引号 → 大小写敏感），而列实际是未加引号的 `auditid`：插入报 `column "auditId" does not exist`，`ToolAuditService` 按设计吞掉审计写失败，**审计行静默丢失** | `@TableId(value = "auditid", type = IdType.AUTO)`；其余 AUTO 主键的字段名都是 `id`（已折叠），无需改动。探针实测 `PROBE_OK id=4` 后删除 |
 
@@ -383,7 +393,7 @@ collaboration empty object -> '{}'                          OK (rolestates={})
 
 | 项 | 原因 |
 |---|---|
-| `FlywayMySqlIntegrationTest` 的 7 条（原 MySQL 历史套件） | **归档（明确记录）**：这 7 条断言的对象是已退役的 `db/migration` MySQL 历史本身（首轮 apply、二次幂等、checksum 被篡改即拒）。PG 线已有等价且更强的门禁：`flyway-postgres` 空库全量 migrate + validate、本轮新增的「二次 migrate `MIGRATED=0`」与「篡改 `flyway_schema_history` 必须 exit ≠ 0 且报 `checksum mismatch`」。业务套件不再依赖 MySQL 历史，套件随之删除 |
+| `FlywayMySqlIntegrationTest` 的 7 条（原 MySQL 历史套件） | **归档（明确记录，逐条说明不夸大）**：这 7 条断言的对象是已退役的 `db/migration` MySQL 历史本身。按**契约**拆开后，四类在 `flyway-postgres` 上都有对应门禁：① 空库 apply + validate + schema 断言；② 二次 migrate 幂等（`MIGRATED=0`）；③ checksum 漂移必须被拒；④ 未知版本（history 里有、jar 里没有）必须拒绝启动。M7 补了 ④，并按「升级保数据」补了 ⑤：先 `IRIS_FLYWAY_TARGET=4` 迁到中间版本、写入一行、再迁到 head，断言该行逐字存活。**仍然没有对应物的是**具体版本断言本身（MySQL 的 V17→V47、V31/V39 升级点、V23 冻结历史行、以及 `FUTURE_SUCCESS` 旧 jar 回滚方向）——它们断言的是 MySQL 历史与旧 jar 的兼容性，PG 线上不存在这些版本，属「纯 MySQL 历史」而非等价覆盖 |
 | `RAGEvaluationTest`（2 条） | 需要真实语料与付费嵌入，未经授权不运行（M7 维持 BLOCKED） |
 | 远端 CI 执行 | 首轮 run `46042136133`（HEAD `25eabef9`）：24 检查中 20 绿、3 红（docs-contract / product-contract / docker-lifecycle，均为契约脚本未随迁移更新），已在 `41f8cb4e` 修复；最终 HEAD 的 run 见 §5.7 |
 | 真实知识库向量导入 | 需授权；演练只覆盖合成数据 |

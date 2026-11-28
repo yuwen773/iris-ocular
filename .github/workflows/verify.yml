@@ -804,6 +804,37 @@ jobs:
           if [ "$status" -eq 0 ]; then cat /tmp/drift.txt; echo "drifted history was accepted"; exit 1; fi
           grep -qi 'checksum mismatch' /tmp/drift.txt || { cat /tmp/drift.txt; echo "unexpected failure mode"; exit 1; }
           echo "drift_rejected=ok"
+      # Upstream versions this jar does not ship must never start the application:
+      # Flyway reports "applied migration not resolved locally" and refuses. This is
+      # the fail-closed half of the retired MySQL rollback contract.
+      - name: A history row with no matching migration is rejected
+        run: |
+          psql -h 127.0.0.1 -U postgres -d iris_flyway -v ON_ERROR_STOP=1             -c "INSERT INTO diagnosis.flyway_schema_history (installed_rank, version, description, type, script, checksum, installed_by, installed_on, execution_time, success) VALUES (9999, '0.5', 'removed', 'SQL', 'V0_5__removed.sql', 0, 'postgres', now(), 0, true)"
+          set +e
+          IRIS_FLYWAY_PASSWORD=ci-migrator-password java -cp "target/classes:$(cat /tmp/cp.txt)"             scripts/postgresql/FlywayMigrate.java             "jdbc:postgresql://127.0.0.1:5432/iris_flyway?currentSchema=diagnosis" > /tmp/missing.txt 2>&1
+          status=$?
+          set -e
+          psql -h 127.0.0.1 -U postgres -d iris_flyway -v ON_ERROR_STOP=1             -c "DELETE FROM diagnosis.flyway_schema_history WHERE installed_rank = 9999"
+          if [ "$status" -eq 0 ]; then cat /tmp/missing.txt; echo "unknown history version was accepted"; exit 1; fi
+          grep -qi 'not resolved locally' /tmp/missing.txt || { cat /tmp/missing.txt; echo "unexpected failure mode"; exit 1; }
+          echo "missing_migration_rejected=ok"
+      # Upgrading a database that already holds rows must not rewrite them. Migrate a
+      # fresh database only to V4, write a row, then migrate the rest of the way and
+      # require the row to survive byte-for-byte. This is the data-preservation half
+      # of the retired MySQL upgrade suite.
+      - name: Upgrading a populated database preserves its rows
+        run: |
+          psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1             -c "CREATE DATABASE iris_flyway_upgrade"
+          psql -h 127.0.0.1 -U postgres -d iris_flyway_upgrade -v ON_ERROR_STOP=1             -v migrator_password=ci-migrator-password -v app_password=ci-app-password             -f scripts/postgresql/bootstrap-roles.sql >/dev/null
+          URL="jdbc:postgresql://127.0.0.1:5432/iris_flyway_upgrade?currentSchema=diagnosis"
+          IRIS_FLYWAY_TARGET=4 IRIS_FLYWAY_PASSWORD=ci-migrator-password java -cp "target/classes:$(cat /tmp/cp.txt)"             scripts/postgresql/FlywayMigrate.java "$URL" | tee /tmp/upgrade-to-v4.txt
+          grep -q '^MIGRATED=4 ' /tmp/upgrade-to-v4.txt
+          psql -h 127.0.0.1 -U postgres -d iris_flyway_upgrade -v ON_ERROR_STOP=1             -c "INSERT INTO diagnosis.t_user (useraccount, userpassword) VALUES ('drill-account', 'drill-hash')"
+          IRIS_FLYWAY_PASSWORD=ci-migrator-password java -cp "target/classes:$(cat /tmp/cp.txt)"             scripts/postgresql/FlywayMigrate.java "$URL" | tee /tmp/upgrade-to-head.txt
+          grep -q '^MIGRATED=3 ' /tmp/upgrade-to-head.txt
+          rows=$(psql -h 127.0.0.1 -U postgres -d iris_flyway_upgrade -Atc             "SELECT count(*) FROM diagnosis.t_user WHERE useraccount = 'drill-account' AND userpassword = 'drill-hash'")
+          test "$rows" = "1" || { echo "pre-existing row lost during upgrade (rows=$rows)"; exit 1; }
+          echo "upgrade_preserved_rows=ok"
 
   product-contract:
     # 产品验收 schema 门禁。迁移后产品库是 PostgreSQL：这里用一次性 pgvector

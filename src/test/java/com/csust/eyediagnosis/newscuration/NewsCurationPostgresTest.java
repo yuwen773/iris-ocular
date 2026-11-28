@@ -44,7 +44,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * daily budgets, unknown-paid-outcome reconciliation, auth circuit breaking, and NewsBench.
  *
  * <p>Keeps {@code Assumptions.assumeTrue} in {@code @BeforeEach} so Surefire records exact
- * case/skip counts matching {@code scripts/check_surefire_skips.py} (16 cases).
+ * case/skip counts matching {@code scripts/check_surefire_skips.py} (18 cases).
  */
 /**
  * 新闻精选的真实 PostgreSQL 回归：预算闸门、回执状态机、陈旧调用回收、

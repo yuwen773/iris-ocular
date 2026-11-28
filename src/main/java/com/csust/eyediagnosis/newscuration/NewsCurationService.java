@@ -562,18 +562,20 @@ public class NewsCurationService {
         NewsCurationModels.LifetimeBudget lifetime = lockLifetimeBudget();
         String logical = prepared == null ? null : prepared.logicalCallSha256();
 
-        List<ReceiptRow> existingReceipts = jdbc.query("""
-                SELECT callId, materialRevisionId, policyVersion, attemptNo,
-                       DATE_FORMAT(budgetDate, '%Y-%m-%d') AS budgetDate, budgetScope,
-                       state, reservedTokens, reservedCostMicros, callIdentityJson
-                FROM t_news_model_call_receipt
-                WHERE materialRevisionId = ? AND policyVersion = ?
-                   -- PostgreSQL 无法从「参数 IS NULL」推断参数类型（报 could not determine
-                   -- data type of parameter），必须显式标注；MySQL 侧同一表达式照常成立。
-                   AND ((?::text IS NULL AND logicalCallSha256 IS NULL) OR logicalCallSha256 = ?)
-                ORDER BY attemptNo ASC
-                FOR UPDATE
-                """, (rs, rowNum) -> mapReceiptRow(rs), revision.revisionId(), policyVersion, logical, logical);
+        // 这里不能写「? IS NULL」：PostgreSQL 无法从未定型参数推断类型（could not
+        // determine data type of parameter），而 MySQL 又不认 PG 的 ?::text 写法。
+        // 两边都合法的做法是：空/非空两个分支各写一段谓词，在 Java 侧选，参数也随之少一个。
+        // 拼接而不是 formatted()：DATE_FORMAT 里的 %Y 会被 String.format 当成转换符。
+        String receiptPredicate = logical == null ? "logicalCallSha256 IS NULL" : "logicalCallSha256 = ?";
+        String receiptSql = "SELECT callId, materialRevisionId, policyVersion, attemptNo, "
+                + "DATE_FORMAT(budgetDate, '%Y-%m-%d') AS budgetDate, budgetScope, "
+                + "state, reservedTokens, reservedCostMicros, callIdentityJson "
+                + "FROM t_news_model_call_receipt "
+                + "WHERE materialRevisionId = ? AND policyVersion = ? "
+                + "AND " + receiptPredicate + " "
+                + "ORDER BY attemptNo ASC FOR UPDATE";
+        List<ReceiptRow> existingReceipts = jdbc.query(receiptSql,
+                (rs, rowNum) -> mapReceiptRow(rs), receiptArgs(revision.revisionId(), policyVersion, logical));
 
         Optional<NewsCurationModels.CurationResult> existingCandidate = prepared != null ? Optional.empty() : jdbc.query("""
                 SELECT callId, status, decision, evidenceTier, relevanceScore,
@@ -1212,6 +1214,17 @@ public class NewsCurationService {
                 rs.getBoolean("circuitBroken"),
                 rs.getString("circuitReason")
         );
+    }
+
+    /**
+     * 回执查询的绑定参数：{@code logical} 为空时 SQL 里没有第三个占位符。
+     * 空分支写成 {@code IS NULL} 字面量，是为了不依赖任何一个数据库的
+     * 参数类型推断或方言转换（PG 要求 `?::text`，MySQL 不认 `::`）。
+     */
+    private static Object[] receiptArgs(long materialRevisionId, String policyVersion, String logical) {
+        return logical == null
+                ? new Object[]{materialRevisionId, policyVersion}
+                : new Object[]{materialRevisionId, policyVersion, logical};
     }
 
     private static ReceiptRow mapReceiptRow(ResultSet rs) throws SQLException {
