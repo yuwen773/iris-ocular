@@ -393,6 +393,11 @@ class GraphExecutionTest {
     @Test void checkpointCommitFailureRollsBackEvidenceAndItsPublicFactsTogether() throws Exception {
         LegacyGateSupport.createFailTriggerWhen(jdbc, "fail_graph_checkpoint", "INSERT", "t_patient_graph_node", "nodeKey", "EVIDENCE:1", "synthetic checkpoint fault");
         try {
+            // 前提自检：注入必须是按行的。非目标节点照常写入成功，这条用例才真的是
+            // 「只让 EVIDENCE:1 失败 → 整个检查点回滚」；否则它只是在证明「什么都写不进去」。
+            jdbc.update("INSERT INTO t_patient_graph_node (taskId,nodeKey,statePatch) VALUES (?,?,?)",
+                    taskId, "EVIDENCE:0", "{}");
+            assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM t_patient_graph_node WHERE taskId=? AND nodeKey='EVIDENCE:0'", Integer.class, taskId));
             var run = create(); assertEquals("RESTRICTED", done(run.runId()).executionStatus());
             assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM t_patient_evidence_version WHERE taskId=?", Integer.class, taskId));
             assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM t_patient_graph_node WHERE taskId=? AND nodeKey='EVIDENCE:1'", Integer.class, taskId));

@@ -249,9 +249,14 @@ public final class LegacyGateSupport {
         }
         String condition = column == null ? null : "NEW." + column + "=" + sqlString(value);
         if (isPostgres(jdbc.getDataSource())) {
+            // 有条件的那个分支必须 RETURN NEW：plpgsql 的 BEFORE 触发器走到函数末尾仍要
+            // 有返回值，否则条件不匹配的行也会以「control reached end of trigger procedure
+            // without RETURN」失败。那会让「只让目标行失败」的注入退化成「所有行都失败」，
+            // 用例却照样绿——断言的范围比它声称的小。MySQL 的触发器没有返回值，不需要这一步。
             String body = condition == null
                     ? "BEGIN RAISE EXCEPTION " + sqlString(message) + "; END;"
-                    : "BEGIN IF " + condition + " THEN RAISE EXCEPTION " + sqlString(message) + "; END IF; END;";
+                    : "BEGIN IF " + condition + " THEN RAISE EXCEPTION " + sqlString(message)
+                    + "; END IF; RETURN NEW; END;";
             jdbc.execute("CREATE OR REPLACE FUNCTION " + name + "() RETURNS trigger AS $$ " + body + " $$ LANGUAGE plpgsql");
             jdbc.execute("CREATE TRIGGER " + name + " BEFORE " + event + " ON " + table
                     + " FOR EACH ROW EXECUTE FUNCTION " + name + "()");
