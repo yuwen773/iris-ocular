@@ -614,7 +614,7 @@ class NewsCurationRuntimePostgresTest {
                 URI.create("https://dashscope.aliyuncs.com"), "/compatible-mode/v1/chat/completions",
                 model, "FIXTURE_KEY", Duration.ofSeconds(2), Duration.ofSeconds(5), 8192, 1024, 0,
                 NewsModelProfile.Format.JSON_OBJECT, new NewsModelProfile.Capabilities(
-                        true, false, NewsModelProfile.UsageFormat.STANDARD),
+                        true, false, NewsModelProfile.UsageFormat.STANDARD, false),
                 new NewsModelProfile.PricingVersion("fixture-v1", 12_000_000, 1_500_000, 36_000_000));
     }
 

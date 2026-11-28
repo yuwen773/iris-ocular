@@ -198,7 +198,7 @@ class NewsOpenAiCompatibleModelClientTest {
                 URI.create("https://spark-api-open.xf-yun.com"), "/v1/chat/completions", "lite", "FIXTURE_KEY",
                 Duration.ofSeconds(2), Duration.ofSeconds(2), 2048, 10, 0,
                 NewsModelProfile.Format.PROMPT_JSON, new NewsModelProfile.Capabilities(
-                        false, false, NewsModelProfile.UsageFormat.STANDARD),
+                        false, false, NewsModelProfile.UsageFormat.STANDARD, false),
                 new NewsModelProfile.PricingVersion("fixture-v1", 1_000_000, 1_000_000, 2_000_000));
         var sparkRequest = new NewsCurationModels.ModelCallRequest("fixture-id", "fixture-key", "SPARK", "lite",
                 "wp08b-test", "JSON only", "{}", "fixture-hash", null, Duration.ofSeconds(4),
@@ -337,7 +337,7 @@ class NewsOpenAiCompatibleModelClientTest {
                 URI.create("https://api.deepseek.com"), "/chat/completions", "fixture-model", "FIXTURE_KEY",
                 Duration.ofSeconds(2), readTimeout, 2048, 100, 0,
                 NewsModelProfile.Format.JSON_OBJECT, new NewsModelProfile.Capabilities(
-                        true, false, NewsModelProfile.UsageFormat.DEEPSEEK_CACHE),
+                        true, false, NewsModelProfile.UsageFormat.DEEPSEEK_CACHE, false),
                 new NewsModelProfile.PricingVersion("fixture-v1", 1_000_000, 100_000, 2_000_000));
     }
 

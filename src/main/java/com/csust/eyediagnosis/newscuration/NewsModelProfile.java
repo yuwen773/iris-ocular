@@ -17,9 +17,6 @@ public record NewsModelProfile(Provider provider, Platform servingPlatform, URI 
     public enum UsageFormat { STANDARD, DEEPSEEK_CACHE }
 
     public record Capabilities(boolean jsonObject, boolean jsonSchema, UsageFormat usageFormat, boolean disableThinking) {
-        public Capabilities(boolean jsonObject, boolean jsonSchema, UsageFormat usageFormat) {
-            this(jsonObject, jsonSchema, usageFormat, false);
-        }
     }
 
     /** All rates use the same deployment currency, in millionths of a unit per million tokens. */
