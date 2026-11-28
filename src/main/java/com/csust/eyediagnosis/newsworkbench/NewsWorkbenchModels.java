@@ -389,4 +389,49 @@ public final class NewsWorkbenchModels {
     /** Optional body for materializing a candidate that explicitly replaces a named, now-stale one. */
     public record MaterializeCandidateRequest(Long supersedesCandidateId, String reason) {
     }
+
+    /** One committed revision's readiness for the admin-triggered production curation run (N1). */
+    public record MaterialCurationVO(
+            long materialRevisionId,
+            long materialId,
+            String source,
+            String sourceRecordId,
+            String title,
+            String publishedOn,
+            String pmid,
+            String doi,
+            String license,
+            boolean abstractPresent,
+            String evidenceTier,
+            String eligibleType,
+            String gateReason,
+            boolean evidenceGateOpen,
+            String activeEvidenceOverlaySha256,
+            Long candidateId,
+            String candidateStatus,
+            String latestCallId,
+            String latestReceiptState,
+            String latestErrorCode,
+            boolean curatable,
+            String profileKey
+    ) {
+    }
+
+    /** Result of one admin-triggered production P05 run. A successful receipt is not yet a candidate. */
+    public record CurationRunVO(
+            String callId,
+            String eligibleType,
+            String state,
+            boolean replayed,
+            String provider,
+            String modelName,
+            Integer promptTokens,
+            Integer completionTokens,
+            Long actualCostMicros,
+            Integer httpStatus,
+            String errorCode,
+            boolean frozenOutputAvailable,
+            boolean materializable
+    ) {
+    }
 }

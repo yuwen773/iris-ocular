@@ -73,6 +73,7 @@ git show <commit>:<path> > <file>
 | `product/news/implementation.md` | 资讯采集 Worker 的实施边界及后续 Java 集成门槛 |
 | `product/news/wp-08b2-production-loop.md` | 资讯精选最小生产闭环：证据核验账本、冻结回执转候选、十份真实资料 |
 | `product/news/wp-08b2-paid-integration-plan.md` | 付费联调方案（未执行，需单独授权） |
+| `product/news/wp-08b2-runtime-closure.md` | 管理员精选入口、工作台接线、错误语义与 PostgreSQL 隔离验收 |
 | `collaboration-runs.md` / `collaboration-client.md` / `collaboration-release-runbook.md` | 多 Agent 协作运行的协议、客户端与发布手册 |
 | `graph-execution.md` / `subagent-delegation.md` | 图执行与子代理委派 |
 | `system-states-inventory.md` / `system-states-governance-report.md` | 状态清单与治理结论 |

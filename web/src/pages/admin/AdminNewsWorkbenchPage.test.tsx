@@ -12,6 +12,9 @@ import {
   getWorkbenchCandidateDetail,
   getWorkbenchOverview,
   getNewsIssuePreview,
+  listCurationMaterials,
+  listEvidenceVerifications,
+  listMaterialReceipts,
   listTaskEvents,
   listTaskLeases,
   listWorkbenchBenchRuns,
@@ -20,8 +23,12 @@ import {
   listWorkbenchReceipts,
   listWorkbenchSources,
   listWorkbenchTasks,
+  materializeCurationCandidate,
   reconcileWorkbenchReceipt,
   retryWorkbenchTask,
+  revokeEvidenceVerification,
+  runCuration,
+  submitEvidenceVerification,
   toggleWorkbenchSource,
 } from "@/lib/newsWorkbenchApi"
 
@@ -53,6 +60,13 @@ vi.mock("@/lib/newsWorkbenchApi", async (importOriginal) => {
     listWorkbenchReceipts: vi.fn(),
     reconcileWorkbenchReceipt: vi.fn(),
     listWorkbenchBenchRuns: vi.fn(),
+    listCurationMaterials: vi.fn(),
+    runCuration: vi.fn(),
+    listMaterialReceipts: vi.fn(),
+    listEvidenceVerifications: vi.fn(),
+    submitEvidenceVerification: vi.fn(),
+    revokeEvidenceVerification: vi.fn(),
+    materializeCurationCandidate: vi.fn(),
   }
 })
 
@@ -355,6 +369,95 @@ beforeEach(() => {
       createdAt: "2026-10-22T11:00:00Z",
     },
   ])
+  vi.mocked(listCurationMaterials).mockResolvedValue({
+    records: [
+      {
+        materialRevisionId: "201",
+        materialId: "101",
+        source: "pubmed",
+        sourceRecordId: "PMID-1",
+        title: "角膜塑形镜近视控制多中心随访",
+        publishedOn: "2026-10-01",
+        pmid: "12345678",
+        doi: "10.1000/xyz",
+        license: "CC_BY",
+        abstractPresent: true,
+        evidenceTier: "PEER_REVIEWED_ABSTRACT",
+        eligibleType: "RESEARCH_INSIGHT",
+        gateReason: null,
+        evidenceGateOpen: true,
+        activeEvidenceOverlaySha256: "e".repeat(64),
+        candidateId: null,
+        candidateStatus: null,
+        latestCallId: null,
+        latestReceiptState: null,
+        latestErrorCode: null,
+        curatable: true,
+        profileKey: "prod",
+      },
+    ],
+    total: 1,
+    current: 1,
+    size: 10,
+    pages: 1,
+  })
+  vi.mocked(runCuration).mockResolvedValue({
+    callId: "call-prod-1",
+    eligibleType: "RESEARCH_INSIGHT",
+    state: "SUCCEEDED",
+    replayed: false,
+    provider: "dashscope",
+    modelName: "qwen3.8-max-0902",
+    promptTokens: 3200,
+    completionTokens: 900,
+    actualCostMicros: 71000,
+    httpStatus: 200,
+    errorCode: null,
+    frozenOutputAvailable: true,
+    materializable: true,
+  })
+  vi.mocked(listMaterialReceipts).mockResolvedValue([])
+  vi.mocked(listEvidenceVerifications).mockResolvedValue([])
+  vi.mocked(submitEvidenceVerification).mockResolvedValue({
+    id: "9001",
+    materialRevisionId: "201",
+    attribute: "PEER_REVIEW",
+    value: "VERIFIED",
+    method: "PUBMED_RECORD",
+    evidenceUrl: "https://pubmed.ncbi.nlm.nih.gov/12345678/",
+    sourceVersion: "pubmed-2026",
+    evidenceNote: null,
+    verifiedBy: "admin:1001",
+    verifiedAt: "2026-10-22T12:00:00Z",
+    active: true,
+    revokedBy: null,
+    revokedAt: null,
+    revokeNote: null,
+  })
+  vi.mocked(revokeEvidenceVerification).mockResolvedValue({
+    id: "9001",
+    materialRevisionId: "201",
+    attribute: "PEER_REVIEW",
+    value: "VERIFIED",
+    method: "PUBMED_RECORD",
+    evidenceUrl: "https://pubmed.ncbi.nlm.nih.gov/12345678/",
+    sourceVersion: "pubmed-2026",
+    evidenceNote: null,
+    verifiedBy: "admin:1001",
+    verifiedAt: "2026-10-22T12:00:00Z",
+    active: false,
+    revokedBy: "admin:1001",
+    revokedAt: "2026-10-22T12:05:00Z",
+    revokeNote: null,
+  })
+  vi.mocked(materializeCurationCandidate).mockResolvedValue({
+    candidateId: "7002",
+    status: "CURATED_NEEDS_REVIEW",
+    callId: "call-prod-1",
+    created: true,
+    evidenceVerificationSha256: "f".repeat(64),
+    supersededCandidateId: null,
+  })
 })
 
 it("shows disabled automatic collection and empty worker telemetry in the sources tab", async () => {
@@ -540,5 +643,53 @@ describe("AdminNewsWorkbenchPage", () => {
       }),
     )
     await screen.findByText(/已重新打开失败窗口 task-failed-1/)
+  })
+
+  it("runs admin curation from the AI tab, converts the receipt, and records evidence", async () => {
+    vi.mocked(getWorkbenchOverview).mockResolvedValue({
+      ...(await vi.mocked(getWorkbenchOverview)()),
+      curationEnabled: true,
+    })
+
+    renderWorkbench("/admin/news-workbench?tab=curation")
+
+    await screen.findByText("角膜塑形镜近视控制多中心随访")
+    const runButton = screen.getByRole("button", { name: "运行 AI 精选" }) as HTMLButtonElement
+    expect(runButton.disabled).toBe(false)
+
+    fireEvent.click(runButton)
+    await screen.findByText("本次精选运行结果")
+    expect(vi.mocked(runCuration)).toHaveBeenCalledWith("201")
+    expect(screen.getByText(/call-prod-1/)).toBeTruthy()
+
+    fireEvent.click(screen.getByRole("button", { name: "转为待审候选" }))
+    await waitFor(() =>
+      expect(vi.mocked(materializeCurationCandidate)).toHaveBeenCalledWith("call-prod-1"),
+    )
+    await screen.findByText(/已生成待审候选 #7002/)
+
+    fireEvent.click(screen.getByRole("button", { name: "证据核验" }))
+    await screen.findByText("登记核验 · VERIFY")
+    fireEvent.change(screen.getByLabelText("证据链接 · EVIDENCE URL"), {
+      target: { value: "https://pubmed.ncbi.nlm.nih.gov/12345678/" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "登记证据核验" }))
+    await waitFor(() =>
+      expect(vi.mocked(submitEvidenceVerification)).toHaveBeenCalledWith(
+        "201",
+        expect.objectContaining({ attribute: "PEER_REVIEW", method: "PUBMED_RECORD" }),
+      ),
+    )
+  })
+
+  it("keeps the curation run button disabled while curation is off", async () => {
+    renderWorkbench("/admin/news-workbench?tab=curation")
+
+    await screen.findByText("角膜塑形镜近视控制多中心随访")
+    const button = screen.getByRole("button", { name: "运行 AI 精选" }) as HTMLButtonElement
+    expect(button.disabled).toBe(true)
+    expect(
+      screen.getByText(/在线精选当前关闭（eye-diagnosis.news-curation.enabled=false）/),
+    ).toBeTruthy()
   })
 })

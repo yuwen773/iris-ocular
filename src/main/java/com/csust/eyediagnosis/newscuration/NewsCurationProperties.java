@@ -39,4 +39,11 @@ public class NewsCurationProperties {
     private long estimatedCostMicrosPerCall = 50_000L;
     private int maxResponseChars = 16_000;
     private Map<String, NewsModelProfile> modelProfiles = Map.of();
+
+    /**
+     * Server-side arbitration of the model profile used by the admin-triggered production run (P05).
+     * The client never chooses a model: when this is set it must name a configured profile; when it is
+     * blank the run entry only proceeds if exactly one profile is configured.
+     */
+    private String runProfileKey;
 }

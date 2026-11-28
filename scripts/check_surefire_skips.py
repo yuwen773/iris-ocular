@@ -67,6 +67,7 @@ BACKEND_UNIT_CONTRACT = {
         P + "newscuration.NewsCurationPostgresTest": {"env": "BUSINESS_TEST_URL", "cases": 18, "skipped": 18},
         P + "service.NewsEditorialPublishPostgresTest": {"env": "BUSINESS_TEST_URL", "cases": 8, "skipped": 8},
         P + "newsworkbench.NewsWorkbenchPostgresTest": {"env": "BUSINESS_TEST_URL", "cases": 13, "skipped": 13},
+        P + "newsworkbench.NewsCurationRuntimePostgresTest": {"env": "BUSINESS_TEST_URL", "cases": 11, "skipped": 11},
     },
 }
 
@@ -97,6 +98,7 @@ BUSINESS_CONTRACT = {
         P + "newscuration.NewsCurationPostgresTest": 18,
         P + "service.NewsEditorialPublishPostgresTest": 8,
         P + "newsworkbench.NewsWorkbenchPostgresTest": 13,
+        P + "newsworkbench.NewsCurationRuntimePostgresTest": 11,
         P + "poc.CoordinationPostgresTest": 14,
     },
     "opt_in": {},

@@ -6,8 +6,10 @@ import {
   formatBpsPercent,
   formatMicrosUsd,
   getWorkbenchOverview,
+  listCurationMaterials,
   listWorkbenchTasks,
   receiptStateView,
+  runCuration,
   taskStatusView,
 } from "./newsWorkbenchApi"
 
@@ -117,6 +119,88 @@ describe("newsWorkbenchApi", () => {
     expect(tasks.records?.[0].sourceConfigVersion).toBe("9007199254741234")
     expect(tasks.records?.[0].generation).toBe(2)
     expect(tasks.records?.[0].leaseExpired).toBe(true)
+  })
+
+  it("normalizes curation material pages and admin run results", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes("/curate")) {
+        return new Response(
+          JSON.stringify({
+            code: 0,
+            msg: "ok",
+            data: {
+              callId: "call-1",
+              eligibleType: "RESEARCH_INSIGHT",
+              state: "SUCCEEDED",
+              replayed: false,
+              provider: "dashscope",
+              modelName: "qwen3.8-max-0902",
+              promptTokens: "3200",
+              completionTokens: "900",
+              actualCostMicros: "71000",
+              httpStatus: 200,
+              errorCode: null,
+              frozenOutputAvailable: true,
+              materializable: true,
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        )
+      }
+      return new Response(
+        JSON.stringify({
+          code: 0,
+          msg: "ok",
+          data: {
+            records: [
+              {
+                materialRevisionId: "9007199254740999",
+                materialId: "101",
+                source: "pubmed",
+                sourceRecordId: "PMID-1",
+                title: "角膜塑形镜随访",
+                publishedOn: "2026-10-01",
+                pmid: "12345678",
+                doi: null,
+                license: "CC_BY",
+                abstractPresent: true,
+                evidenceTier: "PEER_REVIEWED_ABSTRACT",
+                eligibleType: "RESEARCH_INSIGHT",
+                gateReason: null,
+                evidenceGateOpen: true,
+                activeEvidenceOverlaySha256: "e".repeat(64),
+                candidateId: "7002",
+                candidateStatus: "CURATED_NEEDS_REVIEW",
+                latestCallId: "call-1",
+                latestReceiptState: "SUCCEEDED",
+                latestErrorCode: null,
+                curatable: true,
+                profileKey: "prod",
+              },
+            ],
+            total: "1",
+            current: "1",
+            size: "10",
+            pages: "1",
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      )
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const page = await listCurationMaterials({ current: 1, pageSize: 10 })
+    expect(page.total).toBe(1)
+    expect(page.records?.[0].materialRevisionId).toBe("9007199254740999")
+    expect(page.records?.[0].candidateId).toBe("7002")
+    expect(page.records?.[0].curatable).toBe(true)
+
+    const run = await runCuration("9007199254740999")
+    expect(run.promptTokens).toBe(3200)
+    expect(run.completionTokens).toBe(900)
+    expect(run.actualCostMicros).toBe(71000)
+    expect(run.materializable).toBe(true)
   })
 
   it("formats micros, bps, and status tags predictably", () => {

@@ -1445,6 +1445,124 @@ public class NewsWorkbenchService {
         };
     }
 
+    // ---- N1：管理员可实际调用的生产精选入口 ----
+
+    /** Paginated committed revisions with their evidence route, active candidate and latest receipt. */
+    public NewsWorkbenchModels.PageVO<NewsWorkbenchModels.MaterialCurationVO> listCurationMaterials(
+            String source, long current, long pageSize) {
+        String normalizedSource = optionalSupportedSource(source);
+        long safeCurrent = clampCurrent(current);
+        long safeSize = clampPageSize(pageSize);
+
+        // Only the current version of each admitted material is curatable; superseded revisions would spend
+        // budget on content that is no longer visible.
+        String from = " FROM t_news_material_revision r"
+                + " JOIN t_news_material m ON m.id = r.materialId AND m.latestRevisionId = r.id";
+        String where = normalizedSource == null ? "" : " WHERE r.source = ?";
+        Object[] countArgs = normalizedSource == null ? new Object[0] : new Object[]{normalizedSource};
+        Long totalBoxed = jdbc.queryForObject(
+                "SELECT COUNT(*)" + from + where, Long.class, countArgs);
+        long total = totalBoxed == null ? 0L : totalBoxed;
+
+        List<Long> ids = total == 0 ? List.of() : jdbc.query(
+                "SELECT r.id" + from + where + " ORDER BY r.id DESC LIMIT ? OFFSET ?",
+                (rs, rowNum) -> rs.getLong(1),
+                appendPaging(countArgs, safeSize, (safeCurrent - 1) * safeSize));
+        List<NewsWorkbenchModels.MaterialCurationVO> records = new ArrayList<>(ids.size());
+        for (Long id : ids) {
+            records.add(toMaterialCurationVO(curationService.describeRevision(id)));
+        }
+        return new NewsWorkbenchModels.PageVO<>(records, total, safeCurrent, safeSize, computePages(total, safeSize));
+    }
+
+    /** Receipt history for one revision under the production policy (oldest attempt first). */
+    public List<NewsWorkbenchModels.CallReceiptVO> listMaterialReceipts(long materialRevisionId) {
+        if (materialRevisionId <= 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "materialRevisionId 必须大于 0");
+        }
+        return curationService.listProductionReceipts(materialRevisionId).stream()
+                .map(NewsWorkbenchService::toCallReceiptVO)
+                .toList();
+    }
+
+    /**
+     * Admin-triggered production P05 run. Results stay in the receipt ledger; the caller must explicitly
+     * materialize a successful receipt into a review candidate (never auto-published).
+     */
+    public NewsWorkbenchModels.CurationRunVO runCuration(long materialRevisionId, User operator) {
+        if (materialRevisionId <= 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "materialRevisionId 必须大于 0");
+        }
+        String reviewer = requireOperator(operator);
+        String eligibleType;
+        try {
+            eligibleType = curationService.describeRevision(materialRevisionId).eligibleType();
+        } catch (IllegalArgumentException invalid) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, curationErrorMessage(invalid.getMessage()));
+        }
+        try {
+            NewsCurationService.ModelRun run = curationService.runAdminCuration(materialRevisionId, reviewer);
+            NewsCurationModels.CallReceiptSnapshot receipt = run.receipt();
+            boolean frozen = run.frozenOutput() != null;
+            boolean materializable = receipt.state() == NewsCurationModels.CallState.SUCCEEDED && frozen;
+            return new NewsWorkbenchModels.CurationRunVO(
+                    receipt.callId(), eligibleType, receipt.state().name(), run.replayed(),
+                    receipt.provider(), receipt.modelName(), receipt.promptTokens(), receipt.completionTokens(),
+                    receipt.actualCostMicros(), receipt.httpStatus(), receipt.errorCode(), frozen, materializable);
+        } catch (IllegalStateException | IllegalArgumentException refused) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, curationErrorMessage(refused.getMessage()));
+        }
+    }
+
+    private static String curationErrorMessage(String rawCode) {
+        String code = String.valueOf(rawCode);
+        String detail = null;
+        int separator = code.indexOf(':');
+        if (separator > 0) {
+            detail = code.substring(separator + 1);
+            code = code.substring(0, separator);
+        }
+        return switch (code) {
+            case "NEWS_CURATION_DISABLED" -> "在线精选未启用（eye-diagnosis.news-curation.enabled=false）";
+            case "MODEL_PROFILE_NOT_CONFIGURED" -> "服务端未配置精选模型 profile（run-profile-key / model-profiles）";
+            case "MODEL_CLIENT_UNCONFIGURED" -> "服务端未配置精选模型客户端";
+            case "REVISION_NOT_VISIBLE" -> "资料修订不存在或尚未准入";
+            case "EVIDENCE_GATE_SKIP" -> "证据准入未通过，不发起付费调用：" + (detail == null ? "路由判定为 SKIP" : detail);
+            case "EDITORIAL_EVIDENCE_INSUFFICIENT" -> "证据准入不足，不能按该体裁精选";
+            case "BUDGET_EXHAUSTED" -> "今日精选预算已耗尽，未发出请求";
+            case "LIFETIME_BUDGET_EXHAUSTED" -> "整次实验总预算已耗尽，未发出请求";
+            case "CURATION_CIRCUIT_BROKEN" -> "鉴权熔断已开启，请先在预算页重置后再试";
+            case "CURATION_AWAITING_RECONCILIATION" -> "存在待对账的模型调用，请先在回执台账完成对账";
+            case "MODEL_CALL_REQUIRES_COMMITTED_RESERVATION" -> "模型调用不能嵌套在事务中";
+            case "MODEL_CALL_FAILED" -> switch (String.valueOf(detail)) {
+                case "MODEL_FREE_QUOTA_EXHAUSTED" ->
+                        "模型免费额度已耗尽（用完即停），本次未产生费用；请确认额度或更换模型后再试";
+                case "MODEL_BALANCE_INSUFFICIENT" -> "模型账户欠费，本次未产生可用结果";
+                case "MODEL_AUTH_REJECTED" -> "模型鉴权失败，已熔断该作用域，请核查密钥后重置熔断";
+                default -> "模型调用失败：" + detail;
+            };
+            default -> "精选运行失败：" + code;
+        };
+    }
+
+    private static Object[] appendPaging(Object[] base, Object... extra) {
+        Object[] merged = new Object[base.length + extra.length];
+        System.arraycopy(base, 0, merged, 0, base.length);
+        System.arraycopy(extra, 0, merged, base.length, extra.length);
+        return merged;
+    }
+
+    private static NewsWorkbenchModels.MaterialCurationVO toMaterialCurationVO(
+            NewsCurationService.RevisionCuration row) {
+        return new NewsWorkbenchModels.MaterialCurationVO(
+                row.materialRevisionId(), row.materialId(), row.source(), row.sourceRecordId(),
+                row.title(), row.publishedOn(), row.pmid(), row.doi(), row.license(), row.abstractPresent(),
+                row.evidenceTier(), row.eligibleType(), row.gateReason(), row.evidenceGateOpen(),
+                row.activeEvidenceOverlaySha256(), row.candidateId(), row.candidateStatus(),
+                row.latestCallId(), row.latestReceiptState(), row.latestErrorCode(), row.curatable(),
+                row.profileKey());
+    }
+
     private static String requireOperator(User operator) {
         if (operator == null || operator.getId() == null) {
             throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR, "需要管理员身份");
