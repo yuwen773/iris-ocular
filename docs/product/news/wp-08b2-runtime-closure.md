@@ -1,8 +1,8 @@
 # WP-08B.2 · 运行时闭环（N1 入口 · 工作台接线 · PostgreSQL 隔离验收）
 
-状态：2026-11-28。**真实供应商请求 0 次**，`eye-diagnosis.news-curation.enabled` 仍默认 `false`。
-本文记录的是「入口已就绪、隔离验收已通过」的实现证据，不是「真实联调已执行」的证据；
-真实首跑仍取决于 `wp-08b2-paid-integration-plan.md` §6 的 G-1…G-5 与单独授权。
+状态：2026-11-28。**真实供应商请求 1 次**（所有者单次授权，隔离环境，记录见
+`wp-08b2-paid-integration-plan.md` §10），`eye-diagnosis.news-curation.enabled` 仍默认 `false`。
+本文记录「入口已就绪、隔离验收已通过、单份资料真实跑通一次」的证据；扩量与账单对账仍未执行。
 
 ## 1. 结论
 
@@ -13,7 +13,7 @@
 | 结果会不会自动发布？ | 不会：先落回执，成功回执需管理员显式转成 `CURATED_NEEDS_REVIEW` 候选 |
 | 预算/回执/熔断/幂等是否复用旧路径？ | 完全复用 `runModel` 的预扣、四道闸门、回执与重放语义 |
 | 是否新增迁移？ | 否；PG 线仍到 V7 |
-| 真实模型调用 | 未执行（无授权） |
+| 真实模型调用 | 已执行 1 次（2026-11-28 单次授权，隔离环境）：`SUCCEEDED` / HTTP 200 / 1694 token / ¥0.031512 标准费率成本 |
 
 ## 2. 生产入口与调用链
 
@@ -121,7 +121,8 @@ overlay 组成，换了其中任何一项就是一个新的 logical 调用——
 另有 `NewsOpenAiCompatibleModelClientTest` 8 例（免费额度/欠费/鉴权分类）与
 `NewsWorkbenchControllerSecurityTest` 8 例（新端点仅管理员、读取 `no-store`、错误文案）。
 
-`scripts/verify-pg.sh --full` 实测（2026-11-28）：`Tests run: 1433, Failures: 0, Errors: 0, Skipped: 290`
+`scripts/verify-pg.sh --full` 实测（2026-11-28，含新增的 `NewsCurationPropertiesBindingTest`）：
+`Tests run: 1434, Failures: 0, Errors: 0, Skipped: 290`
 （290 条均为未注入对应环境的其它 opt-in 套件），`check_surefire_skips.py ... business` 通过——
 12 个 business/coordination 套件全部 0 skipped，其中本套件 13/13。
 
@@ -135,17 +136,18 @@ overlay 组成，换了其中任何一项就是一个新的 logical 调用——
 
 | 编号 | 状态 | 说明 |
 | --- | --- | --- |
-| G-1 用完即停 | **未确认** | 需控制台截图 |
-| G-2 免费额度余量 | **未确认** | 需截图 |
-| G-3 `json_object` / `enable_thinking` | **未确认** | 需一次最小参数验证（真实调用，未授权） |
-| G-4 计费状态 | **未确认** | 需账单页截图 |
-| G-5 通用 API Key | **未确认** | 需 Key 来源确认 |
-| G-6 隔离环境 | 可满足 | 一次性 PG18 容器、无生产/患者数据、预算与回执表清零 |
+| G-1 用完即停 | **已确认** | 所有者控制台截图 + 明确说明蓝色开关即「用完即停」 |
+| G-2 免费额度余量 | **已确认（快照）** | 控制台截图：`qwen3.8-max-0902` 1M/1M，额度 2026-12-01 到期 |
+| G-3 `json_object` / `enable_thinking` | **已确认** | 真实调用以 `JSON_OBJECT` + `disable-thinking: true` 返回 HTTP 200 且输出通过结构化校验 |
+| G-4 计费状态 | **待对账** | 回执记标准费率 31512 micros；账单免费额度抵扣行与实付行尚未导出 |
+| G-5 通用 API Key | **已确认** | 本机 `DASHSCOPE_API_KEY`（`secretRef` 取值，未入库、未打印） |
+| G-6 隔离环境 | **已满足** | 一次性 PG18 + Redis 容器、无生产/患者数据、预算与回执表从零开始 |
 | G-7 运行时调用入口 | **已解除** | 本轮 N1：3 个管理员端点 + 工作台页签 |
 
-G-1…G-5 未确认前，真实首跑保持阻塞；G-7 解除不等于授权。
+G-1…G-3、G-5…G-7 已具备证据；G-4（账单对账）仍需新的授权与账单页截图。
+G-7 解除与单次授权是两件事：扩量仍需单独授权。
 
-## 8. 首次真实调用 Runbook（需单独授权后执行）
+## 8. 首次真实调用 Runbook（2026-11-28 已按此执行一次）
 
 0. 复核 G-1…G-5，全部通过并留截图；确认部署环境 `news-curation.enabled=false`。
 1. 配置（不入库）：`run-profile-key: prod`；`model-profiles.prod` 按 `wp-08b2-paid-integration-plan.md` §3
@@ -165,7 +167,9 @@ G-1…G-5 未确认前，真实首跑保持阻塞；G-7 解除不等于授权。
 - **确定性失败没有专用的「重试同一条回执」按钮**：`retryDefinitiveModel` 服务方法存在但没有 HTTP 入口。
   本轮不新增（不扩大架构）。恢复路径是让 logical 身份变化——换服务端 profile（`run-profile-key`）、
   换 prompt 版本或重新核验证据——此时会产生新的 logical 调用；同一 logical 仍然只重放、不重试。
-- 任何真实供应商返回形态（鉴权成功后的 200、429 的实际报文、免费额度耗尽的实际 403 body）；
+- 真实供应商的**成功路径**（200 报文、token、延迟）已被 1 次调用覆盖；**失败路径**（429、免费额度耗尽的
+  403、鉴权拒绝）仍只有脚本化夹具与官方文档，没有真实报文；
 - 供应商账单与回执 token/费用的对账（未发生真实计费）；
 - 多实例并发下的工作台行为（本期只依赖数据库层幂等，未做分布式调度）；
-- `enable_thinking` / `response_format` 参数在目标快照上的实际生效情况。
+- `enable_thinking` / `response_format` 只验证了「请求被接受且输出可解析」；模型侧是否真的关闭思维链、
+  是否真的按 JSON 约束生成，没有独立观测；

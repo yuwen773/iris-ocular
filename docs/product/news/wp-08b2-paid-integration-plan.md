@@ -118,9 +118,43 @@
 - 证据路由为 SKIP 时在预扣前拒绝；成功回执需管理员显式转待审候选，不自动建稿或发布。
 
 实现细节、错误语义与隔离验收见 `wp-08b2-runtime-closure.md`。
-**G-7 解除只表示入口可用，不构成真实调用授权**；G-1…G-5 仍为未确认。
+**G-7 解除只表示入口可用，不构成真实调用授权**。
 
-## 10. 实验报告模板（执行后填写）
+**2026-11-28 首跑前发现的启用阻塞缺陷**：`NewsModelProfile.Capabilities` 除了规范构造器还有一个
+三参便捷构造器。Spring 的构造器绑定在存在多个构造器时无法选择，`provider-capabilities` 绑定得到
+`NoSuchElementException: No value bound`，整份 profile 被判定为 `Invalid news model profile`，
+应用启动即失败——也就是说文档里写的 profile 形状当时**根本绑不上**。已删除便捷构造器，并新增
+`NewsCurationPropertiesBindingTest` 用 `Binder` + 文档形状的属性源做回归（注入旧构造器时该测试
+复现同一条绑定失败）。
+
+## 10. 真实调用记录（2026-11-28，单次授权）
+
+授权范围：1 份资料、P05 一次、预期 0 元、硬闸门 ≤¥5、任何异常立即停。
+执行环境：本机一次性 Docker 容器（PostgreSQL 18 + pgvector、Redis 7），独立库 `iris_realcall`，
+一次性管理员 `realcall_admin`，`run-profile-key=prod` = `qwen3.8-max-0902`（百炼兼容模式），
+`daily-max-calls=lifetime-max-calls=1`，费用上限各 ¥5。
+
+| 项 | 结果 |
+| --- | --- |
+| 资料 | materialRevisionId=1「Deep learning screening for referable diabetic retinopathy in multicenter real-world cohorts」，LICENSED_ABSTRACT / RESEARCH_INSIGHT，4 条证据核验（evidenceOverlaySha256 `983740e1…`） |
+| 调用 | callId `e6e7da97-46f4-4bdc-9597-643f52243cd0`，`SUCCEEDED`，HTTP 200，QWEN / `qwen3.8-max-0902`，`logicalCallSha256` `2ba2aa377bda…` |
+| 实际 Token | prompt 1228 + completion 466 = 1694（缓存命中 0） |
+| 标准费率理论成本 | `actualCostMicros` 31512（¥0.031512）；按 §3 费率复算 1228×12 + 466×36 = 31512 一致 |
+| 预扣上限 | `reservedCostMicros` 135168（¥0.135168）；回执按实际值结算，差额释放 |
+| 免费额度抵扣用量 | 未取得控制台账单抵扣行 → **待对账** |
+| 实际支付金额 | 未出账 → **待对账**（本轮无任何付费开关被打开） |
+| 延迟 | 9559 ms |
+| 输出路径 | decision `NEEDS_REVIEW`，relevance 85，researchValue 75，5 条 claim，0 条 violation |
+| 候选 | candidate 1 `CURATED_NEEDS_REVIEW`（管理员显式 materialize，未自动建稿） |
+| 建稿 | news `2126656431819493377`，中文标题 + 章节化正文 2569 字符，status 3 待审核 |
+| 人工复核 | 隔离环境内由同一管理员完成复核与发布（单操作员，**不是**四眼复核），审核意见已写入 `note` |
+| 用户端展示 | 匿名 `POST /api/news/list/page/vo` 与 `GET /api/news/get/{id}` 均返回该条（status 1） |
+| 闸门 | 当日 / 终身计数各 1/1；全程 0 次重试、0 次换模型、0 次扩量 |
+
+未验证：控制台账单的免费额度抵扣与实付行（需账单页截图）；多模型对比；扩量样本。
+脚本化夹具结论与本次真实调用结论分列，不得互相替代。
+
+### 10.1 报告模板
 
 每份资料一行，四个成本维度**分开统计**，不得互相替代：
 
@@ -135,7 +169,70 @@
 结构化校验结果、医学事实问题与人工复核意见、延迟、回执 `callId` 与 `logicalCallSha256`。
 **脚本化结果与真实结果分开写**；不得把 Java 引文命中当成医学语义正确；不得把十份样本写成完整 NewsBench 评测。
 
-## 11. 未授权状态
+### 10.2 本次真实生成的完整内容（隔离库 news `2126656431819493377`）
 
-在得到仓库所有者的单独真实调用批准之前，本文件任何步骤都不执行；`news-curation.enabled` 保持 `false`，
-CI 与本地验证全部使用脚本化夹具。本文的费率、模型 ID 与免费额度规则是「准备好了」的证据，不是「跑过了」的证据。
+标题：研究解析：Can a deep learning system effectively screen for referable diabetic retinopathy in primary care settings
+
+摘要：The deep learning system achieved high sensitivity for detecting referable diabetic retinopathy in the evaluated cohorts.
+
+正文（HTML，模型输出原样，未人工改写）：
+
+```html
+<p>Can a deep learning system effectively screen for referable diabetic retinopathy in primary care settings?</p>
+<h2>研究设计</h2>
+<p>Multicenter prospective observational study evaluating a deep learning system for referable diabetic retinopathy screening in primary care.</p>
+<h2>主要发现</h2>
+<p>The deep learning system achieved high sensitivity for detecting referable diabetic retinopathy in the evaluated cohorts.</p>
+<h2>临床意义</h2>
+<p>Deep learning systems may offer a viable tool for referable diabetic retinopathy screening in primary care, potentially improving access to early detection, though external validation is still needed.</p>
+<h2>局限与边界</h2>
+<p>Limitations include that external validation is pending, the absence of long-term outcome data, and limited generalizability beyond the participating centers.</p>
+<h2>证据要点</h2>
+<ul>
+<li><strong>[title]</strong> The study investigates deep learning screening for referable diabetic retinopathy in multicenter real-world cohorts.（原文引文：&ldquo;Deep learning screening for referable diabetic retinopathy in multicenter real-world cohorts&rdquo;）</li>
+<li><strong>[abstract]</strong> The research was conducted as a multicenter prospective observational study evaluating a deep learning system for referable diabetic retinopathy screening in primary care.（原文引文：&ldquo;Multicenter prospective observational study evaluating a deep learning system for referable diabetic retinopathy screening in primary care.&rdquo;）</li>
+<li><strong>[abstract]</strong> The deep learning system demonstrated high sensitivity for referable disease.（原文引文：&ldquo;The system achieved high sensitivity for referable disease&rdquo;）</li>
+<li><strong>[abstract]</strong> External validation of the deep learning system has not yet been completed.（原文引文：&ldquo;external validation is pending&rdquo;）</li>
+<li><strong>[abstract]</strong> The study lacked long-term outcome data and had limited generalizability beyond the participating centers.（原文引文：&ldquo;Limitations include the absence of long-term outcome data and limited generalizability beyond the participating centers.&rdquo;）</li>
+</ul>
+<h2>溯源与元数据</h2>
+<ul>
+<li><strong>内容类型：</strong>研究解析（RESEARCH_INSIGHT）</li>
+<li><strong>相关性评分：</strong>85/100</li>
+<li><strong>研究价值评分：</strong>75/100</li>
+<li><strong>模型调用：</strong>e6e7da97-46f4-4bdc-9597-643f52243cd0（生产命名空间 · 联合精选 P05）</li>
+<li><strong>证据核验摘要：</strong>983740e16b28892210066ea657a49340b79667ba849ea68256df09c0aeaa4bdc</li>
+<li><strong>原始资料：</strong>pubmed / PMID-RUNTIME-REAL-1（https://pubmed.ncbi.nlm.nih.gov/42000123/）</li>
+</ul>
+```
+
+结构化主张（`claimsJson`，逐字引文来自冻结的摘要证据）：
+
+| id | 字段 | 逐字引文 | 主张 |
+| --- | --- | --- | --- |
+| c1 | title | Deep learning screening for referable diabetic retinopathy in multicenter real-world cohorts | The study investigates deep learning screening for referable diabetic retinopathy in multicenter real-world cohorts. |
+| c2 | abstract | Multicenter prospective observational study evaluating a deep learning system for referable diabetic retinopathy screening in primary care. | The research was conducted as a multicenter prospective observational study evaluating a deep learning system for referable diabetic retinopathy screening in primary care. |
+| c3 | abstract | The system achieved high sensitivity for referable disease | The deep learning system demonstrated high sensitivity for referable disease. |
+| c4 | abstract | external validation is pending | External validation of the deep learning system has not yet been completed. |
+| c5 | abstract | Limitations include the absence of long-term outcome data and limited generalizability beyond the participating centers. | The study lacked long-term outcome data and had limited generalizability beyond the participating centers. |
+
+### 10.3 人工复核观察（必须随报告保留）
+
+1. 摘要句写成 “high sensitivity … **in the evaluated cohorts**”，而原文只有 “The system achieved high
+   sensitivity for referable disease”，并明确 “external validation is pending”“limited generalizability”。
+   这是**轻微外推**：用 “evaluated cohorts” 暗示了摘要里不存在的适用范围。正文的「主要发现」沿用了这句，
+   但「临床意义」「局限与边界」「证据要点」三节都保留了 “external validation” 与泛化性限制，结构化主张
+   `c3`/`c4` 逐字忠实。问题只出在这一句改写。
+2. 因此本次发布 note 里“来源摘要与证据快照一致”的措辞**偏宽**；更准确的写法是“主张逐字有据，摘要句需
+   改写为不含范围暗示的版本”。隔离环境已发布，未回滚；这条记录作为下次复核清单的首条。
+3. 正文其余部分为摘要转述 + 局限段，未出现诊断结论、剂量或疗效承诺；`violations` 为 0 与人工检查一致。
+4. 本次复核由同一管理员完成，**不构成四眼原则验证**；四眼流程仍需在正式环境单独验证。
+
+## 11. 授权状态
+
+2026-11-28 得到仓库所有者**单次**真实调用授权（1 份资料 / P05 一次 / 预期 0 元 / 硬闸门 ≤¥5），
+已按 §10 执行一次并在完成后停止：没有第二次调用、没有换模型、没有扩量、没有改动生产配置。
+
+仓库内 `news-curation.enabled` 仍为 `false`，CI 与本地验证仍全部使用脚本化夹具。扩量
+（≥2 份资料、NewsBench 十份样本、其他模型对比、账单对账）仍需**新的单独授权**；本文件不再有
+「未授权即可执行」的步骤。
