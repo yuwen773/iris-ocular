@@ -127,7 +127,7 @@ class NewsWorkbenchControllerSecurityTest {
                 mappedMethods.add(method);
             }
         }
-        assertEquals(23, mappedMethods.size());
+        assertEquals(26, mappedMethods.size());
         for (Method method : mappedMethods) {
             AuthCheck authCheck = method.getAnnotation(AuthCheck.class);
             assertNotNull(authCheck, () -> "Missing @AuthCheck on " + method.getName());
@@ -200,6 +200,56 @@ class NewsWorkbenchControllerSecurityTest {
                         .header("Origin", "http://localhost"))
                 .andExpect(jsonPath("$.code").value(ErrorCode.PARAMS_ERROR.getCode()))
                 .andExpect(jsonPath("$.msg").value(containsString("证据核验已撤回或变更")));
+    }
+
+    @Test
+    void curationRunEntryIsAdminOnlyAndReadsNeverCache() throws Exception {
+        User viewer = new User();
+        viewer.setId(1003L);
+        viewer.setUserRole(AuthConstant.DEFAULT_ROLE);
+        when(userService.getLoginUser(any())).thenReturn(viewer);
+
+        mockMvc.perform(get("/api/admin/news-workbench/materials").contextPath("/api"))
+                .andExpect(jsonPath("$.code").value(ErrorCode.NO_AUTH_ERROR.getCode()));
+        mockMvc.perform(get("/api/admin/news-workbench/materials/9/receipts").contextPath("/api"))
+                .andExpect(jsonPath("$.code").value(ErrorCode.NO_AUTH_ERROR.getCode()));
+        mockMvc.perform(post("/api/admin/news-workbench/materials/9/curate")
+                        .contextPath("/api")
+                        .header("Origin", "http://localhost"))
+                .andExpect(jsonPath("$.code").value(ErrorCode.NO_AUTH_ERROR.getCode()));
+        verifyNoInteractions(workbenchService);
+
+        viewer.setUserRole(AuthConstant.ADMIN_ROLE);
+        when(workbenchService.listCurationMaterials(eq("pubmed"), eq(1L), eq(10L)))
+                .thenReturn(new NewsWorkbenchModels.PageVO<>(List.of(), 0, 1, 10, 0));
+        mockMvc.perform(get("/api/admin/news-workbench/materials?source=pubmed").contextPath("/api"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.data.records").isEmpty());
+
+        when(workbenchService.listMaterialReceipts(9L)).thenReturn(List.of());
+        mockMvc.perform(get("/api/admin/news-workbench/materials/9/receipts").contextPath("/api"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.data").isEmpty());
+
+        when(workbenchService.runCuration(eq(9L), any())).thenReturn(
+                new NewsWorkbenchModels.CurationRunVO("call-9", "RESEARCH_RADAR", "SUCCEEDED", false,
+                        "QWEN", "fixture-model", 400, 160, 900L, 200, null, true, true));
+        mockMvc.perform(post("/api/admin/news-workbench/materials/9/curate")
+                        .contextPath("/api")
+                        .header("Origin", "http://localhost"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.state").value("SUCCEEDED"))
+                .andExpect(jsonPath("$.data.materializable").value(true));
+
+        when(workbenchService.runCuration(eq(10L), any())).thenThrow(
+                new BusinessException(ErrorCode.OPERATION_ERROR, "今日精选预算已耗尽，未发出请求"));
+        mockMvc.perform(post("/api/admin/news-workbench/materials/10/curate")
+                        .contextPath("/api")
+                        .header("Origin", "http://localhost"))
+                .andExpect(jsonPath("$.code").value(ErrorCode.OPERATION_ERROR.getCode()))
+                .andExpect(jsonPath("$.msg").value(containsString("预算已耗尽")));
     }
 
     @Test

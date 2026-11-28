@@ -207,10 +207,16 @@ public class NewsOpenAiCompatibleModelClient implements NewsCurationModelClient,
         }
         int status = received.status();
         if (status == 401 || status == 403) {
-            if (status == 403 && profile.servingPlatform() == NewsModelProfile.Platform.BAILIAN
-                    && received.body() != null && ("Arrearage".equals(received.body().path("error").path("code").asText())
-                    || "Arrearage".equals(received.body().path("code").asText()))) {
-                return new DefinitiveFailure("MODEL_BALANCE_INSUFFICIENT", status, null, false, latency);
+            if (status == 403 && profile.servingPlatform() == NewsModelProfile.Platform.BAILIAN) {
+                String code = providerErrorCode(received.body());
+                // 免费额度用尽（「用完即停」开启时）与欠费都是确定的失败：不重试、不熔断、不换模型。
+                // 它和鉴权失败必须分开——把额度耗尽记成 authFailure 会让一次额度用尽把整个 scope 熔断。
+                if ("AllocationQuota.FreeTierOnly".equals(code)) {
+                    return new DefinitiveFailure("MODEL_FREE_QUOTA_EXHAUSTED", status, null, false, latency);
+                }
+                if ("Arrearage".equals(code)) {
+                    return new DefinitiveFailure("MODEL_BALANCE_INSUFFICIENT", status, null, false, latency);
+                }
             }
             return new DefinitiveFailure("MODEL_AUTH_REJECTED", status, null, true, latency);
         }
@@ -261,6 +267,15 @@ public class NewsOpenAiCompatibleModelClient implements NewsCurationModelClient,
             }
             throw ex;
         }
+    }
+
+    /** Bailian puts the machine-readable code under {@code error.code}; older shapes put it at the top level. */
+    private static String providerErrorCode(JsonNode body) {
+        if (body == null) {
+            return null;
+        }
+        String nested = body.path("error").path("code").asText("");
+        return nested.isEmpty() ? body.path("code").asText("") : nested;
     }
 
     private static Integer nonnegativeInt(JsonNode node) {

@@ -3,7 +3,7 @@ import "@/styles/admin-news-workbench.css"
 import { useState, type FormEvent, type ReactElement } from "react"
 import { Link, useSearchParams } from "react-router-dom"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { Layers, Plus, RefreshCw, ShieldCheck } from "lucide-react"
+import { Layers, Plus, RefreshCw, ShieldCheck, Sparkles } from "lucide-react"
 
 import { AdminEmpty } from "@/components/admin/AdminEmpty"
 import { AdminPageHead } from "@/components/admin/AdminPageHead"
@@ -21,12 +21,17 @@ import { fault } from "@/lib/faults"
 import {
   candidateStatusView,
   configureWorkbenchBudget,
+  curationGateReasonLabel,
   enqueueWorkbenchTask,
+  evidenceAttributeLabel,
   evidenceTierLabel,
   formatBpsPercent,
   formatMicrosUsd,
   getWorkbenchCandidateDetail,
   getWorkbenchOverview,
+  listCurationMaterials,
+  listEvidenceVerifications,
+  listMaterialReceipts,
   listTaskEvents,
   listTaskLeases,
   listWorkbenchBenchRuns,
@@ -35,12 +40,17 @@ import {
   listWorkbenchReceipts,
   listWorkbenchSources,
   listWorkbenchTasks,
+  materializeCurationCandidate,
+  materialRouteView,
   receiptStateView,
   reclaimStaleWorkbenchCalls,
   reconcileWorkbenchReceipt,
   registerWorkbenchSourceConfig,
   resetWorkbenchCircuitBreaker,
   retryWorkbenchTask,
+  revokeEvidenceVerification,
+  runCuration,
+  submitEvidenceVerification,
   taskStatusView,
   toggleWorkbenchSource,
   type BenchRunSummary,
@@ -48,16 +58,20 @@ import {
   type CallReceipt,
   type CandidateSummary,
   type CollectionTask,
+  type CurationMaterial,
+  type CurationRun,
+  type EvidenceVerification,
   type SourceDetail,
 } from "@/lib/newsWorkbenchApi"
 import { queryKeys } from "@/lib/queryKeys"
 import { AdminNewsIssuePreview } from "./AdminNewsIssuePreview"
 import { AdminNewsCollectionSchedule } from "./AdminNewsCollectionSchedule"
 
-type WorkbenchTab = "candidates" | "tasks" | "sources" | "budgets" | "bench" | "issue"
+type WorkbenchTab = "candidates" | "curation" | "tasks" | "sources" | "budgets" | "bench" | "issue"
 
 const TABS: ReadonlyArray<{ key: WorkbenchTab; label: string }> = [
   { key: "candidates", label: "精选候选" },
+  { key: "curation", label: "AI 精选" },
   { key: "tasks", label: "采集任务" },
   { key: "sources", label: "信源与游标" },
   { key: "budgets", label: "预算与调用回执" },
@@ -66,6 +80,46 @@ const TABS: ReadonlyArray<{ key: WorkbenchTab; label: string }> = [
 ]
 
 const SOURCES = ["pubmed", "europe-pmc", "clinicaltrials-gov"] as const
+
+// 与服务端 NewsEvidenceLedger 的 VALUES / METHODS 对齐：属性决定可选取值与可接受的核验方式，
+// 前端先收窄，避免提交一个必然被服务端拒绝的组合。
+const EVIDENCE_ATTRIBUTES: ReadonlyArray<{
+  value: string
+  label: string
+  values: string[]
+  methods: string[]
+}> = [
+  {
+    value: "PEER_REVIEW",
+    label: "同行评审",
+    values: ["VERIFIED", "NOT_PEER_REVIEWED"],
+    methods: ["PEER_REVIEW_STATEMENT", "PUBMED_RECORD", "EUROPEPMC_RECORD"],
+  },
+  {
+    value: "INTEGRITY",
+    label: "完整性",
+    values: ["VERIFIED", "CONCERN", "RETRACTED"],
+    methods: ["RETRACTION_NOTICE", "PUBMED_RECORD", "EUROPEPMC_RECORD"],
+  },
+  {
+    value: "STUDY_DESIGN",
+    label: "研究设计",
+    values: ["INTERVENTIONAL", "OBSERVATIONAL", "EXPANDED_ACCESS", "OTHER_VERIFIED"],
+    methods: ["PUBMED_RECORD", "EUROPEPMC_RECORD", "CLINICALTRIALS_RECORD"],
+  },
+  {
+    value: "CONTENT_SCOPE",
+    label: "授权全文范围",
+    values: ["LICENSED_RESULTS"],
+    methods: ["LICENSE_STATEMENT", "DOI_LANDING_PAGE", "PUBMED_RECORD", "EUROPEPMC_RECORD"],
+  },
+  {
+    value: "LICENSE",
+    label: "许可确认",
+    values: ["CC0", "CC_BY"],
+    methods: ["LICENSE_STATEMENT", "DOI_LANDING_PAGE"],
+  },
+]
 
 function readTab(value: string | null): WorkbenchTab {
   return TABS.some((tab) => tab.key === value) ? (value as WorkbenchTab) : "candidates"
@@ -150,6 +204,23 @@ export function AdminNewsWorkbenchPage(): ReactElement {
     providerRequestId: "",
   })
 
+  // AI 精选（N1）：资料就绪列表、证据核验抽屉、运行结果
+  const [curSource, setCurSource] = useState("")
+  const [curPage, setCurPage] = useState({ current: 1, pageSize: 10 })
+  const [evidenceMaterial, setEvidenceMaterial] = useState<CurationMaterial | null>(null)
+  const [runBusyId, setRunBusyId] = useState<string | null>(null)
+  const [lastRun, setLastRun] = useState<{ material: CurationMaterial; run: CurationRun } | null>(null)
+  const [materializeBusy, setMaterializeBusy] = useState(false)
+  const [evidenceBusy, setEvidenceBusy] = useState(false)
+  const [evidenceForm, setEvidenceForm] = useState({
+    attribute: "PEER_REVIEW",
+    value: "VERIFIED",
+    method: "PUBMED_RECORD",
+    evidenceUrl: "",
+    sourceVersion: "pubmed-2026",
+    evidenceNote: "",
+  })
+
   const overviewQuery = useQuery({
     queryKey: queryKeys.admin.newsWorkbench.overview,
     queryFn: getWorkbenchOverview,
@@ -227,6 +298,124 @@ export function AdminNewsWorkbenchPage(): ReactElement {
     queryFn: () => listWorkbenchBenchRuns(20),
     enabled: activeTab === "bench",
   })
+
+  const curationParams = {
+    current: curPage.current,
+    pageSize: curPage.pageSize,
+    ...(curSource ? { source: curSource } : {}),
+  }
+  const curationQuery = useQuery({
+    queryKey: queryKeys.admin.newsWorkbench.curationMaterials(curationParams),
+    queryFn: () => listCurationMaterials(curationParams),
+    enabled: activeTab === "curation",
+  })
+
+  // 抽屉里显示的是列表的最新一行（登记/撤回证据后会重新取数），避免长期停在打开时的旧门禁状态。
+  const evidenceRow = evidenceMaterial
+    ? (curationQuery.data?.records ?? []).find(
+        (row) => row.materialRevisionId === evidenceMaterial.materialRevisionId,
+      ) ?? evidenceMaterial
+    : null
+
+  const evidenceQuery = useQuery({
+    queryKey: queryKeys.admin.newsWorkbench.materialEvidence(evidenceMaterial?.materialRevisionId ?? ""),
+    queryFn: () => listEvidenceVerifications(evidenceMaterial?.materialRevisionId ?? ""),
+    enabled: Boolean(evidenceMaterial),
+  })
+
+  const materialReceiptsQuery = useQuery({
+    queryKey: queryKeys.admin.newsWorkbench.materialReceipts(lastRun?.material.materialRevisionId ?? ""),
+    queryFn: () => listMaterialReceipts(lastRun?.material.materialRevisionId ?? ""),
+    enabled: Boolean(lastRun),
+  })
+
+  async function handleRunCuration(material: CurationMaterial) {
+    if (runBusyId) return
+    setRunBusyId(material.materialRevisionId)
+    setActionError(null)
+    setActionNote(null)
+    try {
+      const run = await runCuration(material.materialRevisionId)
+      setLastRun({ material, run })
+      setActionNote(
+        run.replayed
+          ? `精选运行复用既有回执（${run.state}），未发起新的模型调用。`
+          : run.state === "SUCCEEDED"
+            ? "精选运行完成：SUCCEEDED。"
+            : run.state === "OUTCOME_UNKNOWN"
+              ? "精选运行结束：结果未知（OUTCOME_UNKNOWN），系统不会自动重发，请先人工对账。"
+              : run.state === "FAILED_CHARGED"
+                ? "精选运行结束：已扣费但输出未通过契约（FAILED_CHARGED），未生成候选。"
+                : `精选运行结束：确定性失败（${run.state}），未生成候选。`,
+      )
+      await queryClient.invalidateQueries({ queryKey: queryKeys.admin.newsWorkbench.all })
+    } catch (err) {
+      setActionError(describeError(err))
+    } finally {
+      setRunBusyId(null)
+    }
+  }
+
+  async function handleMaterializeRun() {
+    if (!lastRun || materializeBusy) return
+    setMaterializeBusy(true)
+    setActionError(null)
+    setActionNote(null)
+    try {
+      const created = await materializeCurationCandidate(lastRun.run.callId)
+      setActionNote(
+        created.created
+          ? `已生成待审候选 #${created.candidateId}（${candidateStatusView(created.status).label}）。`
+          : `该回执已转换过，候选 #${created.candidateId} 未重复创建。`,
+      )
+      setLastRun(null)
+      await queryClient.invalidateQueries({ queryKey: queryKeys.admin.newsWorkbench.all })
+    } catch (err) {
+      setActionError(describeError(err))
+    } finally {
+      setMaterializeBusy(false)
+    }
+  }
+
+  async function handleSubmitEvidence(event: FormEvent) {
+    event.preventDefault()
+    if (!evidenceMaterial || evidenceBusy) return
+    setEvidenceBusy(true)
+    setActionError(null)
+    setActionNote(null)
+    try {
+      await submitEvidenceVerification(evidenceMaterial.materialRevisionId, {
+        attribute: evidenceForm.attribute,
+        value: evidenceForm.value,
+        method: evidenceForm.method,
+        evidenceUrl: evidenceForm.evidenceUrl,
+        ...(evidenceForm.sourceVersion ? { sourceVersion: evidenceForm.sourceVersion } : {}),
+        ...(evidenceForm.evidenceNote ? { evidenceNote: evidenceForm.evidenceNote } : {}),
+      })
+      setActionNote("已登记证据核验。")
+      setEvidenceForm((f) => ({ ...f, evidenceUrl: "", evidenceNote: "" }))
+      await queryClient.invalidateQueries({ queryKey: queryKeys.admin.newsWorkbench.all })
+    } catch (err) {
+      setActionError(describeError(err))
+    } finally {
+      setEvidenceBusy(false)
+    }
+  }
+
+  async function handleRevokeEvidence(verification: EvidenceVerification) {
+    setEvidenceBusy(true)
+    setActionError(null)
+    setActionNote(null)
+    try {
+      await revokeEvidenceVerification(verification.id)
+      setActionNote("已撤回证据核验；依赖它的候选需重新核验才能建稿。")
+      await queryClient.invalidateQueries({ queryKey: queryKeys.admin.newsWorkbench.all })
+    } catch (err) {
+      setActionError(describeError(err))
+    } finally {
+      setEvidenceBusy(false)
+    }
+  }
 
   function switchTab(next: WorkbenchTab) {
     setActionError(null)
@@ -789,6 +978,104 @@ export function AdminNewsWorkbenchPage(): ReactElement {
     },
   ]
 
+  const curationColumns: Column<CurationMaterial>[] = [
+    {
+      key: "title",
+      title: "资料与修订",
+      width: "34%",
+      render: (r) => (
+        <div className="admin-workbench__claimcard">
+          <strong>{r.title || "（无标题）"}</strong>
+          <span className="admin-workbench__mono">
+            {r.source} · {r.sourceRecordId} · rev {r.materialRevisionId}
+          </span>
+        </div>
+      ),
+    },
+    {
+      key: "route",
+      title: "证据路由",
+      width: "18%",
+      render: (r) => {
+        const route = materialRouteView(r.eligibleType)
+        return (
+          <div className="admin-workbench__claimcard">
+            <RiskTag risk={route.risk}>{route.label}</RiskTag>
+            {!r.evidenceGateOpen ? (
+              <span className="admin-workbench__note">{curationGateReasonLabel(r.gateReason)}</span>
+            ) : null}
+          </div>
+        )
+      },
+    },
+    {
+      key: "evidence",
+      title: "核验 / 候选",
+      width: "20%",
+      render: (r) => (
+        <div className="admin-workbench__claimcard">
+          <span className="admin-workbench__mono">
+            {r.license ?? "许可未知"} · {r.abstractPresent ? "摘要可引用" : "无摘要"}
+          </span>
+          {r.candidateId ? (
+            <RiskTag risk={candidateStatusView(r.candidateStatus).risk}>
+              候选 #{r.candidateId} · {candidateStatusView(r.candidateStatus).label}
+            </RiskTag>
+          ) : (
+            <span className="admin-workbench__note">尚无候选</span>
+          )}
+        </div>
+      ),
+    },
+    {
+      key: "receipt",
+      title: "最近回执",
+      width: "14%",
+      render: (r) => {
+        const view = receiptStateView(r.latestReceiptState)
+        return (
+          <div className="admin-workbench__claimcard">
+            {r.latestReceiptState ? <RiskTag risk={view.risk}>{view.label}</RiskTag> : "—"}
+            {r.latestErrorCode ? (
+              <span className="admin-workbench__mono">{r.latestErrorCode}</span>
+            ) : null}
+          </div>
+        )
+      },
+    },
+    {
+      key: "actions",
+      title: "操作",
+      width: "20%",
+      render: (r) => (
+        <div className="admin-workbench__sourceactions">
+          <button
+            type="button"
+            className="admin-btn admin-btn--primary admin-btn--sm"
+            disabled={!overview?.curationEnabled || !r.curatable || runBusyId !== null}
+            title={
+              !overview?.curationEnabled
+                ? "在线精选已关闭"
+                : !r.curatable
+                  ? curationGateReasonLabel(r.gateReason)
+                  : undefined
+            }
+            onClick={() => void handleRunCuration(r)}
+          >
+            {runBusyId === r.materialRevisionId ? "运行中…" : "运行 AI 精选"}
+          </button>
+          <button
+            type="button"
+            className="admin-btn admin-btn--ghost admin-btn--sm"
+            onClick={() => setEvidenceMaterial(r)}
+          >
+            证据核验
+          </button>
+        </div>
+      ),
+    },
+  ]
+
   const selectedDetail = candidateDetailQuery.data
   const detailFault = candidateDetailQuery.error ? describeError(candidateDetailQuery.error) : null
 
@@ -1002,6 +1289,167 @@ export function AdminNewsWorkbenchPage(): ReactElement {
               total: candidatesQuery.data?.total ?? 0,
             }}
             onPageChange={setCandPage}
+          />
+        </>
+      ) : null}
+
+      {activeTab === "curation" ? (
+        <>
+          {!overview?.curationEnabled ? (
+            <p className="admin-workbench__note">
+              在线精选当前关闭（eye-diagnosis.news-curation.enabled=false）。“运行 AI 精选”按钮不可用；
+              采集、编辑与发布功能不受影响。
+            </p>
+          ) : null}
+
+          {lastRun ? (
+            <section className="admin-workbench__section" aria-label="精选运行结果">
+              <div className="admin-workbench__sourcehead">
+                <h2 className="admin-workbench__paneltitle">本次精选运行结果</h2>
+                <RiskTag risk={receiptStateView(lastRun.run.state).risk}>
+                  {receiptStateView(lastRun.run.state).label}
+                </RiskTag>
+              </div>
+              <dl className="admin-workbench__facts">
+                <div className="admin-workbench__factrow">
+                  <dt className="admin-workbench__factkey">回执 ID / 路由</dt>
+                  <dd className="admin-workbench__factval admin-workbench__mono">
+                    {lastRun.run.callId} · {materialRouteView(lastRun.run.eligibleType).label}
+                  </dd>
+                </div>
+                <div className="admin-workbench__factrow">
+                  <dt className="admin-workbench__factkey">模型 / Provider</dt>
+                  <dd className="admin-workbench__factval admin-workbench__mono">
+                    {lastRun.run.provider} · {lastRun.run.modelName}
+                    {lastRun.run.replayed ? "（复用既有回执）" : ""}
+                  </dd>
+                </div>
+                <div className="admin-workbench__factrow">
+                  <dt className="admin-workbench__factkey">Token / 标准费率费用</dt>
+                  <dd className="admin-workbench__factval num">
+                    {(lastRun.run.promptTokens ?? 0) + (lastRun.run.completionTokens ?? 0)} ·{" "}
+                    {formatMicrosUsd(lastRun.run.actualCostMicros)}
+                  </dd>
+                </div>
+                {lastRun.run.errorCode ? (
+                  <div className="admin-workbench__factrow">
+                    <dt className="admin-workbench__factkey">错误码</dt>
+                    <dd className="admin-workbench__factval admin-workbench__mono">{lastRun.run.errorCode}</dd>
+                  </div>
+                ) : null}
+              </dl>
+
+              <p className="admin-workbench__note">
+                {lastRun.run.state === "OUTCOME_UNKNOWN"
+                  ? "结果未知：请求可能已计费。请到「预算与调用回执」人工对账，系统不会自动重发。"
+                  : lastRun.run.state === "FAILED_CHARGED"
+                    ? "已扣费但输出未通过契约校验，未生成候选；可查看回执核对用量。"
+                    : lastRun.run.state === "FAILED_DEFINITIVE"
+                      ? lastRun.run.errorCode === "MODEL_FREE_QUOTA_EXHAUSTED"
+                        ? "模型免费额度已耗尽（用完即停），本次未产生费用，未触发熔断。"
+                        : lastRun.run.errorCode === "MODEL_BALANCE_INSUFFICIENT"
+                          ? "模型账户欠费，本次未产生可用结果。"
+                          : "模型调用被确定性拒绝，请核查配置后再试。"
+                      : "成功回执尚未成为候选；模型结果只能进入待人工审核候选，不会自动发布。"}
+              </p>
+
+              <div className="admin-workbench__section">
+                <h3 className="admin-workbench__sectiontitle">该修订的生产回执 · RECEIPTS</h3>
+                {materialReceiptsQuery.isPending ? (
+                  <p className="admin-workbench__note">正在读取回执历史…</p>
+                ) : materialReceiptsQuery.error ? (
+                  <p className="admin-workbench__note">
+                    {describeError(materialReceiptsQuery.error).text}
+                  </p>
+                ) : (materialReceiptsQuery.data?.length ?? 0) === 0 ? (
+                  <p className="admin-workbench__note">暂无生产策略回执</p>
+                ) : (
+                  <ul className="admin-workbench__claimlist">
+                    {materialReceiptsQuery.data!.map((r) => {
+                      const view = receiptStateView(r.state)
+                      return (
+                        <li key={r.callId} className="admin-workbench__claimcard">
+                          <RiskTag risk={view.risk}>{view.label}</RiskTag>
+                          <span className="admin-workbench__mono">{r.callId}</span>
+                          {r.errorCode ? (
+                            <span className="admin-workbench__mono">{r.errorCode}</span>
+                          ) : null}
+                          <span className="admin-workbench__mono">
+                            实付 {formatMicrosUsd(r.actualCostMicros)} · 预扣{" "}
+                            {formatMicrosUsd(r.reservedCostMicros)}
+                          </span>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )}
+              </div>
+
+              <div className="admin-workbench__draweractions">
+                {lastRun.run.materializable ? (
+                  <button
+                    type="button"
+                    className="admin-btn admin-btn--primary"
+                    disabled={materializeBusy}
+                    onClick={() => void handleMaterializeRun()}
+                  >
+                    {materializeBusy ? "转换中…" : "转为待审候选"}
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="admin-btn admin-btn--ghost"
+                  onClick={() => setLastRun(null)}
+                >
+                  关闭
+                </button>
+              </div>
+            </section>
+          ) : null}
+
+          <div className="admin-workbench__toolbar">
+            <div className="admin-workbench__filters">
+              <select
+                className="admin-workbench__select"
+                aria-label="精选资料信源筛选"
+                value={curSource}
+                onChange={(e) => {
+                  setCurSource(e.target.value)
+                  setCurPage((p) => ({ ...p, current: 1 }))
+                }}
+              >
+                <option value="">全部信源</option>
+                {SOURCES.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <p className="admin-workbench__note">
+              只列出已准入的已提交修订；运行前请确认证据核验。模型 profile 由服务端配置裁决。
+            </p>
+          </div>
+
+          <DataTable<CurationMaterial>
+            columns={curationColumns}
+            rows={curationQuery.data?.records}
+            rowKey={(row) => row.materialRevisionId}
+            loading={curationQuery.isPending}
+            error={curationQuery.error ? describeError(curationQuery.error).text : null}
+            emptyContent={
+              <AdminEmpty
+                icon={Sparkles}
+                title="暂无可精选的已准入资料"
+                description="当采集 Worker 提交并完成资料批次后，已提交修订会出现在这里等待管理员触发精选。"
+              />
+            }
+            page={{
+              current: curPage.current,
+              pageSize: curPage.pageSize,
+              total: curationQuery.data?.total ?? 0,
+            }}
+            onPageChange={setCurPage}
           />
         </>
       ) : null}
@@ -1263,8 +1711,204 @@ export function AdminNewsWorkbenchPage(): ReactElement {
       {activeTab === "issue" ? <AdminNewsIssuePreview /> : null}
 
       <p className="admin-workbench__footer">
-        边界声明：工作台不开放实时付费 LLM 触发或外部网络抓取入口；所有发布门禁仍由 WP-04 服务层强制执行。
+        边界声明：仅在「AI 精选」页签开放管理员触发的生产模型调用，且受服务端预算、终身额度与熔断器约束；
+        模型结果先落回执、再由管理员显式转为待审候选，不自动建稿或发布。工作台没有外部网络抓取入口，
+        发布门禁仍由 WP-04 服务层强制执行。
       </p>
+
+      {/* 资料证据核验 Drawer（N1：运行前确认准入门禁） */}
+      <Drawer
+        open={Boolean(evidenceMaterial)}
+        title="资料证据核验"
+        size="workspace"
+        onClose={() => setEvidenceMaterial(null)}
+      >
+        {evidenceRow ? (
+          <div className="admin-workbench__drawerstack">
+            <dl className="admin-workbench__facts">
+              <div className="admin-workbench__factrow">
+                <dt className="admin-workbench__factkey">资料 / 修订 ID</dt>
+                <dd className="admin-workbench__factval">
+                  <strong>{evidenceRow.title || "（无标题）"}</strong>
+                  <div className="admin-workbench__mono">
+                    {evidenceRow.source} · {evidenceRow.sourceRecordId} · rev{" "}
+                    {evidenceRow.materialRevisionId}
+                  </div>
+                </dd>
+              </div>
+              <div className="admin-workbench__factrow">
+                <dt className="admin-workbench__factkey">证据路由 / 门禁</dt>
+                <dd className="admin-workbench__factval">
+                  <RiskTag risk={materialRouteView(evidenceRow.eligibleType).risk}>
+                    {materialRouteView(evidenceRow.eligibleType).label}
+                  </RiskTag>
+                  <div className="admin-workbench__note">
+                    {evidenceRow.evidenceGateOpen
+                      ? "门禁已开启"
+                      : curationGateReasonLabel(evidenceRow.gateReason)}
+                  </div>
+                </dd>
+              </div>
+              <div className="admin-workbench__factrow">
+                <dt className="admin-workbench__factkey">活跃证据叠加 SHA-256</dt>
+                <dd className="admin-workbench__factval admin-workbench__mono">
+                  {evidenceRow.activeEvidenceOverlaySha256 || "—"}
+                </dd>
+              </div>
+            </dl>
+
+            <form className="admin-workbench__section" onSubmit={handleSubmitEvidence}>
+              <h3 className="admin-workbench__sectiontitle">登记核验 · VERIFY</h3>
+              <div className="admin-workbench__formgrid">
+                <label className="admin-workbench__field">
+                  <span className="admin-workbench__label">属性 · ATTRIBUTE</span>
+                  <select
+                    className="admin-workbench__select"
+                    value={evidenceForm.attribute}
+                    onChange={(e) => {
+                      const attr = EVIDENCE_ATTRIBUTES.find((a) => a.value === e.target.value)
+                      setEvidenceForm((f) => ({
+                        ...f,
+                        attribute: e.target.value,
+                        value: attr ? attr.values[0] : f.value,
+                        method: attr ? attr.methods[0] : f.method,
+                      }))
+                    }}
+                  >
+                    {EVIDENCE_ATTRIBUTES.map((a) => (
+                      <option key={a.value} value={a.value}>
+                        {a.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="admin-workbench__field">
+                  <span className="admin-workbench__label">取值 · VALUE</span>
+                  <select
+                    className="admin-workbench__select"
+                    value={evidenceForm.value}
+                    onChange={(e) => setEvidenceForm((f) => ({ ...f, value: e.target.value }))}
+                  >
+                    {(EVIDENCE_ATTRIBUTES.find((a) => a.value === evidenceForm.attribute)?.values ?? []).map(
+                      (v) => (
+                        <option key={v} value={v}>
+                          {v}
+                        </option>
+                      ),
+                    )}
+                  </select>
+                </label>
+                <label className="admin-workbench__field">
+                  <span className="admin-workbench__label">核验方式 · METHOD</span>
+                  <select
+                    className="admin-workbench__select"
+                    value={evidenceForm.method}
+                    onChange={(e) => setEvidenceForm((f) => ({ ...f, method: e.target.value }))}
+                  >
+                    {(
+                      EVIDENCE_ATTRIBUTES.find((a) => a.value === evidenceForm.attribute)?.methods ?? []
+                    ).map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="admin-workbench__field">
+                  <span className="admin-workbench__label">证据链接 · EVIDENCE URL</span>
+                  <input
+                    className="admin-workbench__input"
+                    type="url"
+                    required
+                    placeholder="https://pubmed.ncbi.nlm.nih.gov/…"
+                    value={evidenceForm.evidenceUrl}
+                    onChange={(e) => setEvidenceForm((f) => ({ ...f, evidenceUrl: e.target.value }))}
+                  />
+                </label>
+                <label className="admin-workbench__field">
+                  <span className="admin-workbench__label">来源版本 · SOURCE VERSION</span>
+                  <input
+                    className="admin-workbench__input"
+                    value={evidenceForm.sourceVersion}
+                    onChange={(e) =>
+                      setEvidenceForm((f) => ({ ...f, sourceVersion: e.target.value }))
+                    }
+                  />
+                </label>
+                <label className="admin-workbench__field">
+                  <span className="admin-workbench__label">核验备注 · NOTE</span>
+                  <input
+                    className="admin-workbench__input"
+                    value={evidenceForm.evidenceNote}
+                    onChange={(e) =>
+                      setEvidenceForm((f) => ({ ...f, evidenceNote: e.target.value }))
+                    }
+                  />
+                </label>
+              </div>
+              <div className="admin-workbench__draweractions">
+                <button
+                  type="submit"
+                  className="admin-btn admin-btn--primary"
+                  disabled={evidenceBusy || !evidenceForm.evidenceUrl.trim()}
+                >
+                  {evidenceBusy ? "登记中…" : "登记证据核验"}
+                </button>
+              </div>
+            </form>
+
+            <div className="admin-workbench__section">
+              <h3 className="admin-workbench__sectiontitle">核验历史 · HISTORY</h3>
+              {evidenceQuery.isPending ? (
+                <p className="admin-workbench__note">正在读取核验历史…</p>
+              ) : evidenceQuery.error ? (
+                <p className="admin-workbench__note">{describeError(evidenceQuery.error).text}</p>
+              ) : (evidenceQuery.data?.length ?? 0) === 0 ? (
+                <p className="admin-workbench__note">尚无人工核验记录</p>
+              ) : (
+                <ul className="admin-workbench__claimlist">
+                  {evidenceQuery.data!.map((v: EvidenceVerification) => (
+                    <li key={v.id} className="admin-workbench__claimcard">
+                      <RiskTag risk={v.active ? "normal" : "unknown"}>
+                        {v.active ? "生效中" : "已撤回"}
+                      </RiskTag>
+                      <span className="admin-workbench__mono">
+                        {evidenceAttributeLabel(v.attribute)} · {v.value} · {v.method}
+                      </span>
+                      <span className="admin-workbench__mono">
+                        {v.verifiedBy} · {v.verifiedAt ? formatTimestamp(v.verifiedAt) : "—"}
+                      </span>
+                      {v.evidenceUrl ? (
+                        <a
+                          className="admin-workbench__mono"
+                          href={v.evidenceUrl}
+                          target="_blank"
+                          rel="noreferrer noopener"
+                        >
+                          {v.evidenceUrl}
+                        </a>
+                      ) : null}
+                      {v.evidenceNote ? <span>{v.evidenceNote}</span> : null}
+                      {v.active ? (
+                        <button
+                          type="button"
+                          className="admin-btn admin-btn--ghost admin-btn--sm"
+                          disabled={evidenceBusy}
+                          onClick={() => void handleRevokeEvidence(v)}
+                        >
+                          撤回
+                        </button>
+                      ) : v.revokeNote ? (
+                        <span className="admin-workbench__note">{v.revokeNote}</span>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        ) : null}
+      </Drawer>
 
       {/* 候选证据审查 Drawer */}
       <Drawer

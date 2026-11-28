@@ -76,6 +76,7 @@ class SurefireSkipGateTest(unittest.TestCase):
         self.write(P + "newscuration.NewsCurationPostgresTest", cases=18, skipped=18)
         self.write(P + "service.NewsEditorialPublishPostgresTest", cases=8, skipped=8)
         self.write(P + "newsworkbench.NewsWorkbenchPostgresTest", cases=13, skipped=13)
+        self.write(P + "newsworkbench.NewsCurationRuntimePostgresTest", cases=13, skipped=13)
         self.write(P + "diagnosistask.CosDiagnosisTaskStorageTest", cases=1)
 
     def test_backend_unit_contract_passes_on_real_skip_shape(self):
@@ -190,6 +191,7 @@ class SurefireSkipGateTest(unittest.TestCase):
         self.write(P + "newscuration.NewsCurationPostgresTest", cases=18)
         self.write(P + "service.NewsEditorialPublishPostgresTest", cases=8)
         self.write(P + "newsworkbench.NewsWorkbenchPostgresTest", cases=13)
+        self.write(P + "newsworkbench.NewsCurationRuntimePostgresTest", cases=13)
         self.write(P + "poc.CoordinationPostgresTest", cases=14)
         self.assertEqual(0, self.verdict(CONTRACTS["business"]))
 

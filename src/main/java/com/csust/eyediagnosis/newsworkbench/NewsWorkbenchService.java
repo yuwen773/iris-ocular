@@ -1434,6 +1434,8 @@ public class NewsWorkbenchService {
             case "MODEL_CALL_NOT_PRODUCTION_JOINT" -> "只有生产命名空间的联合精选结果可以转为候选";
             case "MODEL_CALL_IDENTITY_INVALID" -> "模型调用身份无法解析";
             case "EVIDENCE_VERIFICATION_STALE" -> "证据核验已撤回或变更，请重新核验后再转换";
+            case "MATERIAL_REVISION_SUPERSEDED" -> "该修订已被同一资料的更新版本取代，不能再生成候选";
+            case "MATERIAL_NOT_FOUND" -> "资料不存在";
             case "FROZEN_OUTPUT_INVALID" -> "冻结响应未通过当前契约校验";
             case "CANDIDATE_ALREADY_MATERIALIZED" -> "该资料修订与策略版本已有候选，禁止覆盖；确需替代请点名旧候选并写明理由";
             case "CANDIDATE_POLICY_CONFLICT" -> "同一资料修订已存在其他策略版本的候选，禁止通过改策略版本绕开冲突";
@@ -1443,6 +1445,126 @@ public class NewsWorkbenchService {
             case "CANDIDATE_ALREADY_DRAFTED" -> "旧候选已关联未删除的资讯，请先处置该草稿后再替代";
             default -> "模型结果无法转为候选: " + code;
         };
+    }
+
+    // ---- N1：管理员可实际调用的生产精选入口 ----
+
+    /** Paginated committed revisions with their evidence route, active candidate and latest receipt. */
+    public NewsWorkbenchModels.PageVO<NewsWorkbenchModels.MaterialCurationVO> listCurationMaterials(
+            String source, long current, long pageSize) {
+        String normalizedSource = optionalSupportedSource(source);
+        long safeCurrent = clampCurrent(current);
+        long safeSize = clampPageSize(pageSize);
+
+        // Only the current version of each admitted material is curatable; superseded revisions would spend
+        // budget on content that is no longer visible.
+        String from = " FROM t_news_material_revision r"
+                + " JOIN t_news_material m ON m.id = r.materialId AND m.latestRevisionId = r.id";
+        String where = normalizedSource == null ? "" : " WHERE r.source = ?";
+        Object[] countArgs = normalizedSource == null ? new Object[0] : new Object[]{normalizedSource};
+        Long totalBoxed = jdbc.queryForObject(
+                "SELECT COUNT(*)" + from + where, Long.class, countArgs);
+        long total = totalBoxed == null ? 0L : totalBoxed;
+
+        List<Long> ids = total == 0 ? List.of() : jdbc.query(
+                "SELECT r.id" + from + where + " ORDER BY r.id DESC LIMIT ? OFFSET ?",
+                (rs, rowNum) -> rs.getLong(1),
+                appendPaging(countArgs, safeSize, (safeCurrent - 1) * safeSize));
+        List<NewsWorkbenchModels.MaterialCurationVO> records = new ArrayList<>(ids.size());
+        for (Long id : ids) {
+            records.add(toMaterialCurationVO(curationService.describeRevision(id)));
+        }
+        return new NewsWorkbenchModels.PageVO<>(records, total, safeCurrent, safeSize, computePages(total, safeSize));
+    }
+
+    /** Receipt history for one revision under the production policy (oldest attempt first). */
+    public List<NewsWorkbenchModels.CallReceiptVO> listMaterialReceipts(long materialRevisionId) {
+        if (materialRevisionId <= 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "materialRevisionId 必须大于 0");
+        }
+        return curationService.listProductionReceipts(materialRevisionId).stream()
+                .map(NewsWorkbenchService::toCallReceiptVO)
+                .toList();
+    }
+
+    /**
+     * Admin-triggered production P05 run. Results stay in the receipt ledger; the caller must explicitly
+     * materialize a successful receipt into a review candidate (never auto-published).
+     */
+    public NewsWorkbenchModels.CurationRunVO runCuration(long materialRevisionId, User operator) {
+        if (materialRevisionId <= 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "materialRevisionId 必须大于 0");
+        }
+        String reviewer = requireOperator(operator);
+        String eligibleType;
+        try {
+            eligibleType = curationService.describeRevision(materialRevisionId).eligibleType();
+        } catch (IllegalArgumentException invalid) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, curationErrorMessage(invalid.getMessage()));
+        }
+        try {
+            NewsCurationService.ModelRun run = curationService.runAdminCuration(materialRevisionId, reviewer);
+            NewsCurationModels.CallReceiptSnapshot receipt = run.receipt();
+            boolean frozen = run.frozenOutput() != null;
+            boolean materializable = receipt.state() == NewsCurationModels.CallState.SUCCEEDED && frozen;
+            return new NewsWorkbenchModels.CurationRunVO(
+                    receipt.callId(), eligibleType, receipt.state().name(), run.replayed(),
+                    receipt.provider(), receipt.modelName(), receipt.promptTokens(), receipt.completionTokens(),
+                    receipt.actualCostMicros(), receipt.httpStatus(), receipt.errorCode(), frozen, materializable);
+        } catch (IllegalStateException | IllegalArgumentException refused) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, curationErrorMessage(refused.getMessage()));
+        }
+    }
+
+    private static String curationErrorMessage(String rawCode) {
+        String code = String.valueOf(rawCode);
+        String detail = null;
+        int separator = code.indexOf(':');
+        if (separator > 0) {
+            detail = code.substring(separator + 1);
+            code = code.substring(0, separator);
+        }
+        return switch (code) {
+            case "NEWS_CURATION_DISABLED" -> "在线精选未启用（eye-diagnosis.news-curation.enabled=false）";
+            case "MODEL_PROFILE_NOT_CONFIGURED" -> "服务端未配置精选模型 profile（run-profile-key / model-profiles）";
+            case "MODEL_CLIENT_UNCONFIGURED" -> "服务端未配置精选模型客户端";
+            case "REVISION_NOT_VISIBLE" -> "资料修订不存在或尚未准入";
+            case "MATERIAL_NOT_FOUND" -> "资料不存在";
+            case "MATERIAL_REVISION_SUPERSEDED" -> "该修订已被同一资料的更新版本取代，请刷新列表后对当前修订运行";
+            case "EVIDENCE_GATE_SKIP" -> "证据准入未通过，不发起付费调用：" + (detail == null ? "路由判定为 SKIP" : detail);
+            case "EDITORIAL_EVIDENCE_INSUFFICIENT" -> "证据准入不足，不能按该体裁精选";
+            case "BUDGET_EXHAUSTED" -> "今日精选预算已耗尽，未发出请求";
+            case "LIFETIME_BUDGET_EXHAUSTED" -> "整次实验总预算已耗尽，未发出请求";
+            case "CURATION_CIRCUIT_BROKEN" -> "鉴权熔断已开启，请先在预算页重置后再试";
+            case "CURATION_AWAITING_RECONCILIATION" -> "存在待对账的模型调用，请先在回执台账完成对账";
+            case "MODEL_CALL_REQUIRES_COMMITTED_RESERVATION" -> "模型调用不能嵌套在事务中";
+            case "MODEL_CALL_FAILED" -> switch (String.valueOf(detail)) {
+                case "MODEL_FREE_QUOTA_EXHAUSTED" ->
+                        "模型免费额度已耗尽（用完即停），本次未产生费用；请确认额度或更换模型后再试";
+                case "MODEL_BALANCE_INSUFFICIENT" -> "模型账户欠费，本次未产生可用结果";
+                case "MODEL_AUTH_REJECTED" -> "模型鉴权失败，已熔断该作用域，请核查密钥后重置熔断";
+                default -> "模型调用失败：" + detail;
+            };
+            default -> "精选运行失败：" + code;
+        };
+    }
+
+    private static Object[] appendPaging(Object[] base, Object... extra) {
+        Object[] merged = new Object[base.length + extra.length];
+        System.arraycopy(base, 0, merged, 0, base.length);
+        System.arraycopy(extra, 0, merged, base.length, extra.length);
+        return merged;
+    }
+
+    private static NewsWorkbenchModels.MaterialCurationVO toMaterialCurationVO(
+            NewsCurationService.RevisionCuration row) {
+        return new NewsWorkbenchModels.MaterialCurationVO(
+                row.materialRevisionId(), row.materialId(), row.source(), row.sourceRecordId(),
+                row.title(), row.publishedOn(), row.pmid(), row.doi(), row.license(), row.abstractPresent(),
+                row.evidenceTier(), row.eligibleType(), row.gateReason(), row.evidenceGateOpen(),
+                row.activeEvidenceOverlaySha256(), row.candidateId(), row.candidateStatus(),
+                row.latestCallId(), row.latestReceiptState(), row.latestErrorCode(), row.curatable(),
+                row.profileKey());
     }
 
     private static String requireOperator(User operator) {

@@ -67,6 +67,12 @@ export const queryKeys = {
       receipts: (q: { state?: string; budgetScope?: string; current: number; pageSize: number }) =>
         ["admin", "newsWorkbench", "receipts", q] as const,
       benchRuns: ["admin", "newsWorkbench", "benchRuns"] as const,
+      curationMaterials: (q: { source?: string; current: number; pageSize: number }) =>
+        ["admin", "newsWorkbench", "curationMaterials", q] as const,
+      materialEvidence: (materialRevisionId: string) =>
+        ["admin", "newsWorkbench", "materialEvidence", materialRevisionId] as const,
+      materialReceipts: (materialRevisionId: string) =>
+        ["admin", "newsWorkbench", "materialReceipts", materialRevisionId] as const,
       issuePreview: (startOn: string, endOn: string) =>
         ["admin", "newsWorkbench", "issuePreview", startOn, endOn] as const,
     },

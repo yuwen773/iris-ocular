@@ -184,7 +184,7 @@ class NewsRealMaterialsOfflineE2ETest {
                 URI.create("https://dashscope.aliyuncs.com"), "/compatible-mode/v1/chat/completions",
                 "fixture-model", "FIXTURE_KEY", Duration.ofSeconds(2), Duration.ofSeconds(5), 8192, 1024, 0,
                 NewsModelProfile.Format.JSON_OBJECT, new NewsModelProfile.Capabilities(
-                        true, false, NewsModelProfile.UsageFormat.STANDARD),
+                        true, false, NewsModelProfile.UsageFormat.STANDARD, false),
                 new NewsModelProfile.PricingVersion("fixture-v1", 1_000_000, 1_000_000, 2_000_000));
     }
 }

@@ -248,7 +248,7 @@ jobs:
       - name: Run the business regression suites on PostgreSQL
         run: >-
           mvn -B
-          -Dtest='UploadTaskMapperPostgresIntegrationTest,ToolAuditPostgresIntegrationTest,ToolTerminalPersistencePostgresIntegrationTest,DiagnosisRunPostgresIntegrationTest,AdminAnalyticsPostgresIntegrationTest,NewsIngestionPostgresTest,NewsCollectionSchedulePostgresTest,NewsCurationPostgresTest,NewsEditorialPublishPostgresTest,NewsWorkbenchPostgresTest,CoordinationPostgresTest'
+          -Dtest='UploadTaskMapperPostgresIntegrationTest,ToolAuditPostgresIntegrationTest,ToolTerminalPersistencePostgresIntegrationTest,DiagnosisRunPostgresIntegrationTest,AdminAnalyticsPostgresIntegrationTest,NewsIngestionPostgresTest,NewsCollectionSchedulePostgresTest,NewsCurationPostgresTest,NewsCurationRuntimePostgresTest,NewsEditorialPublishPostgresTest,NewsWorkbenchPostgresTest,CoordinationPostgresTest'
           test
       # Counts, not exit codes: Maven already fails the step on a failed case. This
       # gate fails a run that went green because a suite was skipped or lost cases.

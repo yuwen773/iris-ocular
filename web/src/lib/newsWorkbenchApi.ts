@@ -827,6 +827,286 @@ export async function listWorkbenchBenchRuns(limit = 20): Promise<BenchRunSummar
   return (rows ?? []).map(toBenchRun)
 }
 
+// ---- N1：管理员生产精选入口 ----
+
+/** 一个已准入资料修订的精选就绪状态（证据路由、活跃候选、最近回执）。 */
+export type CurationMaterial = {
+  materialRevisionId: string
+  materialId: string
+  source: string
+  sourceRecordId: string
+  title: string
+  publishedOn: string | null
+  pmid: string | null
+  doi: string | null
+  license: string | null
+  abstractPresent: boolean
+  evidenceTier: string | null
+  eligibleType: string | null
+  gateReason: string | null
+  evidenceGateOpen: boolean
+  activeEvidenceOverlaySha256: string
+  candidateId: string | null
+  candidateStatus: string | null
+  latestCallId: string | null
+  latestReceiptState: string | null
+  latestErrorCode: string | null
+  curatable: boolean
+  profileKey: string | null
+}
+
+/** 一次管理员触发的生产 P05 运行结果。成功回执尚不是候选，必须显式转换。 */
+export type CurationRun = {
+  callId: string
+  eligibleType: string | null
+  state: string
+  replayed: boolean
+  provider: string
+  modelName: string
+  promptTokens: number | null
+  completionTokens: number | null
+  actualCostMicros: number | null
+  httpStatus: number | null
+  errorCode: string | null
+  frozenOutputAvailable: boolean
+  materializable: boolean
+}
+
+export type EvidenceVerification = {
+  id: string
+  materialRevisionId: string
+  attribute: string
+  value: string
+  method: string
+  evidenceUrl: string
+  sourceVersion: string
+  evidenceNote: string | null
+  verifiedBy: string
+  verifiedAt: string | null
+  active: boolean
+  revokedBy: string | null
+  revokedAt: string | null
+  revokeNote: string | null
+}
+
+function toCurationMaterial(raw: Record<string, unknown>): CurationMaterial {
+  return {
+    materialRevisionId: reqStr(raw.materialRevisionId),
+    materialId: reqStr(raw.materialId),
+    source: reqStr(raw.source),
+    sourceRecordId: reqStr(raw.sourceRecordId),
+    title: reqStr(raw.title),
+    publishedOn: optStr(raw.publishedOn),
+    pmid: optStr(raw.pmid),
+    doi: optStr(raw.doi),
+    license: optStr(raw.license),
+    abstractPresent: Boolean(raw.abstractPresent),
+    evidenceTier: optStr(raw.evidenceTier),
+    eligibleType: optStr(raw.eligibleType),
+    gateReason: optStr(raw.gateReason),
+    evidenceGateOpen: Boolean(raw.evidenceGateOpen),
+    activeEvidenceOverlaySha256: reqStr(raw.activeEvidenceOverlaySha256),
+    candidateId: optStr(raw.candidateId),
+    candidateStatus: optStr(raw.candidateStatus),
+    latestCallId: optStr(raw.latestCallId),
+    latestReceiptState: optStr(raw.latestReceiptState),
+    latestErrorCode: optStr(raw.latestErrorCode),
+    curatable: Boolean(raw.curatable),
+    profileKey: optStr(raw.profileKey),
+  }
+}
+
+function toEvidenceVerification(raw: Record<string, unknown>): EvidenceVerification {
+  return {
+    id: reqStr(raw.id),
+    materialRevisionId: reqStr(raw.materialRevisionId),
+    attribute: reqStr(raw.attribute),
+    value: reqStr(raw.value),
+    method: reqStr(raw.method),
+    evidenceUrl: reqStr(raw.evidenceUrl),
+    sourceVersion: reqStr(raw.sourceVersion),
+    evidenceNote: optStr(raw.evidenceNote),
+    verifiedBy: reqStr(raw.verifiedBy),
+    verifiedAt: optStr(raw.verifiedAt),
+    active: Boolean(raw.active),
+    revokedBy: optStr(raw.revokedBy),
+    revokedAt: optStr(raw.revokedAt),
+    revokeNote: optStr(raw.revokeNote),
+  }
+}
+
+export async function listCurationMaterials(q: {
+  source?: string
+  current: number
+  pageSize: number
+}): Promise<Page<CurationMaterial>> {
+  const params = new URLSearchParams({
+    current: String(q.current),
+    pageSize: String(q.pageSize),
+  })
+  if (q.source) params.set("source", q.source)
+  const raw = await request<RawPage<Record<string, unknown>>>(
+    `/admin/news-workbench/materials?${params.toString()}`,
+    { method: "GET", cache: "no-store" },
+  )
+  const page = toPage(raw)
+  return {
+    ...page,
+    records: (page.records ?? []).map(toCurationMaterial),
+  }
+}
+
+export async function runCuration(materialRevisionId: string): Promise<CurationRun> {
+  const raw = await request<Record<string, unknown>>(
+    `/admin/news-workbench/materials/${encodeURIComponent(materialRevisionId)}/curate`,
+    { method: "POST" },
+  )
+  return {
+    callId: reqStr(raw.callId),
+    eligibleType: optStr(raw.eligibleType),
+    state: reqStr(raw.state),
+    replayed: Boolean(raw.replayed),
+    provider: reqStr(raw.provider),
+    modelName: reqStr(raw.modelName),
+    promptTokens: optNum(raw.promptTokens),
+    completionTokens: optNum(raw.completionTokens),
+    actualCostMicros: optNum(raw.actualCostMicros),
+    httpStatus: optNum(raw.httpStatus),
+    errorCode: optStr(raw.errorCode),
+    frozenOutputAvailable: Boolean(raw.frozenOutputAvailable),
+    materializable: Boolean(raw.materializable),
+  }
+}
+
+export async function listMaterialReceipts(materialRevisionId: string): Promise<CallReceipt[]> {
+  const rows = await request<Record<string, unknown>[]>(
+    `/admin/news-workbench/materials/${encodeURIComponent(materialRevisionId)}/receipts`,
+    { method: "GET", cache: "no-store" },
+  )
+  return (rows ?? []).map(toReceipt)
+}
+
+export async function listEvidenceVerifications(
+  materialRevisionId: string,
+): Promise<EvidenceVerification[]> {
+  const rows = await request<Record<string, unknown>[]>(
+    `/admin/news-workbench/materials/${encodeURIComponent(materialRevisionId)}/evidence-verifications`,
+    { method: "GET", cache: "no-store" },
+  )
+  return (rows ?? []).map(toEvidenceVerification)
+}
+
+export async function submitEvidenceVerification(
+  materialRevisionId: string,
+  body: {
+    attribute: string
+    value: string
+    method: string
+    evidenceUrl: string
+    sourceVersion?: string
+    evidenceNote?: string
+  },
+): Promise<EvidenceVerification> {
+  const raw = await request<Record<string, unknown>>(
+    `/admin/news-workbench/materials/${encodeURIComponent(materialRevisionId)}/evidence-verifications`,
+    { method: "POST", body: JSON.stringify(body) },
+  )
+  return toEvidenceVerification(raw)
+}
+
+export async function revokeEvidenceVerification(
+  verificationId: string,
+  body: { note?: string } = {},
+): Promise<EvidenceVerification> {
+  const raw = await request<Record<string, unknown>>(
+    `/admin/news-workbench/evidence-verifications/${encodeURIComponent(verificationId)}/revoke`,
+    { method: "POST", body: JSON.stringify(body) },
+  )
+  return toEvidenceVerification(raw)
+}
+
+export async function materializeCurationCandidate(
+  callId: string,
+  body: { supersedesCandidateId?: string; reason?: string } = {},
+): Promise<{
+  candidateId: string
+  status: string
+  callId: string
+  created: boolean
+  evidenceVerificationSha256: string | null
+  supersededCandidateId: string | null
+}> {
+  const raw = await request<Record<string, unknown>>(
+    `/admin/news-workbench/receipts/${encodeURIComponent(callId)}/materialize`,
+    { method: "POST", body: JSON.stringify(body) },
+  )
+  return {
+    candidateId: reqStr(raw.candidateId),
+    status: reqStr(raw.status),
+    callId: reqStr(raw.callId),
+    created: Boolean(raw.created),
+    evidenceVerificationSha256: optStr(raw.evidenceVerificationSha256),
+    supersededCandidateId: optStr(raw.supersededCandidateId),
+  }
+}
+
+export function materialRouteView(eligibleType?: string | null): { label: string; risk: Risk } {
+  switch (eligibleType) {
+    case "RESEARCH_INSIGHT":
+      return { label: "研究解析", risk: "normal" }
+    case "RESEARCH_RADAR":
+      return { label: "研究雷达", risk: "attention" }
+    case "TRIAL_WATCH":
+      return { label: "试验观察", risk: "normal" }
+    case "SKIP":
+      return { label: "不生成内容", risk: "critical" }
+    default:
+      return { label: eligibleType || "未判定", risk: "unknown" }
+  }
+}
+
+export function curationGateReasonLabel(reason?: string | null): string {
+  switch (reason) {
+    case "INTEGRITY_RETRACTED":
+      return "资料已撤稿，证据路由为 SKIP"
+    case "INTEGRITY_CONCERN":
+      return "资料完整性存疑，证据路由为 SKIP"
+    case "TRIAL_NO_CHANGE":
+      return "试验登记状态无变化，本次不生成内容"
+    case "EVIDENCE_SKIP":
+      return "证据路由判定为 SKIP"
+    case "EVIDENCE_LICENSE_UNKNOWN":
+      return "缺少可授权摘要或许可未知，无法升级为研究解析"
+    case "EVIDENCE_LICENSE_CONFLICT":
+      return "登记的许可与资料快照冲突"
+    case "MODEL_PROFILE_NOT_CONFIGURED":
+      return "服务端未配置精选模型 profile"
+    case "TERMINAL_FAILURE_REPLAY_ONLY":
+      return "上次为确定性失败；本入口只重放既有回执，不会再次调用模型"
+    case "AWAITING_RECONCILIATION":
+      return "存在待对账的模型调用；请先在回执台账完成对账"
+    default:
+      return reason || "—"
+  }
+}
+
+export function evidenceAttributeLabel(attribute?: string | null): string {
+  switch (attribute) {
+    case "PEER_REVIEW":
+      return "同行评审"
+    case "INTEGRITY":
+      return "完整性"
+    case "STUDY_DESIGN":
+      return "研究设计"
+    case "CONTENT_SCOPE":
+      return "授权全文范围"
+    case "LICENSE":
+      return "许可"
+    default:
+      return attribute || "—"
+  }
+}
+
 export type NewsIssueArticle = {
   newsId: string
   revisionNo: number

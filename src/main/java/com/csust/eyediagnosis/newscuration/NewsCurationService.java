@@ -271,6 +271,23 @@ public class NewsCurationService {
         return loadVisibleRevision(id).orElseThrow(() -> new IllegalArgumentException("REVISION_NOT_VISIBLE"));
     }
 
+    /**
+     * The admin entry only spends money on the revision that is currently attached to its material. The list
+     * already hides superseded revisions; this is the same rule on the write path, so an old revision id
+     * (from a receipt history, a bookmark or a script) cannot buy a fresh paid call or become a candidate.
+     */
+    private void requireLatestRevision(NewsIngestionService.VisibleRevision revision) {
+        List<Map<String, Object>> rows = jdbc.queryForList(
+                "SELECT latestRevisionId FROM t_news_material WHERE id = ?", revision.materialId());
+        if (rows.isEmpty()) {
+            throw new IllegalStateException("MATERIAL_NOT_FOUND");
+        }
+        Object latest = rows.getFirst().get("latestRevisionId");
+        if (latest == null || ((Number) latest).longValue() != revision.revisionId()) {
+            throw new IllegalStateException("MATERIAL_REVISION_SUPERSEDED");
+        }
+    }
+
     private NewsEditorialEvidence previousTrial(NewsIngestionService.VisibleRevision revision) {
         if (!"clinicaltrials-gov".equals(revision.source())) {
             return null;
@@ -1457,6 +1474,7 @@ public class NewsCurationService {
             throw new IllegalStateException("EVIDENCE_VERIFICATION_STALE");
         }
         NewsIngestionService.VisibleRevision revision = requireVisibleRevision(revisionId);
+        requireLatestRevision(revision);
         NewsCurationModels.EvidenceSnapshot snapshot = promptBuilder.buildSnapshot(revision);
         JsonNode validated = modelProtocol.validatedOutput(Objects.toString(row.get("frozenResponseJson")),
                 identity, snapshot, properties.getMaxResponseChars());
@@ -1678,5 +1696,208 @@ public class NewsCurationService {
     /** Current active overlay digest; used by admin views to show what a candidate is bound to. */
     public String activeEvidenceOverlaySha256(long materialRevisionId) {
         return ledger.overlay(materialRevisionId).sha256();
+    }
+
+    // ---- N1：管理员可实际调用的生产精选入口 ----
+
+    /**
+     * Read-only snapshot of one committed revision's curation readiness: what evidence route it lands on,
+     * whether the gate is open, which overlays apply, the active candidate (if any) and the latest receipt.
+     * Never calls the model.
+     */
+    public record RevisionCuration(
+            long materialRevisionId,
+            long materialId,
+            String source,
+            String sourceRecordId,
+            String title,
+            String publishedOn,
+            String pmid,
+            String doi,
+            String license,
+            boolean abstractPresent,
+            String evidenceTier,
+            String eligibleType,
+            String gateReason,
+            boolean evidenceGateOpen,
+            String activeEvidenceOverlaySha256,
+            Long candidateId,
+            String candidateStatus,
+            String latestCallId,
+            String latestReceiptState,
+            String latestErrorCode,
+            boolean curatable,
+            String profileKey
+    ) {
+    }
+
+    /**
+     * Resolves the model profile for an admin-triggered run from server configuration only. The browser never
+     * supplies a model id or profile key, so a request cannot switch models, and a missing/ambiguous
+     * configuration refuses to run instead of guessing.
+     */
+    public String resolveRunProfileKey() {
+        String configured = properties.getRunProfileKey();
+        Map<String, NewsModelProfile> profiles = properties.getModelProfiles();
+        if (configured != null && !configured.isBlank()) {
+            if (profiles == null || !profiles.containsKey(configured.trim())) {
+                throw new IllegalStateException("MODEL_PROFILE_NOT_CONFIGURED");
+            }
+            return configured.trim();
+        }
+        if (profiles != null && profiles.size() == 1) {
+            return profiles.keySet().iterator().next();
+        }
+        throw new IllegalStateException("MODEL_PROFILE_NOT_CONFIGURED");
+    }
+
+    public RevisionCuration describeRevision(long materialRevisionId) {
+        NewsIngestionService.VisibleRevision revision = requireVisibleRevision(materialRevisionId);
+        NewsCurationModels.EvidenceSnapshot snapshot = promptBuilder.buildSnapshot(revision);
+        NewsEvidenceLedger.Overlay overlay = ledger.overlay(materialRevisionId);
+        String eligibleType = null;
+        boolean gateOpen = false;
+        String gateReason = null;
+        try {
+            NewsEditorialEvidence evidence = NewsEditorialEvidence.from(snapshot, mapper, overlay);
+            NewsEditorialEvidence.ContentType route = evidence.route(previousTrial(revision), true);
+            eligibleType = route.name();
+            gateOpen = route != NewsEditorialEvidence.ContentType.SKIP;
+            if (!gateOpen) {
+                gateReason = skipReason(evidence);
+            }
+        } catch (IllegalArgumentException ex) {
+            gateReason = ex.getMessage();
+        }
+        String profileKey = null;
+        boolean profileReady = false;
+        try {
+            profileKey = resolveRunProfileKey();
+            profileReady = true;
+        } catch (IllegalStateException ex) {
+            if (gateReason == null) {
+                gateReason = ex.getMessage();
+            }
+        }
+        String policy = effectivePolicy(properties.getPolicyVersion());
+        Long candidateId = null;
+        String candidateStatus = null;
+        List<Map<String, Object>> candidates = jdbc.queryForList("""
+                SELECT id, status FROM t_news_curation_candidate
+                WHERE materialRevisionId = ? AND policyVersion = ? AND supersededAt IS NULL
+                ORDER BY id DESC LIMIT 1
+                """, materialRevisionId, policy);
+        if (!candidates.isEmpty()) {
+            candidateId = ((Number) candidates.getFirst().get("id")).longValue();
+            candidateStatus = Objects.toString(candidates.getFirst().get("status"), null);
+        }
+        String latestCallId = null;
+        String latestReceiptState = null;
+        String latestErrorCode = null;
+        // "Latest" must mean the receipt of the logical call this button would actually replay or reserve.
+        // attemptNo restarts at 1 for every logical call (a new profile, prompt version or evidence overlay),
+        // so ordering by it alone would pick arbitrarily between a stale failure and a newer success.
+        // Preparing the identity here is pure (no IO) and mirrors what runModel would build.
+        String currentLogical = null;
+        NewsModelProfile currentProfile = profileReady && properties.getModelProfiles() != null
+                ? properties.getModelProfiles().get(profileKey) : null;
+        if (currentProfile != null) {
+            try {
+                currentLogical = modelProtocol.prepare(
+                        new NewsModelProtocol.Selection("production", NewsModelProtocol.Prompt.P05, profileKey, null),
+                        currentProfile, policy, snapshot, previousTrial(revision),
+                        null, overlay).logicalCallSha256();
+            } catch (IllegalArgumentException | IllegalStateException notRunnableYet) {
+                currentLogical = null;
+            }
+        }
+        List<Map<String, Object>> receipts = currentLogical != null
+                ? jdbc.queryForList("""
+                        SELECT callId, state, errorCode FROM t_news_model_call_receipt
+                        WHERE materialRevisionId = ? AND policyVersion = ? AND logicalCallSha256 = ?
+                        ORDER BY attemptNo DESC LIMIT 1
+                        """, materialRevisionId, policy, currentLogical)
+                : jdbc.queryForList("""
+                        SELECT callId, state, errorCode FROM t_news_model_call_receipt
+                        WHERE materialRevisionId = ? AND policyVersion = ?
+                        ORDER BY COALESCE(completedat, reservedat) DESC, callId DESC LIMIT 1
+                        """, materialRevisionId, policy);
+        if (!receipts.isEmpty()) {
+            latestCallId = Objects.toString(receipts.getFirst().get("callId"), null);
+            latestReceiptState = Objects.toString(receipts.getFirst().get("state"), null);
+            latestErrorCode = Objects.toString(receipts.getFirst().get("errorCode"), null);
+        }
+        // A terminal failure is deliberately not retried by this entry: reserveAttempt replays that receipt,
+        // so an enabled button would promise progress that cannot happen. The operator fixes the cause first
+        // (a new profile or prompt version produces a new logical call, which this ordering then shows).
+        boolean terminalFailure = "FAILED_DEFINITIVE".equals(latestReceiptState)
+                || "FAILED_CHARGED".equals(latestReceiptState);
+        // An unresolved receipt blocks the same logical call at reserveAttempt, so the button must not offer
+        // a run the server is guaranteed to refuse.
+        boolean awaitingReconciliation = "OUTCOME_UNKNOWN".equals(latestReceiptState)
+                || "RESERVED".equals(latestReceiptState)
+                || "DISPATCHED".equals(latestReceiptState);
+        if (terminalFailure && gateReason == null) {
+            gateReason = "TERMINAL_FAILURE_REPLAY_ONLY";
+        } else if (awaitingReconciliation && gateReason == null) {
+            gateReason = "AWAITING_RECONCILIATION";
+        }
+        return new RevisionCuration(
+                revision.revisionId(), revision.materialId(), revision.source(), revision.sourceRecordId(),
+                revision.title(), revision.publishedOn(), revision.pmid(), revision.doi(),
+                snapshot.abstractLicense(), snapshot.abstractText() != null && !snapshot.abstractText().isBlank(),
+                String.valueOf(snapshot.evidenceTier()), eligibleType, gateReason, gateOpen,
+                overlay.sha256(), candidateId, candidateStatus, latestCallId, latestReceiptState,
+                latestErrorCode, gateOpen && profileReady && properties.isEnabled()
+                        && !terminalFailure && !awaitingReconciliation, profileKey);
+    }
+
+    private static String skipReason(NewsEditorialEvidence evidence) {
+        if (evidence.integrity() == NewsEditorialEvidence.Integrity.RETRACTED) {
+            return "INTEGRITY_RETRACTED";
+        }
+        if (evidence.integrity() == NewsEditorialEvidence.Integrity.CONCERN) {
+            return "INTEGRITY_CONCERN";
+        }
+        if ("clinicaltrials-gov".equals(evidence.source())) {
+            return "TRIAL_NO_CHANGE";
+        }
+        return "EVIDENCE_SKIP";
+    }
+
+    /**
+     * Admin-triggered production P05 run for one committed revision. Reuses the exact reserve-before-IO path,
+     * daily budget, lifetime ceiling, circuit breaker, receipts and idempotency of {@link #runModel}; the only
+     * new decisions are (a) the profile comes from server configuration and (b) a SKIP evidence route refuses
+     * before any paid request is reserved.
+     */
+    public ModelRun runAdminCuration(long materialRevisionId, String actor) {
+        if (actor == null || actor.isBlank()) {
+            throw new IllegalArgumentException("Invalid curation actor");
+        }
+        requireInvocationBoundary();
+        NewsIngestionService.VisibleRevision revision = requireVisibleRevision(materialRevisionId);
+        requireLatestRevision(revision);
+        NewsCurationModels.EvidenceSnapshot snapshot = promptBuilder.buildSnapshot(revision);
+        NewsEditorialEvidence evidence;
+        try {
+            evidence = NewsEditorialEvidence.from(snapshot, mapper, ledger.overlay(materialRevisionId));
+        } catch (IllegalArgumentException ex) {
+            throw new IllegalStateException("EVIDENCE_GATE_SKIP:" + ex.getMessage());
+        }
+        NewsEditorialEvidence.ContentType route = evidence.route(previousTrial(revision), true);
+        if (route == NewsEditorialEvidence.ContentType.SKIP) {
+            throw new IllegalStateException("EVIDENCE_GATE_SKIP:" + skipReason(evidence));
+        }
+        String profileKey = resolveRunProfileKey();
+        log.info("Admin-triggered production P05 run: revision={}, actor={}, profile={}, eligible={}",
+                materialRevisionId, actor.trim(), profileKey, route);
+        return runModel(materialRevisionId, properties.getPolicyVersion(), null,
+                new NewsModelProtocol.Selection("production", NewsModelProtocol.Prompt.P05, profileKey, null));
+    }
+
+    /** Receipt history for one revision under the configured production policy, oldest attempt first. */
+    public List<NewsCurationModels.CallReceiptSnapshot> listProductionReceipts(long materialRevisionId) {
+        return listCallReceiptsForRevision(materialRevisionId, effectivePolicy(properties.getPolicyVersion()));
     }
 }

@@ -259,4 +259,36 @@ public class NewsWorkbenchController {
                 body == null ? null : body.supersedesCandidateId(),
                 body == null ? null : body.reason()));
     }
+
+    // ---- N1：管理员可实际调用的生产精选入口 ----
+
+    @GetMapping("/materials")
+    @AuthCheck(mustRole = AuthConstant.ADMIN_ROLE)
+    @Operation(summary = "分页查询已准入资料修订的精选就绪状态（证据路由、活跃候选、最近回执）")
+    public ResponseEntity<BaseResponse<NewsWorkbenchModels.PageVO<NewsWorkbenchModels.MaterialCurationVO>>> listCurationMaterials(
+            @RequestParam(value = "source", required = false) String source,
+            @RequestParam(value = "current", defaultValue = "1") long current,
+            @RequestParam(value = "pageSize", defaultValue = "10") long pageSize) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(ResultUtils.success(workbenchService.listCurationMaterials(source, current, pageSize)));
+    }
+
+    @GetMapping("/materials/{materialRevisionId}/receipts")
+    @AuthCheck(mustRole = AuthConstant.ADMIN_ROLE)
+    @Operation(summary = "查看某资料修订在生产策略下的模型调用回执历史")
+    public ResponseEntity<BaseResponse<List<NewsWorkbenchModels.CallReceiptVO>>> listMaterialReceipts(
+            @PathVariable("materialRevisionId") long materialRevisionId) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(ResultUtils.success(workbenchService.listMaterialReceipts(materialRevisionId)));
+    }
+
+    @PostMapping("/materials/{materialRevisionId}/curate")
+    @AuthCheck(mustRole = AuthConstant.ADMIN_ROLE)
+    @Operation(summary = "触发一次管理员生产联合精选（P05）；结果只进回执，需显式转候选")
+    public BaseResponse<NewsWorkbenchModels.CurationRunVO> runCuration(
+            @PathVariable("materialRevisionId") long materialRevisionId,
+            HttpServletRequest request) {
+        User operator = userService.getLoginUser(request);
+        return ResultUtils.success(workbenchService.runCuration(materialRevisionId, operator));
+    }
 }
