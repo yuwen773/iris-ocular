@@ -8,7 +8,8 @@
 > **本分支（PostgreSQL 线）的现状**：数据库服务是 `pgvector/pgvector:pg18`，入口是
 > `scripts/verify-pg.sh`（L1 = 4 个 `Pg*` 套件；`--full` = 全量后端套件 + 11 个 business 套件 + business 跳测契约）。
 > `scripts/verify.sh` 与下文的 MySQL/Chroma 编排属于**退役 MySQL 线**，它现在一启动就 fail-fast
-> 指向 `verify-pg.sh`；`verify-fast.sh --level L3` 在 PG 线下自动路由到 `verify-pg.sh --full`。
+> 指向 `verify-pg.sh`；`verify-fast.sh --level L3` 在 PG 线下自动路由到 `verify-pg.sh --full`
+> （`-- ` 之后的额外 mvn 参数在这一条路上不转发，脚本会明确告警而不是静默丢弃）。
 
 ---
 
