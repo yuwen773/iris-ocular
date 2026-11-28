@@ -228,6 +228,24 @@ $ python scripts/check_surefire_skips.py target/surefire-reports <issue17..23,co
 `scripts/tests/test-docker-image-pins.sh` 同步改为「CI 不得再启动任何 MySQL 服务，且
 pgvector 镜像必须钉版」，本机 23/23 PASS。
 
+### 5.8.1 CI 实测（HEAD `15441012`，run `46106099912`）
+
+10 个移植后的 job 在 GitHub Actions 上真实执行并通过，日志里的关键行：
+
+| 检查 | 日志实证 |
+|---|---|
+| `issue17-mysql` | `Tests run: 18, Failures: 0, Errors: 0, Skipped: 0`；门禁输出 `DiagnosisTaskApiTest: 7 passed, 0 skipped` / `DiagnosisTaskRecoveryTest: 10 passed, 0 skipped` / `CosDiagnosisTaskStorageTest: 1 passed, 0 skipped` |
+| `collaboration-mysql` | `Database: jdbc:postgresql://127.0.0.1:5432/collaboration_test (PostgreSQL 18.7)` → Flyway V1–V7 → `Tests run: 33, …, Skipped: 0`；`ok: CollaborationRunTest (33 cases, 0 skipped)` / `skip gate passed` |
+| `graph-execution-mysql` | 三个套件合计 `Tests run: 53, …, Skipped: 0`；`ok: GraphExecutionTest (37 cases, 0 skipped)`；服务端可见注入的触发器报错 `synthetic checkpoint fault` |
+| 其余 7 个 | 同样走 `check_surefire_skips.py <scope>`，日志均为 `skip gate passed: no unexpected skipped or dropped tests` |
+
+`issue17` 的门禁是**精确计数 + 零跳过**（7/10/1，任一 skipped 或漏跑即 exit 1），所以
+「环境变量写错 → 整类跳过 → job 假绿」这条路被堵死；`issue17` 日志里还能看到健康检查负向
+对照真的在跑（`database "iris_gate_missing" does not exist`）。同一次 run 里
+`backend-unit`、`postgres-integration`、`flyway-postgres`、`vector-migration-drill`、
+`product-contract`、`miniapp`、`docs-contract`、`watchdog`、`backend-compile`、
+`frontend`、`web-e2e-system-states`、`docker-lifecycle` 均 success。
+
 ### 5.9 383 条跳过用例的处置
 
 | 组 | 用例数 | 处置 |
@@ -266,6 +284,7 @@ pgvector 镜像必须钉版」，本机 23/23 PASS。
 | R3 | `getObject(column, LocalDateTime.class)` 读 `timestamptz` | pgjdbc 抛 `Cannot convert the column of type TIMESTAMPTZ to requested type java.time.LocalDateTime`：`ControlledReferenceService`（复核时间）与 `NewsIssueService`（发布时间）在 PG 上必 500 | 新增 `common/UtcTimestamps.read`：按 UTC 还原成墙钟，保证 MySQL 时代写入的时间字符串逐字一致；2 处接线 + `UtcTimestampsTest` 6 条（含「按会话时区换算会不一样」的反例） |
 | R4 | 迁移后的隔离套件在子 JVM 里重建 schema | 崩溃恢复/跨 JVM 重放用例的子进程一启动就把父进程刚写入的夹具表 `DROP` 掉（MySQL 路径「表已存在就跳过」，PG 路径会 `DROP … CASCADE` 再建），父进程随后读到空表 → `ACCESS_DENIED` | `isolatedDatabase(boolean initialize)`：父 JVM 建库，子 JVM 只连接；`CollaborationReplayWorker` 与 `GraphExecutionTest.RecoveryWorker` 传 `false` |
 | R5 | 套件里的 MySQL 方言在 PG 上是语法错误：`NOW(6)`、`JSON_SET`、`TIMESTAMPADD`、`SIGNAL SQLSTATE` 触发器、`DATABASE()` | 逐条报 `function now(integer) does not exist`、`syntax error at or near "SIGNAL"` 等 | 全部集中在 `LegacyGateSupport` 里按数据库生成对应写法（PG 用原生 `jsonb_set`/`CURRENT_TIMESTAMP`/`RAISE EXCEPTION`/`current_schema()`），**不为 MySQL 函数做仿真**——测试断言的是数据库真实行为 |
+| R6 | 有条件故障注入的 plpgsql 函数漏 `RETURN NEW`（条件不匹配时落到 `END`） | PG 报 `control reached end of trigger procedure without RETURN`：注入从「只让 EVIDENCE:1 这一行失败」退化成「所有行都失败」。用例照样绿，因为断言只看「抛错 + 回滚」——**验得比它声称的少**。由 CI 日志发现（`fail_graph_checkpoint()` 与 `synthetic checkpoint fault` 先后出现） | `LegacyGateSupport.createTrigger` 条件分支补 `RETURN NEW`；`GraphExecutionTest.checkpointCommitFailure…` 增加前提自检：非目标节点 `EVIDENCE:0` 必须在触发器在位时写入成功。真实 PG 实测 37/37 |
 
 M6 的验收语义也修了一处：套件入口一度用抛异常校验环境变量，`mvn test` 不设变量时
 203 条「opt-in 跳过」变成红色错误；改为 `assumeIsolated`（未设置 → Assumptions 跳过，
