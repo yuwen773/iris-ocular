@@ -100,6 +100,40 @@ class PgVectorStoreIntegrationTest {
                 "identical text must rank first under cosine distance: " + hits.stream().map(Document::getId).toList());
     }
 
+    /**
+     * 端到端分数口径（应用契约，不是驱动的实现细节）：{@code Document.score} 必须是
+     * 「越大越相关」的相似度，也就是 {@code 1 - 数据库距离}。侧栏相关度、rerank 的
+     * 检索分回退、{@code similarityThreshold} 都按这个方向理解它。
+     *
+     * <p>这条用例的由来：PostgreSQL 迁移期曾在存储边界加过一层把分数再取一次
+     * {@code 1 - score} 的适配器（按「PgVectorStore 返回距离」的旧假设），
+     * 在 Spring AI 1.1.2 上把相关度整个翻转——同文命中显示成 0.0。适配器已删除，
+     * 这里直接拿数据库自己的距离作基准，任何再次翻转的改动都会红。
+     */
+    @Test
+    void appScoreIsOneMinusDatabaseDistance() {
+        store.add(List.of(
+                doc("sim_near", "alpha lesion description", Map.of("ownerUserId", 7, "documentId", "d1", "chunkIndex", 0)),
+                doc("sim_far", "gamma optic disc review", Map.of("ownerUserId", 7, "documentId", "d3", "chunkIndex", 0))));
+        String query = "alpha lesion description";
+        try {
+            List<Document> hits = store.similaritySearch(SearchRequest.builder().query(query).topK(2).build());
+
+            assertEquals(PREFIX + "sim_near", hits.get(0).getId());
+            Double distance = jdbc.queryForObject(
+                    "SELECT embedding <=> CAST(? AS vector) FROM rag.iris_knowledge_vectors WHERE id=?",
+                    Double.class, vectorLiteral(DeterministicEmbeddingModel.vector(query)), PREFIX + "sim_near");
+            assertNotNull(distance);
+            assertEquals(1 - distance, hits.get(0).getScore(), 1e-6,
+                    "the application score must be the similarity of the stored distance");
+            assertEquals(1.0, hits.get(0).getScore(), 1e-6, "an identical embedding is distance 0");
+            assertTrue(hits.get(0).getScore() > hits.get(1).getScore(), "scores must rank like the retrieved order");
+        } finally {
+            // 同一张表被整个类共用：自己的行不留在后面用例的候选集里。
+            jdbc.update("DELETE FROM rag.iris_knowledge_vectors WHERE id LIKE ?", PREFIX + "sim_%");
+        }
+    }
+
     @Test
     void metadataFilterIsolatesOwners() {
         store.add(List.of(

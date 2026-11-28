@@ -53,9 +53,13 @@ public class VectorStoreConfig {
         // 里的 vector(N) 没改时，要到第一次 add()（已在付费嵌入之后）才报错。这里在启动
         // 时直接比对列的实际 typmod，不一致就拒绝启动。
         verifyEmbeddingDimension(jdbcTemplate, schemaName, tableName, dimensions);
-        // PgVectorStore 把 cosine distance 写进 Document.score；应用侧按 Chroma 的
-        // 相似度口径理解这个数字，必须在存储边界换算（见包装类的说明）。
-        return new com.csust.eyediagnosis.agent.rag.SimilarityScoredVectorStore(store);
+        // 分数口径：Spring AI 1.1.2 的 PgVectorStore 已经在 DocumentRowMapper 里写成
+        // `1 - distance`（与迁移前 Chroma 判读「越大越相关」一致），因此这里**不做**任何换算。
+        // 曾经的 SimilarityScoredVectorStore 适配层按「PgVectorStore 返回距离」的旧假设再取一次
+        // `1 - score`，在 1.1.2 上把相关度整个翻转（最佳命中显示 0.0）。
+        // 口径由 PgVectorStoreIntegrationTest.productionWrapperScoreEqualsOneMinusDatabaseDistance
+        // 在真实数据库上钉死：应用分 = 1 − 数据库距离。
+        return store;
     }
 
     private static void verifyEmbeddingDimension(JdbcTemplate jdbc, String schema, String table, int dimensions) {

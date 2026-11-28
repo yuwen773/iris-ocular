@@ -250,7 +250,11 @@ public class CollaborationRunService implements AutoCloseable {
     public Operations operations(long userId) {
         if (!"admin".equals(requireUser(userId).get("userRole"))) throw denied();
         return new Operations(admissionEnabled, graphEnabled, patientProgressEnabled, clinicianDetailEnabled,
-                worker.getQueue().size(), jdbc.queryForList("SELECT runtimeKind,status,stopReason,COUNT(*) AS runCount FROM t_agent_collab_run GROUP BY runtimeKind,status,stopReason"));
+                // 别名必须加引号：MySQL 保留列名大小写，PostgreSQL 把未加引号的标识符折叠成小写，
+                // 而这个 Map 会原样序列化进管理端响应，键名是接口契约（runtimeKind 等）。
+                worker.getQueue().size(), jdbc.queryForList("SELECT runtimeKind AS \"runtimeKind\",status AS \"status\","
+                        + "stopReason AS \"stopReason\",COUNT(*) AS \"runCount\" FROM t_agent_collab_run "
+                        + "GROUP BY runtimeKind,status,stopReason"));
     }
 
     private Map<String, Object> requireUser(long userId) {

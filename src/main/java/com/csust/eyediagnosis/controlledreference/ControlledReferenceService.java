@@ -172,7 +172,7 @@ public class ControlledReferenceService {
                 rs.getString("documentVersion"), rs.getLong("governanceVersion"), rs.getBoolean("isTest"),
                 rs.getString("visibility"), rs.getString("reviewStatus"), readCodes(rs.getString("diseaseCodes")),
                 readCodes(rs.getString("topicCodes")), rs.getBoolean("enabled"), rs.getLong("uploadedBy"),
-                rs.getObject("reviewedBy", Long.class), rs.getObject("reviewedAt", LocalDateTime.class), rs.getString("reviewNote"));
+                rs.getObject("reviewedBy", Long.class), com.csust.eyediagnosis.common.UtcTimestamps.read(rs, "reviewedAt"), rs.getString("reviewNote"));
     }
 
     private List<String> readCodes(String value) {
